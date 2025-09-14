@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>카테고리 순서 설정 - CopyTube</title>
+
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    connect-src 'self' https://www.googleapis.com https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://www.gstatic.com https://www.youtube.com;
+    img-src 'self' data: https://i.ytimg.com;
+    frame-src https://www.youtube.com;
+    script-src 'self' https://www.gstatic.com 'unsafe-inline';
+    style-src 'self' 'unsafe-inline';
+    object-src 'none';
+    base-uri 'self';
+  ">
+
+  <link rel="stylesheet" href="css/style.css"/>
+  <style>
+    /* 버튼 높이 스텝(“버튼 1칸”) */
+    :root{ --btn-step: 44px; } /* PC 기본값 */
+
+    body{ padding-top:72px; }
+    main{ max-width:1100px; margin:0 auto; padding:16px; }
+
+    .layout{
+      display:grid;
+      grid-template-columns: 1fr minmax(0,120px) 1fr; /* 데스크톱 기본: 가운데 슬림 */
+      gap:12px; align-items:start;
+    }
+
+    h3{ margin:6px 0 10px; font-size:16px; }
+
+    /* 제목만 가운데 정렬 (좌/우 섹션의 제목) */
+    .layout > section:first-child h3,
+    .layout > section:last-child  h3{ text-align:center; }
+
+    .panel{
+      border:1px solid var(--border);
+      background:#101010;
+      border-radius:10px;
+      padding:10px;
+      min-height:340px;
+    }
+
+    .list{
+      display:flex; flex-direction:column; gap:8px;
+      max-height:60vh; overflow:auto;  /* 태블릿 등에서 내부 스크롤 */
+    }
+    .item{
+      user-select:none;
+      padding:10px 12px;
+      border:1px solid var(--border);
+      background:#0f0f0f;
+      border-radius:8px;
+      font-weight:800;
+      text-align:left;     /* 카테고리는 좌측 정렬 유지 */
+      cursor:pointer;
+      min-width:0;
+    }
+    .item:active{ opacity:.85; }
+
+    .center{
+      display:flex; flex-direction:column;
+      gap:10px;
+      align-items:center;            /* 버튼 가로 중앙정렬 */
+      justify-content:flex-start;
+      padding:0;
+      /* ✅ 두 버튼을 동시에 5칸 내려주기 */
+      padding-top: calc(5 * var(--btn-step));
+    }
+    .btn{ padding:10px 12px; border-radius:8px; border:1px solid #2a2a2a; background:#111; color:#fff; cursor:pointer; }
+    .btn-primary{ background:#4ea1ff; border:0; font-weight:800; }
+    .hint{ font-size:12px; color:#9aa0a6; text-align:center; }
+
+    /* 버튼 기본 마진 0 */
+    .center .btn{ margin:0; }
+    /* ✅ 확인 버튼만 1칸 추가로 더 내리기 */
+    .center .btn.btn-primary{ margin-top: var(--btn-step); }
+
+    /* ===== 데스크톱(PC): 리스트 스크롤 제거, 전체 펼침 ===== */
+    @media (min-width: 1024px){
+      .list{ max-height:none; overflow:visible; }
+    }
+
+    /* ===== 모바일: 요청사항 및 이전 설정 유지 ===== */
+    @media (max-width: 640px){
+      :root{ --btn-step: 40px; } /* 모바일 버튼 1칸 기준 */
+
+      /* 중앙 Reset/확인 열: 15vw, 주변 padding 0 */
+      .layout{
+        grid-template-columns: 1fr minmax(36px, 15vw) 1fr;
+        gap:8px;
+      }
+      .center{
+        gap:0; padding:0; min-height:180px;
+        /* ✅ 모바일에서도 두 버튼을 동시에 5칸 내려주기 */
+        padding-top: calc(5 * var(--btn-step));
+      }
+      .center .btn{ margin:0; }   /* 버튼 주변 여백 0 */
+      /* ✅ 모바일에서도 확인 버튼만 1칸 더 아래 */
+      .center .btn.btn-primary{ margin-top: var(--btn-step); }
+
+      .hint{ display:none; }      /* 설명 제거 */
+
+      /* 글꼴 크기: 좌/우 카테고리 14px(왼쪽 굵게), 버튼은 기본 유지 */
+      #listLeft  .item{ font-size:14px; font-weight:800; }
+      #listRight .item{ font-size:14px; }
+
+      /* 왼쪽(현재순서) 패딩/간격 축소 유지 */
+      #listLeft .item{ padding:5px 6px; }
+      .layout > section:first-child .panel{ padding:5px; }
+
+      /* 모바일은 내부 스크롤 막대 유지(현재/새 순서 모두) */
+      .list{ max-height:70vh; overflow:auto; }
+    }
+  </style>
+</head>
+<body>
+  <header id="topbar">
+    <div class="brand">
+      <a href="./" aria-label="CopyTube 홈으로">
+        <img class="brand-logo" src="image/copytube_logo_side.png" alt="CopyTube"/>
+      </a>
+    </div>
+    <div class="right" style="position:relative;">
+      <a class="link" href="about.html">CopyTube는…</a>
+    </div>
+  </header>
+
+  <main>
+    <div class="layout">
+      <!-- 왼쪽: 현재 순서(터치하면 오른쪽으로 이동) -->
+      <section>
+        <h3>현재 순서</h3>
+        <div class="panel">
+          <div id="listLeft" class="list" aria-label="현재 순서 목록"></div>
+        </div>
+      </section>
+
+      <!-- 가운데: 버튼만(모바일에선 최소폭) -->
+      <section class="center">
+        <button id="btnReset" class="btn" type="button">Reset</button>
+        <button id="btnSave"  class="btn btn-primary" type="button">확인</button>
+        <div class="hint">왼쪽 항목을 <b>터치</b>하면 → 오른쪽으로 이동<br/>확인: 오른쪽 순서 + 왼쪽 남은 순서</div>
+      </section>
+
+      <!-- 오른쪽: 새 순서가 쌓이는 영역 -->
+      <section>
+        <h3>새 순서</h3>
+        <div class="panel">
+          <div id="listRight" class="list" aria-label="새 순서 목록"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script type="module" src="js/category-order.js?v=3.2"></script>
+</body>
+</html>

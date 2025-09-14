@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>관리자: 회원관리</title>
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    connect-src 'self' https://www.googleapis.com https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://firebaseinstallations.googleapis.com https://www.gstatic.com https://www.youtube.com;
+
+    img-src 'self' data: https://i.ytimg.com;
+    frame-src https://www.youtube.com;
+    script-src 'self' https://www.gstatic.com 'unsafe-inline';
+    style-src 'self' 'unsafe-inline';
+    object-src 'none'; base-uri 'self';">
+  <link rel="stylesheet" href="css/style.css"/>
+  <style>
+    body{ padding-top:72px; }
+    main{ max-width:1100px; margin:0 auto; padding:16px; }
+    h2{ margin:8px 0 12px; }
+    .wrap{ display:grid; grid-template-columns: 1fr 420px; gap:12px; }
+    @media (max-width:900px){ .wrap{ grid-template-columns: 1fr; } }
+
+    .card{ border:1px solid var(--border); background:#101010; border-radius:10px; padding:12px; }
+    .list{ display:flex; flex-direction:column; gap:10px; }
+    .row{
+      border:1px solid var(--border); background:#111; border-radius:10px; padding:10px;
+      display:grid; grid-template-columns: 1fr auto; gap:8px;
+    }
+    .meta{ font-size:12px; color:#9aa0a6; margin-bottom:4px; }
+    .actions{ display:flex; gap:6px; align-items:center; justify-content:flex-end; }
+    .btn{ padding:8px 10px; border-radius:8px; border:1px solid #2a2a2a; background:#1b1b1b; color:#fff; cursor:pointer; }
+    .btn-danger{ background:#dc2626; border:0; }
+    .badge{ display:inline-block; padding:2px 6px; border-radius:6px; border:1px solid #2a2a2a; margin-left:6px; font-size:11px; color:#ddd; }
+    .msg{ margin:6px 0; color:#ccc; font-size:13px; min-height:1.2em; }
+
+    table{ width:100%; border-collapse:collapse; font-size:13px; }
+    th, td{ border:1px solid #2a2a2a; padding:6px 8px; text-align:left; }
+    th{ background:#151515; }
+  </style>
+</head>
+<body>
+  <header id="topbar">
+    <div class="brand">
+      <a href="./" aria-label="CopyTube 홈으로"><img class="brand-logo" src="image/copytube_logo_side.png" alt="CopyTube"/></a>
+    </div>
+    <div class="right" style="position:relative;">
+      <span class="welcome">관리자 모드</span>
+      <button id="menuBtn" class="icon" aria-label="menu">三</button>
+      <div id="dropdownMenu" class="dropdown hidden" role="menu" aria-hidden="true">
+        <button id="btnBack" class="menu-strong" type="button">CopyTube는…으로</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <h2>회원관리</h2>
+    <div class="wrap">
+      <!-- 좌: 사용자 목록 -->
+      <section class="card">
+        <h3 style="margin:0 0 8px;">사용자 목록</h3>
+        <div id="usersMsg" class="msg"></div>
+        <div id="users" class="list"></div>
+      </section>
+
+      <!-- 우: 로그인 기록 -->
+      <section class="card">
+        <h3 style="margin:0 0 8px;">로그인 기록(최근)</h3>
+        <div id="logsMsg" class="msg"></div>
+        <div style="overflow:auto;">
+          <table id="logsTbl">
+            <thead><tr><th>시각</th><th>닉네임</th><th>UID</th><th>UA</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script type="module" src="js/firebase-init.js"></script>
+  <script type="module" src="js/auth.js"></script>
+  <script type="module" src="js/admin-common.js"></script>
+  <script type="module" src="js/admin-members.js?v=20250822"></script>
+</body>
+</html>

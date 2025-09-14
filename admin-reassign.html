@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>영상 등록자 일괄 변경 (Admin)</title>
+
+  <!-- 프로젝트와 동일 CSP로 맞춤 -->
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    connect-src 'self' https://www.googleapis.com https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://firebaseinstallations.googleapis.com https://www.gstatic.com https://www.youtube.com;
+    img-src 'self' data: https://i.ytimg.com;
+    frame-src https://www.youtube.com;
+    script-src 'self' https://www.gstatic.com 'unsafe-inline';
+    style-src 'self' 'unsafe-inline';
+    object-src 'none';
+    base-uri 'self';
+  ">
+
+  <link rel="stylesheet" href="css/style.css"/>
+
+  <style>
+    body{ padding:24px; max-width:860px; margin:0 auto; }
+    h1{ font-size:22px; margin:0 0 16px; }
+    .panel{ border:1px solid var(--border,#333); border-radius:12px; padding:16px; background:#0f0f0f; }
+    .row{ display:grid; grid-template-columns: 160px 1fr auto; gap:10px; align-items:center; margin:10px 0; }
+    .row label{ color:#ccc; }
+    input[type="text"]{ width:100%; padding:8px 10px; border-radius:8px; border:1px solid #2a2a2a; background:#151515; color:#fff; }
+    .btn{ padding:10px 14px; border-radius:10px; border:1px solid #2a2a2a; background:#151515; color:#fff; cursor:pointer; }
+    .btn[disabled]{ opacity:.6; cursor:not-allowed; }
+    .muted{ color:#9aa0a6; font-size:13px; }
+    .log{ white-space:pre-wrap; background:#0b0b0b; border:1px solid #222; padding:10px; border-radius:10px; height:220px; overflow:auto; font-family:ui-monospace,Consolas,monospace; font-size:12px; }
+    .ok{ color:#9be49b; } .err{ color:#ff9b9b; }
+    .warn{ color:#ffd28a; }
+    .grid{ display:grid; grid-template-columns: 1fr auto; gap:8px; }
+    .check{ display:flex; align-items:center; gap:8px; }
+    .badge{ display:inline-block; border:1px solid #2a2a2a; padding:2px 8px; border-radius:999px; font-size:12px; }
+    .danger{ background:#2b0d0d; border-color:#5a2222; }
+    .progress{ height:8px; background:#1a1a1a; border-radius:999px; overflow:hidden; }
+    .bar{ height:100%; width:0%; background:#4ea1ff; }
+  </style>
+</head>
+<body>
+  <h1>영상 등록자 일괄 변경 <span class="badge danger">Admin</span></h1>
+  <p class="muted">모든 <code>videos</code> 문서의 <code>ownerUid / uid</code>를 지정한 UID로 일괄 업데이트합니다. 이 작업은 되돌릴 수 없으니 주의하세요.</p>
+
+  <div class="panel">
+    <div class="row">
+      <label for="targetUid">대상 UID</label>
+      <input id="targetUid" type="text" value="TCdTTVkgPXVmAkqlfx9f7IJSQOu2" placeholder="변경할 소유자 UID 입력"/>
+      <button id="btnCheck" class="btn">현재 권한 확인</button>
+    </div>
+
+    <div class="row">
+      <label>범위</label>
+      <div class="check">
+        <label class="muted"><input id="onlyIfDifferent" type="checkbox" checked/> owner가 다른 문서만 변경</label>
+        <label class="muted"><input id="dryRun" type="checkbox" checked/> 드라이런(미적용, 시뮬레이션)</label>
+      </div>
+      <button id="btnRun" class="btn">실행</button>
+    </div>
+
+    <div class="row">
+      <label>처리 진행</label>
+      <div class="grid">
+        <div class="progress"><div id="bar" class="bar"></div></div>
+        <div><span id="stat" class="muted">대기 중</span></div>
+      </div>
+      <button id="btnStop" class="btn">중지</button>
+    </div>
+
+    <div class="row" style="grid-template-columns: 160px 1fr;">
+      <label>로그</label>
+      <div class="log" id="log"></div>
+    </div>
+  </div>
+
+  <!-- 프로젝트 공통 초기화 -->
+  <script type="module" src="js/firebase-init.js"></script>
+  <script type="module" src="js/auth.js"></script>
+
+  <script type="module">
+    import { auth, db } from './js/firebase-init.js';
+    import { onAuthStateChanged } from './js/auth.js';
+    import {
+      collection, query, orderBy, limit, startAfter,
+      getDocs, doc, getDoc, writeBatch
+    } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
+
+    const $ = (s)=>document.querySelector(s);
+    const targetUidInput = $('#targetUid');
+    const btnCheck = $('#btnCheck');
+    const btnRun = $('#btnRun');
+    const btnStop = $('#btnStop');
+    const onlyIfDifferent = $('#onlyIfDifferent');
+    const dryRun = $('#dryRun');
+    const bar = $('#bar');
+    const stat = $('#stat');
+    const logBox = $('#log');
+
+    let running = false;
+    let lastCursor = null;
+
+    function log(msg, cls=''){
+      const line = document.createElement('div');
+      if(cls) line.className = cls;
+      line.textContent = '['+new Date().toLocaleTimeString()+'] ' + msg;
+      logBox.appendChild(line);
+      logBox.scrollTop = logBox.scrollHeight;
+    }
+    function setProgress(done, total){
+      const pct = total ? Math.floor(done/total*100) : 0;
+      bar.style.width = pct+'%';
+      stat.textContent = total ? `${done}/${total} (${pct}%)` : '대기 중';
+    }
+    async function isAdmin(uid){
+      try{
+        const s = await getDoc(doc(db,'admins', uid));
+        return s.exists();
+      }catch{ return false; }
+    }
+
+    onAuthStateChanged(auth, async (user)=>{
+      if(!user){
+        log('로그인이 필요합니다.', 'err');
+        btnRun.disabled = true;
+        btnCheck.disabled = true;
+        return;
+      }
+      const ok = await isAdmin(user.uid);
+      if(!ok){
+        log('관리자 권한이 없습니다. admins/{uid} 문서를 추가해 주세요.', 'err');
+        btnRun.disabled = true;
+      }else{
+        log('관리자 확인 완료. 실행 가능.', 'ok');
+        btnRun.disabled = false;
+      }
+    });
+
+    btnCheck.addEventListener('click', async ()=>{
+      const u = auth.currentUser;
+      if(!u){ log('로그인 필요', 'err'); return; }
+      const ok = await isAdmin(u.uid);
+      log(ok ? '관리자 권한 O' : '관리자 권한 X', ok ? 'ok':'err');
+    });
+
+    btnStop.addEventListener('click', ()=>{ running = false; log('중지 요청됨', 'warn'); });
+
+    btnRun.addEventListener('click', async ()=>{
+      const target = targetUidInput.value.trim();
+      if(!target){ log('대상 UID를 입력하세요.', 'err'); return; }
+
+      const u = auth.currentUser;
+      if(!u){ log('로그인이 필요합니다.', 'err'); return; }
+      if(!(await isAdmin(u.uid))){ log('관리자 권한 없음', 'err'); return; }
+
+      running = true;
+      lastCursor = null;
+      bar.style.width = '0%';
+      setProgress(0, 0);
+      log(`실행 시작: target=${target}  onlyIfDifferent=${onlyIfDifferent.checked}  dryRun=${dryRun.checked}`, 'warn');
+
+      let totalSeen = 0;
+      let totalChanged = 0;
+      const READ_SIZE = 400;   // 읽기 청크
+      const BATCH_MAX = 450;   // 커밋 배치(최대 500 미만)
+
+      try{
+        while(running){
+          // __name__ 기준 정렬로 안정적인 페이지네이션
+          const parts = [ orderBy('__name__'), limit(READ_SIZE) ];
+          if(lastCursor) parts.push(startAfter(lastCursor));
+
+          const snap = await getDocs(query(collection(db,'videos'), ...parts));
+          if(snap.empty){
+            log('더 이상 문서가 없습니다. 종료합니다.', 'ok');
+            break;
+          }
+
+          // 업데이트 준비
+          let batch = writeBatch(db);
+          let batchCount = 0;
+
+          for(const d of snap.docs){
+            if(!running) break;
+            totalSeen++;
+
+            const data = d.data() || {};
+            const curOwner = (('ownerUid' in data) ? data.ownerUid : (('uid' in data) ? data.uid : null));
+
+            if(onlyIfDifferent.checked && curOwner === target){
+              // 변경 불필요
+            }else{
+              if(!dryRun.checked){
+                batch.update(d.ref, { ownerUid: target, uid: target });
+                batchCount++;
+                totalChanged++;
+                if(batchCount >= BATCH_MAX){
+                  await batch.commit();
+                  log(`커밋 완료: ${batchCount}건`, 'ok');
+                  batch = writeBatch(db);
+                  batchCount = 0;
+                }
+              }else{
+                totalChanged++;
+              }
+            }
+          }
+
+          // 남은 업데이트 커밋
+          if(!dryRun.checked && batchCount > 0){
+            await batch.commit();
+            log(`커밋 완료: ${batchCount}건`, 'ok');
+          }
+
+          lastCursor = snap.docs[snap.docs.length-1];
+          setProgress(totalSeen, NaN); // 총합 미지정 -> 퍼센트 대신 누계만
+          stat.textContent = `처리: ${totalSeen}건 / 변경 예정: ${totalChanged}건`;
+          log(`페이지 처리: 누계 ${totalSeen}건 (변경 예정/적용 ${totalChanged})`);
+          
+          // 마지막 페이지면 종료
+          if(snap.size < READ_SIZE) break;
+        }
+
+        if(dryRun.checked){
+          log(`드라이런 종료 — 적용할 문서 수: ${totalChanged}`, 'warn');
+        }else{
+          log(`완료 — 변경된 문서 수: ${totalChanged}`, 'ok');
+        }
+      }catch(e){
+        console.error(e);
+        log(`에러: ${e?.code||''} ${e?.message||e}`, 'err');
+      }finally{
+        running = false;
+      }
+    });
+  </script>
+</body>
+</html>

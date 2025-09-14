@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>영상 추출 - CopyTube</title>
+  <link rel="stylesheet" href="css/style.css"/>
+  <style>
+    body { padding-top:72px; }
+    main { max-width:1000px; margin:0 auto; padding:0 16px 40px; }
+    .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    textarea { width:100%; height:320px; background:#111; color:#fff; border:1px solid #333; border-radius:8px; padding:10px; }
+    table { width:100%; border-collapse:collapse; margin-top:10px; }
+    th, td { border-bottom:1px solid #333; padding:6px 8px; text-align:left; font-size:14px; }
+    .muted { color:#9aa0a6; font-size:13px; }
+    .chip { border:1px solid #2a2a2a; border-radius:999px; padding:2px 8px; font-size:12px; }
+  </style>
+</head>
+<body>
+  <!-- 상단바는 기존 원본 유지: 프로젝트의 공통 헤더 마크업을 사용하세요 -->
+
+  <main>
+    <h2>영상 추출 (Admin)</h2>
+    <p class="muted">모든 영상의 <code>url 카테고리코드 카테고리코드...</code> 형식으로 내보냅니다. (카테고리 코드는 아래 표 참조)</p>
+
+    <section class="row" style="margin:8px 0;">
+      <button id="btnExtract" class="btn btn-primary">전체 추출</button>
+      <button id="btnStop" class="btn">중지</button>
+      <label>배치 크기
+        <input id="batchSize" type="number" value="500" min="100" max="1000" style="width:80px;"/>
+      </label>
+      <span id="stat" class="muted">대기중</span>
+    </section>
+
+    <textarea id="exportBox" placeholder="여기에 결과가 출력됩니다." readonly></textarea>
+
+    <section class="row" style="margin-top:8px;">
+      <button id="btnCopy" class="btn">복사</button>
+      <button id="btnDownload" class="btn">TXT 다운로드</button>
+      <button id="btnClear" class="btn">지우기</button>
+    </section>
+
+    <h3 style="margin-top:20px;">카테고리 코드표</h3>
+    <div class="muted" style="margin-bottom:6px;">* categories.js를 기반으로 **안정적 해시→4자리 숫자**로 생성됩니다. (사이트마다 동일한 categories.js면 동일 코드)</div>
+    <table id="codeTable">
+      <thead>
+        <tr><th style="width:120px;">코드</th><th>카테고리 키</th><th>라벨(있으면)</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </main>
+
+  <script type="module" src="js/admin-export.js"></script>
+</body>
+</html>

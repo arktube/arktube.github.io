@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>대량 업로드 - CopyTube</title>
+  <link rel="stylesheet" href="css/style.css"/>
+  <style>
+    body { padding-top:72px; }
+    main { max-width:1000px; margin:0 auto; padding:0 16px 40px; }
+    textarea { width:100%; height:360px; background:#111; color:#fff; border:1px solid #333; border-radius:8px; padding:10px; }
+    .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .muted { color:#9aa0a6; font-size:13px; }
+    table { width:100%; border-collapse:collapse; margin-top:10px; }
+    th, td { border-bottom:1px solid #333; padding:6px 8px; text-align:left; font-size:14px; }
+    .ok { color:#9ef01a; }
+    .err { color:#ff6961; white-space:pre-wrap; }
+    .chip { border:1px solid #2a2a2a; border-radius:999px; padding:2px 8px; font-size:12px; }
+  </style>
+</head>
+<body>
+  <!-- 상단바는 기존 원본 유지: 프로젝트의 공통 헤더 마크업을 사용하세요 -->
+
+  <main>
+    <h2>대량 업로드 (Admin)</h2>
+    <p class="muted">각 줄: <code>URL [코드] [코드] [코드]</code> (코드는 1~3개, 공백 구분, #으로 시작하면 주석)</p>
+
+    <textarea id="inputBox" placeholder="예)
+https://youtu.be/abc123 1234 5678
+https://vimeo.com/xyz 4321
+# 공란/잘못된 줄은 무시되며, 에러는 아래에 표시됩니다."></textarea>
+
+    <div class="row" style="margin:8px 0;">
+      <label><input id="dryRun" type="checkbox" checked/> 업로드 전 검증만(드라이런)</label>
+      <label>배치 크기 <input id="batchSize" type="number" value="400" min="100" max="450" style="width:80px;"/></label>
+      <button id="btnValidate" class="btn">검증</button>
+      <button id="btnUpload" class="btn btn-primary">업로드</button>
+      <span id="stat" class="muted">대기중</span>
+    </div>
+
+    <details style="margin:10px 0;">
+      <summary>카테고리 코드표 보기</summary>
+      <div class="muted" style="margin:6px 0;">* categories.js를 기반으로 생성. (동일 categories.js면 동일 코드)</div>
+      <table id="codeTable">
+        <thead><tr><th style="width:120px;">코드</th><th>카테고리 키</th><th>라벨(있으면)</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </details>
+
+    <h3 style="margin-top:18px;">결과</h3>
+    <pre id="log" class="muted" style="background:#0b0b0b; border:1px solid #333; border-radius:8px; padding:10px; height:180px; overflow:auto;"></pre>
+  </main>
+
+  <script type="module" src="js/admin-bulk-upload.js"></script>
+</body>
+</html>

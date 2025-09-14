@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>관리자: 메시지 확인</title>
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    connect-src 'self' https://www.googleapis.com https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://firebaseinstallations.googleapis.com https://www.gstatic.com https://www.youtube.com;
+
+    img-src 'self' data: https://i.ytimg.com;
+    frame-src https://www.youtube.com;
+    script-src 'self' https://www.gstatic.com 'unsafe-inline';
+    style-src 'self' 'unsafe-inline';
+    object-src 'none'; base-uri 'self';">
+  <link rel="stylesheet" href="css/style.css"/>
+  <style>
+    body{ padding-top:72px; }
+    main{ max-width:1000px; margin:0 auto; padding:16px; }
+    h2{ margin:8px 0 12px; }
+    .list{ display:flex; flex-direction:column; gap:10px; }
+    .row{
+      border:1px solid var(--border); background:#111; border-radius:10px; padding:10px;
+      display:grid; grid-template-columns: 1fr auto; gap:10px;
+    }
+    .meta{ font-size:12px; color:#9aa0a6; margin-bottom:6px; }
+    .content{ white-space:pre-wrap; }
+    .actions{ display:flex; gap:6px; align-items:center; justify-content:flex-end; }
+    .btn{ padding:8px 10px; border-radius:8px; border:1px solid #2a2a2a; background:#1b1b1b; color:#fff; cursor:pointer; }
+    .btn-danger{ background:#dc2626; border:0; }
+    .msg{ margin:6px 0; color:#ccc; font-size:13px; min-height:1.2em; }
+  </style>
+</head>
+<body>
+  <header id="topbar">
+    <div class="brand">
+      <a href="./" aria-label="CopyTube 홈으로"><img class="brand-logo" src="image/copytube_logo_side.png" alt="CopyTube"/></a>
+    </div>
+    <div class="right" style="position:relative;">
+      <span class="welcome">관리자 모드</span>
+      <button id="menuBtn" class="icon" aria-label="menu">三</button>
+      <div id="dropdownMenu" class="dropdown hidden" role="menu" aria-hidden="true">
+        <button id="btnBack" class="menu-strong" type="button">CopyTube는…으로</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <h2>메시지 확인</h2>
+    <div id="msg" class="msg"></div>
+    <div id="list" class="list"></div>
+  </main>
+
+  <script type="module" src="js/firebase-init.js"></script>
+  <script type="module" src="js/auth.js"></script>
+  <script type="module" src="js/admin-common.js"></script>
+  <script type="module" src="js/admin-feedback.js?v=20250822"></script>
+</body>
+</html>
