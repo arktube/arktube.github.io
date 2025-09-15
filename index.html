@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>arktube - 카테고리 선택</title>
 
-  <!-- CSP: Firebase/YouTube 임베드 대비 -->
+  <!-- CSP -->
   <meta http-equiv="Content-Security-Policy" content="
     default-src 'self';
     connect-src 'self' https://www.googleapis.com https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://firebaseinstallations.googleapis.com https://www.gstatic.com;
@@ -27,7 +27,7 @@
     }
     .btn-primary{ grid-column:2; padding:8px 14px; border:0; border-radius:8px; background:#4ea1ff; color:#fff; font-weight:800; cursor:pointer; font-size:18px; width:var(--cta-width); text-align:center; }
     .inline-check{ display:inline-flex; align-items:center; gap:8px; font-size:13px; color:#ddd; user-select:none; line-height:1; }
-    .inline-check input{ width:16px; height:16px; margin:0; accent-color:#4ea1ff; appearance:auto; vertical-align:middle; }
+    .inline-check input{ width:16px; height:16px; margin:0; accent-color:#4ea1ff; vertical-align:middle; }
     .cta-row .inline-check:not(.ghost){ grid-column:3; justify-self:flex-start; }
     .cta-row .inline-check.ghost{ display:none; }
 
@@ -36,7 +36,6 @@
       grid-column:2; display:inline-block; width:var(--cta-width);
       margin:0; padding:8px 14px; background:transparent; border:0; border-radius:8px; color:#fff;
       font-weight:800; font-size:20px; text-align:center; user-select:none; cursor:pointer;
-      appearance:none; -webkit-appearance:none;
     }
     .cat-title:focus-visible{ outline:2px solid #4ea1ff; outline-offset:2px; }
     .cat-right{ grid-column:3; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
@@ -58,7 +57,7 @@
   </style>
 </head>
 <body>
-  <!-- 상단바: CopyTube 기본형 유지 -->
+  <!-- 상단바 -->
   <header id="topbar">
     <div class="brand">
       <a id="brandHome" href="#" aria-label="arktube 홈으로">
@@ -88,7 +87,6 @@
         을 눌러 음소거를 해제해 주세요.
       </p>
 
-      <!-- CTA & 옵션 -->
       <div class="cta-row">
         <label class="inline-check ghost" aria-hidden="true">
           <input type="checkbox" disabled/> 연속재생
@@ -101,7 +99,6 @@
         </span>
       </div>
 
-      <!-- 상단 옵션: 전체선택 + 쇼츠/일반만 -->
       <div class="cat-head">
         <button type="button" class="cat-title" id="btnOpenOrder" aria-label="카테고리 순서 설정 열기">카테고리</button>
         <div class="cat-right">
@@ -117,14 +114,11 @@
         </div>
       </div>
 
-      <!-- 카테고리 렌더링 영역 -->
       <div id="cats"></div>
     </div>
   </section>
 
-  <script type="module" src="js/firebase-init.js"></script>
-  <script type="module" src="js/auth.js"></script>
-  <script type="module" src="js/categories.js"></script>
+  <!-- ✅ index.js 하나만 로드 -->
   <script type="module" src="js/index.js"></script>
 </body>
 </html>
