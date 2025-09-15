@@ -1,7 +1,10 @@
 // js/index.js (arktube v1 - SuperCategory: shorts/video)
-import { CATEGORY_MODEL } from './categories.js';
+
+// 필요한 모듈은 여기서 import (index.html은 이 파일만 로드)
+import './firebase-init.js';
 import { auth } from './firebase-init.js';
 import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
+import { CATEGORY_MODEL } from './categories.js';
 
 /* ---------- 상단바 상태 ---------- */
 const signupLink   = document.getElementById("signupLink");
@@ -34,7 +37,10 @@ dropdown?.addEventListener("click",(e)=> e.stopPropagation());
 btnMyUploads ?.addEventListener("click", ()=>{ location.href = "manage-uploads.html"; closeDropdown(); });
 btnGoUpload  ?.addEventListener("click", ()=>{ location.href = "upload.html"; closeDropdown(); });
 btnAbout     ?.addEventListener("click", ()=>{ location.href = "about.html"; closeDropdown(); });
-btnSignOut   ?.addEventListener("click", async ()=>{ if(!auth.currentUser){ location.href='signin.html'; return; } await fbSignOut(auth); closeDropdown(); });
+btnSignOut   ?.addEventListener("click", async ()=>{
+  if(!auth.currentUser){ location.href='signin.html'; return; }
+  await fbSignOut(auth); closeDropdown();
+});
 btnList      ?.addEventListener("click", ()=>{ location.href = "list.html"; closeDropdown(); });
 brandHome    ?.addEventListener("click",(e)=>{ e.preventDefault(); window.scrollTo({top:0,behavior:"smooth"}); });
 
@@ -62,7 +68,7 @@ const btnWatch     = document.getElementById("btnWatch");
 const cbToggleAll  = document.getElementById("cbToggleAll");
 const cbShortsOnly = document.getElementById("cbShortsOnly");
 const cbVideoOnly  = document.getElementById("cbVideoOnly");
-const catTitleBtn  = document.getElementById("btnOpenOrder"); // (향후 카테고리 순서 페이지 연결 시 사용)
+const catTitleBtn  = document.getElementById("btnOpenOrder");
 
 function render(){
   const html = CATEGORY_MODEL.map(superSet=>{
@@ -84,10 +90,7 @@ function render(){
     }).join('');
     return `
       <section class="super" data-super="${superSet.superKey}">
-        <div class="super-title">
-          <span>${superSet.superLabel}</span>
-          <!-- (옵션) 여기에 '이 더큰카테고리 전체 선택' 토글을 나중에 추가할 수 있음 -->
-        </div>
+        <div class="super-title"><span>${superSet.superLabel}</span></div>
         ${groupsHTML}
       </section>
     `;
@@ -170,18 +173,17 @@ function readSelectedMedia(){
   return 'both';               // 기본값
 }
 function persistSelectedForWatch(){
-  // 선택된 세부카테고리 값 저장
+  // 선택된 세부카테고리
   const selected = Array.from(document.querySelectorAll('.cat:checked')).map(c=>c.value);
   localStorage.setItem('selectedCats', JSON.stringify(selected.length? selected : "ALL"));
-  // 미디어(쇼츠/일반) 필터 저장
-  const media = readSelectedMedia();                // 'both' | 'shorts' | 'video'
-  localStorage.setItem('selectedMedia', media);
-  // 연속재생 저장
+  // 미디어(쇼츠/일반) 필터
+  localStorage.setItem('selectedMedia', readSelectedMedia()); // 'both' | 'shorts' | 'video'
+  // 연속재생
   const auto = document.getElementById('cbAutoNext')?.checked ? '1' : '0';
   localStorage.setItem('autonext', auto);
 }
 
-/* ---------- 초기 상태 복원(선택/필터) ---------- */
+/* ---------- 초기 복원 ---------- */
 (function restore(){
   // cats
   let savedCats=null;
@@ -194,27 +196,22 @@ function persistSelectedForWatch(){
     allChildren().forEach(ch=>{ if (set.has(ch.value)) ch.checked=true; });
     refreshAllParents();
   }
-
   // media
   const savedMedia = (localStorage.getItem('selectedMedia') || 'both');
-  if (savedMedia === 'shorts'){ cbShortsOnly.checked = true; cbVideoOnly.checked = false; }
-  else if (savedMedia === 'video'){ cbShortsOnly.checked = false; cbVideoOnly.checked = true; }
-  else { cbShortsOnly.checked = false; cbVideoOnly.checked = false; } // both
+  const cbS = document.getElementById('cbShortsOnly');
+  const cbV = document.getElementById('cbVideoOnly');
+  if (savedMedia === 'shorts'){ if(cbS) cbS.checked = true; if(cbV) cbV.checked = false; }
+  else if (savedMedia === 'video'){ if(cbS) cbS.checked = false; if(cbV) cbV.checked = true; }
+  else { if(cbS) cbS.checked = false; if(cbV) cbV.checked = false; } // both
 
   syncAllToggle();
 })();
 
 /* ---------- 이동 ---------- */
 document.getElementById('btnWatch')?.addEventListener('click', ()=>{
+  sessionStorage.removeItem('playQueue'); sessionStorage.removeItem('playIndex');
   persistSelectedForWatch();
-  // watch/list에서 selectedMedia에 따라 mediaType 필터링
   location.href = 'watch.html';
-});
-
-/* ---------- (옵션) 카테고리 순서 버튼 ---------- */
-document.getElementById('btnOpenOrder')?.addEventListener('click', ()=>{
-  // 향후 필요 시 별도 페이지로 연결
-  alert('카테고리 순서 설정 페이지는 추후 연결됩니다.');
 });
 
 /* ---------- 간단 스와이프: 좌→우=list, 우→좌=upload ---------- */
