@@ -1,6 +1,6 @@
 // js/nick.js (arktube v1)
-import { auth, db, onAuthStateChanged, setNicknameProfile, sanitizeNickname } from "./js/auth.js";
-import { doc, getDoc } from "./js/auth.js";
+import { auth, db, onAuthStateChanged, setNicknameProfile, sanitizeNickname } from './auth.js';
+import { doc, getDoc } from './auth.js';
 
 const $ = (id)=>document.getElementById(id);
 const input = $("nickInput");
@@ -16,7 +16,6 @@ function show(text, ok=false){
 // 미로그인 접근 차단 + 기존 닉 프리필
 onAuthStateChanged(async (user)=>{
   if(!user){
-    // 로그인 안 되어 있으면 로그인 페이지로
     location.replace("signin.html");
     return;
   }
