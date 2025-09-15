@@ -1,0 +1,47 @@
+<!-- nick.html (arktube v1) -->
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>닉네임 설정 | arktube</title>
+  <meta name="color-scheme" content="dark light"/>
+  <style>
+    :root{--bg:#000;--panel:#111;--text:#fafafa;--muted:#bdbdbd;--btn-h:44px;--maxw:720px;}
+    html,body{height:100%;margin:0;font-family:system-ui,Segoe UI,Roboto,"Noto Sans KR","Malgun Gothic",sans-serif;background:var(--bg);color:var(--text)}
+    .wrap{min-height:100%;display:grid;place-items:center;padding:24px 14px}
+    .card{width:100%;max-width:var(--maxw);background:#121212;border:1px solid #1d1d1d;border-radius:16px;padding:22px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+    h2{margin:0 0 10px}
+    .muted{color:var(--muted);margin:6px 0 16px}
+    input[type=text]{width:100%;padding:12px;margin-top:6px;border-radius:8px;border:1px solid #333;background:#000;color:#fff}
+    .row{display:flex;gap:8px;margin-top:12px}
+    .btn{height:var(--btn-h);padding:0 16px;border-radius:10px;border:1px solid #2a2a2a;background:#151515;color:#fff;cursor:pointer}
+    .btn-primary{background:#1f2937;border-color:#334155}
+    .msg{margin-top:10px;padding:10px 12px;border-radius:12px;font-size:14px;display:none}
+    .msg.show{display:block}
+    .msg.ok{background:#072f16;color:#b7ffcf;border:1px solid #0e5830}
+    .msg.err{background:#2a0e10;color:#ffc9c9;border:1px solid #5d1f25}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <main class="card" role="main" aria-labelledby="title">
+      <h2 id="title">닉네임 설정</h2>
+      <p class="muted">한글/영문/숫자/[-_.] 2~20자. 업로드에 표시됩니다.</p>
+
+      <label>닉네임
+        <input id="nickInput" type="text" maxlength="20" placeholder="예: 믿음의씨앗" autocomplete="nickname">
+      </label>
+
+      <div class="row">
+        <button id="nickSave" class="btn btn-primary" type="button">저장</button>
+        <a class="btn" href="index.html">나중에</a>
+      </div>
+
+      <div id="msg" class="msg" role="status" aria-live="polite"></div>
+    </main>
+  </div>
+
+  <script type="module" src="./js/nick.js?v=1"></script>
+</body>
+</html>
