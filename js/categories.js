@@ -1,6 +1,6 @@
 // js/categories.js (arktube v1 - Christian taxonomy)
 
-/** 세부카테고리 공통 정의 */
+/** 공통 세부카테고리 세트 */
 const SHARED_GROUPS = [
   {
     key: 'faith_life',
@@ -90,13 +90,13 @@ const SHARED_GROUPS = [
   },
 ];
 
-/** 더큰카테고리(슈퍼 레벨) 2개: 쇼츠 / 일반영상 */
+/** 더큰카테고리: 쇼츠 / 일반영상 */
 export const CATEGORY_MODEL = [
   { superKey:'shorts', superLabel:'쇼츠', groups: SHARED_GROUPS },
   { superKey:'video',  superLabel:'일반영상', groups: SHARED_GROUPS },
 ];
 
-// 유틸: 모든 value 평탄화 (필요시 사용)
+// (옵션) 전체 value 나열
 export function ALL_CATEGORY_VALUES(){
   return CATEGORY_MODEL.flatMap(s => s.groups.flatMap(g => g.children.map(c => c.value)));
 }
