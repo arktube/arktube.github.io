@@ -1,6 +1,6 @@
 // js/signup.js (arktube v1)
-import { db, onAuthStateChanged, signInWithGoogle, ensureUserDoc } from "./js/auth.js";
-import { doc, getDoc } from "./js/auth.js";
+import { db, onAuthStateChanged, signInWithGoogle, ensureUserDoc } from './auth.js';
+import { doc, getDoc } from './auth.js';
 
 const btn = document.getElementById("btnGoogle");
 const msg = document.getElementById("msg");
@@ -11,7 +11,6 @@ function show(text, ok=false){
   msg.className = "msg show " + (ok ? "ok" : "err");
 }
 
-// 회원가입 목적: 로그인되면 닉네임 유무 확인 → 없으면 nick.html 로 강제
 async function routeAfterLogin(user){
   if(!user) return;
   try{
@@ -22,7 +21,6 @@ async function routeAfterLogin(user){
     location.replace(hasNick ? "index.html" : "nick.html");
   }catch(e){
     console.error("[signup] profile read err:", e);
-    // 문제 시에도 닉 설정으로
     location.replace("nick.html");
   }
 }
