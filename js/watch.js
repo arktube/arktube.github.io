@@ -99,7 +99,7 @@ window.addEventListener('storage', (e)=>{ if(e.key === 'autonext'){ AUTO_NEXT = 
 const sel = getSelectedCats();
 const SEL_SET = Array.isArray(sel) ? new Set(sel) : (sel==="ALL" ? null : null);
 const wantsPersonal = (name)=> (SEL_SET?.has?.(name) || parseCatsFromQuery()?.includes(name));
-const PERSONAL_MODE = (['personal1','personal2','personal3','personal4','personal5','personal6','personal7','personal8'].some(wantsPersonal))
+const PERSONAL_MODE = (['personal1','personal2','personal3','personal4'].some(wantsPersonal))
   && !(SEL_SET && ([...SEL_SET].some(v => !/^personal[1-4]$/.test(v))));
 
 /* ---------- YouTube 검증 ---------- */
