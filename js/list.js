@@ -1,7 +1,7 @@
-// js/list.js (v1.9.0-model, long/feature-complete)
+// js/list.js (v1.9.1-ark, long/feature-complete)
 // - CATEGORY_MODEL 기반(type 분리)
 // - 서버 where('type','==', selType) + createdAt desc 페이징
-// - 개인자료 모드(슬롯 1~4, 로컬 저장소)
+// - 개인자료 모드(슬롯 1~4, 로컬 저장소) — ArkTube 키 접두사 적용(구 키 호환)
 // - 닉네임 캐시(users/{uid}) + 제목 oEmbed 7일 캐시
 // - 무한 스크롤 + 인지형 선로딩
 // - 스와이프 내비(좌 슬라이드로 index.html)
@@ -13,6 +13,13 @@ import { CATEGORY_MODEL } from './categories.js';
 import {
   collection, getDocs, getDoc, doc, query, orderBy, limit, startAfter, where
 } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
+
+/* ---------- ArkTube 로컬 키/라벨 키 (구 키 호환) ---------- */
+const KEY_PREFIX_NEW = 'arktube_';
+const KEY_PREFIX_OLD = 'copytube_'; // 호환
+const LABELS_KEY_NEW = 'arkPersonalLabels';
+const LABELS_KEY_OLD1 = 'personalLabels';
+const LABELS_KEY_OLD2 = 'copytubePersonalLabels';
 
 /* ---------- 전역 내비 중복 방지 플래그 ---------- */
 window.__swipeNavigating = window.__swipeNavigating || false;
@@ -177,7 +184,7 @@ async function preloadNicknamesFor(docs){
   await Promise.all(tasks);
 }
 
-/* ---------- 개인자료 모드 ---------- */
+/* ---------- 개인자료 모드 (슬롯 1~4) ---------- */
 function isPersonalOnlySelection(){
   try{
     const raw = localStorage.getItem('selectedCats');
@@ -192,15 +199,21 @@ function getPersonalSlot(){
   }catch{ return null; }
 }
 function readPersonalItems(slot){
-  const key = `copytube_${slot}`;
+  const keyNew = `${KEY_PREFIX_NEW}${slot}`;
+  const keyOld = `${KEY_PREFIX_OLD}${slot}`; // 호환
   try{
-    const arr = JSON.parse(localStorage.getItem(key) || '[]');
+    const raw = localStorage.getItem(keyNew) ?? localStorage.getItem(keyOld) ?? '[]';
+    const arr = JSON.parse(raw);
     return Array.isArray(arr) ? arr : [];
   }catch{ return []; }
 }
 function getPersonalLabel(slot){
   try{
-    const labels = JSON.parse(localStorage.getItem('personalLabels') || '{}');
+    const labelsRaw = localStorage.getItem(LABELS_KEY_NEW)
+                   ?? localStorage.getItem(LABELS_KEY_OLD1)
+                   ?? localStorage.getItem(LABELS_KEY_OLD2)
+                   ?? '{}';
+    const labels = JSON.parse(labelsRaw);
     return labels?.[slot] || (slot || '개인자료');
   }catch{ return slot || '개인자료'; }
 }
@@ -575,7 +588,7 @@ function initSwipeNav({ goLeftHref=null, goRightHref=null, animateMs=260, deadZo
 initSwipeNav({ goLeftHref: 'index.html', goRightHref: null, deadZoneCenterRatio: 0.30 });
 
 /* ===================== */
-/* 고급형 스와이프 — 끌리는 모션 + 방향 잠금 + 중앙 30% 데드존 */
+/* 고급형 스와이프 — 끌리는 모션 + 방향 잠금 + 중앙 15% 데드존 */
 /* ===================== */
 (function(){
   function initDragSwipe({ goLeftHref=null, goRightHref=null, threshold=60, slop=45, timeMax=700, feel=1.0, deadZoneCenterRatio=0.15 }={}){
