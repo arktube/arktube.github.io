@@ -7,7 +7,7 @@
   "start_url": "/index.html",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#2F3349",
+  "background_color": "#00023D",
   "theme_color": "#000000",
   "icons": [
     { "src": "/image/arktube_icon_32.png",  "sizes": "32x32",   "type": "image/png", "purpose": "any" },
