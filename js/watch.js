@@ -100,7 +100,7 @@ const sel = getSelectedCats();
 const SEL_SET = Array.isArray(sel) ? new Set(sel) : (sel==="ALL" ? null : null);
 const wantsPersonal = (name)=> (SEL_SET?.has?.(name) || parseCatsFromQuery()?.includes(name));
 const PERSONAL_MODE = (['personal1','personal2','personal3','personal4','personal5','personal6','personal7','personal8'].some(wantsPersonal))
-  && !(SEL_SET && ([...SEL_SET].some(v => !/^personal[1-8]$/.test(v))));
+  && !(SEL_SET && ([...SEL_SET].some(v => !/^personal[1-4]$/.test(v))));
 
 /* ---------- YouTube 검증 ---------- */
 const YT_URL_WHITELIST = /^(https:\/\/(www\.)?youtube\.com\/(watch\?v=|shorts\/)|https:\/\/youtu\.be\/)/i;
@@ -270,7 +270,7 @@ function resolveCatFilter(){
   const sel = getSelectedCats();
   if (sel==="ALL" || !sel) return null;
   if (Array.isArray(sel) && sel.length){
-    const filtered = sel.filter(v=> !/^personal[1-8]$/.test(v));
+    const filtered = sel.filter(v=> !/^personal[1-4]$/.test(v));
     return filtered.length ? new Set(filtered) : null;
   }
   return null;
