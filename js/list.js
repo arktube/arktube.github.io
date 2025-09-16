@@ -1,15 +1,16 @@
-// js/list.js (v1.8.2) — 칩=이름 표시 + 닉네임 3행 표시, oEmbed(7일 캐시) 유지 + 무한 스크롤 + 필터 인지형 선로딩 + 스와이프 방향잠금 + 중앙 30% 데드존
+// js/list.js (v1.8.3-ak)
+// Arktube 포맷 정렬, 상단바 원본 준수, 개인자료 모드 호환(1~8), oEmbed 7일 캐시, 무한 스크롤, 인지형 선로딩, 스와이프 내비
 import { auth, db } from './firebase-init.js';
-import { onAuthStateChanged, signOut as fbSignOut } from './auth.js?v=1.5.1';
-import { CATEGORY_GROUPS } from './categories.js?v=1.5.1';
+import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
+import { CATEGORY_GROUPS } from './categories.js';
 import {
   collection, getDocs, getDoc, doc, query, orderBy, limit, startAfter
 } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
 
-/* ---------- 전역 내비 중복 방지 플래그 ---------- */
+/* ---------- 내비 중복 방지 ---------- */
 window.__swipeNavigating = window.__swipeNavigating || false;
 
-/* ---------- Topbar 로그인 상태 동기화 & 드롭다운 ---------- */
+/* ---------- Topbar / 드롭다운 ---------- */
 const signupLink = document.getElementById('signupLink');
 const signinLink = document.getElementById('signinLink');
 const welcome    = document.getElementById('welcome');
@@ -65,7 +66,7 @@ function getSelectedCats(){
     return Array.isArray(v) ? v : [];
   } catch { return []; }
 }
-function esc(s=''){ return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
+function esc(s=''){ return String(s).replace(/[&<>\"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[m])); }
 function extractId(url=''){
   const m = String(url).match(/(?:youtu\.be\/|v=|shorts\/|embed\/)([^?&\/]+)/);
   return m ? m[1] : '';
@@ -75,18 +76,17 @@ function toThumb(url, fallback=''){
   return id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : fallback;
 }
 
-/* ---- 카테고리 라벨: 이름(라벨) 반환 ---- */
- const LABEL_MAP = (() => {
-   const m = {};
-   try {
-     CATEGORY_GROUPS.forEach(g => g?.children?.forEach(c => {
-       if (c?.value) m[c.value] = c.label || c.value;
-     }));
-   } catch {}
-   return m;
- })();
-
- function getLabel(key){ return LABEL_MAP[key] || key; }
+/* ---- 카테고리 라벨: value->label 맵 ---- */
+const LABEL_MAP = (() => {
+  const m = {};
+  try {
+    CATEGORY_GROUPS.forEach(g => g?.children?.forEach(c => {
+      if (c?.value) m[c.value] = c.label || c.value;
+    }));
+  } catch {}
+  return m;
+})();
+function getLabel(key){ return LABEL_MAP[key] || key; }
 
 function setStatus(t){ if($msg) $msg.textContent = t || ''; }
 function toggleMore(show){ if($btnMore) $btnMore.style.display = show ? '' : 'none'; }
@@ -139,7 +139,7 @@ async function hydrateTitleIfNeeded(titleEl, url, existingTitle){
 
 /* ---------- 닉네임 캐시 ---------- */
 const NickCache = {
-  map: new Map(), // uid -> string (nickname/displayName) or ''(미상)
+  map: new Map(), // uid -> nickname/displayName or ''
   get(uid){ return this.map.get(uid) || ''; },
   set(uid, name){ if(uid) this.map.set(uid, String(name||'')); }
 };
@@ -175,7 +175,7 @@ function isPersonalOnlySelection(){
   try{
     const raw = localStorage.getItem('selectedCats');
     const v = JSON.parse(raw || '[]');
-    return Array.isArray(v) && v.length === 1 && (v[0] === 'personal1' || v[0] === 'personal2');
+    return Array.isArray(v) && v.length === 1 && /^personal[1-8]$/.test(v[0]);
   }catch{ return false; }
 }
 function getPersonalSlot(){
@@ -194,7 +194,7 @@ function readPersonalItems(slot){
 function getPersonalLabel(slot){
   try{
     const labels = JSON.parse(localStorage.getItem('personalLabels') || '{}');
-    return labels?.[slot] || (slot === 'personal1' ? '개인자료1' : '개인자료2');
+    return labels?.[slot] || slot;
   }catch{ return slot; }
 }
 
@@ -256,7 +256,7 @@ function openInWatchPersonal(items, index, slot, label){
   location.href = `watch.html?idx=${index}&cats=${encodeURIComponent(slot)}`;
 }
 
-/* ---------- 필터 공통 ---------- */
+/* ---------- 필터 ---------- */
 function filterDocs(){
   const cats = getSelectedCats();
   const q = ($q?.value || '').trim().toLowerCase();
@@ -293,7 +293,11 @@ async function loadPage(){
     parts.push(limit(PAGE_SIZE));
 
     const snap = await getDocs(query(collection(db,'videos'), ...parts));
-    if (snap.empty) { hasMore = false; toggleMore(false); setStatus(allDocs.length ? `총 ${allDocs.length}개` : '등록된 영상이 없습니다.'); isLoading=false; return false; }
+    if (snap.empty) {
+      hasMore = false; toggleMore(false);
+      setStatus(allDocs.length ? `총 ${allDocs.length}개` : '등록된 영상이 없습니다.');
+      isLoading=false; return false;
+    }
 
     batch = snap.docs.map(d => ({ id: d.id, data: d.data() }));
     allDocs = allDocs.concat(batch);
@@ -317,7 +321,6 @@ async function loadPage(){
     }
   }
 
-  // ★ 신규: 배치 내 uploader 닉네임 미리 불러오기
   await preloadNicknamesFor(batch);
 
   render();
@@ -327,7 +330,7 @@ async function loadPage(){
   return true;
 }
 
-/* ---------- 필터 인지형 선로딩(최소 PAGE_SIZE 보장 시도) ---------- */
+/* ---------- 인지형 선로딩 ---------- */
 async function ensureMinFiltered(min = PAGE_SIZE){
   if (isPersonalOnlySelection()) return;
 
@@ -393,7 +396,7 @@ function render(){
   $cards.appendChild(frag);
 }
 
-/* ---------- watch로 이동(큐 + 인덱스 + doc + cats 파라미터) ---------- */
+/* ---------- watch로 이동(큐 + 인덱스 + doc + cats) ---------- */
 function openInWatch(list, index){
   const queue = list.map(x => {
     const id = extractId(x.data?.url || '');
@@ -488,9 +491,7 @@ window.addEventListener('scroll', async ()=>{
   if (after > before) render();
 }, { passive:true });
 
-/* ===================== */
-/* Slide-out CSS (단순형/백업용) */
-/* ===================== */
+/* ===================== Slide-out CSS (백업) ===================== */
 (function injectSlideCSS(){
   if (document.getElementById('slide-css-152')) return;
   const style = document.createElement('style');
@@ -507,9 +508,7 @@ window.addEventListener('scroll', async ()=>{
   document.head.appendChild(style);
 })();
 
-/* ===================== */
-/* 단순형 스와이프 (중앙 30% 데드존 추가) */
-/* ===================== */
+/* ===================== 단순형 스와이프 ===================== */
 function initSwipeNav({ goLeftHref=null, goRightHref=null, animateMs=260, deadZoneCenterRatio=0.30 } = {}){
   let sx=0, sy=0, t0=0, tracking=false;
   const THRESH_X = 70;
@@ -556,13 +555,10 @@ function initSwipeNav({ goLeftHref=null, goRightHref=null, animateMs=260, deadZo
   document.addEventListener('pointerdown',onStart, { passive:true });
   document.addEventListener('pointerup',  onEnd,   { passive:true });
 }
-
-// ✅ list: 우→좌 = index (단순형 + 중앙 데드존 30%)
+// list: 우→좌 = index (단순형 + 중앙 데드존 30%)
 initSwipeNav({ goLeftHref: 'index.html', goRightHref: null, deadZoneCenterRatio: 0.30 });
 
-/* ===================== */
-/* 고급형 스와이프 — 끌리는 모션 + 방향 잠금 + 중앙 30% 데드존 */
-/* ===================== */
+/* ===================== 고급형 스와이프 ===================== */
 (function(){
   function initDragSwipe({ goLeftHref=null, goRightHref=null, threshold=60, slop=45, timeMax=700, feel=1.0, deadZoneCenterRatio=0.15 }={}){
     const page = document.querySelector('main') || document.body;
@@ -668,6 +664,6 @@ initSwipeNav({ goLeftHref: 'index.html', goRightHref: null, deadZoneCenterRatio:
     document.addEventListener('pointerup',   end,   { passive:true, capture:true });
   }
 
-  // list: 우→좌 = index (오른쪽 페이지 없음 → 오른쪽 끌림 완전 차단, 중앙 데드존 15%)
+  // list: 우→좌 = index (오른쪽 페이지 없음 → 오른쪽 끌림 차단)
   initDragSwipe({ goLeftHref: 'index.html', goRightHref: null, threshold:60, slop:45, timeMax:700, feel:1.0, deadZoneCenterRatio: 0.15 });
 })();
