@@ -1,11 +1,19 @@
-// js/watch.js (v1.0.7-ak)
-// XSS 방어(카드 createElement), YouTube 화이트리스트, 교차 페이지 큐/단건/피드 모드, auto-next, 대규모 카테고리 스캔(MAX 12)
-// 삼성 브라우저 스냅 보정, 상단바 자동 숨김, 개인자료 1~8 슬롯 호환
+// js/watch.js (v1.2.0-model, long/feature-complete)
+// - CATEGORY_MODEL 방식(type 분리: 'shorts' | 'video')
+// - 서버 where('type','==', selType) + createdAt desc 페이징
+// - 개인자료 모드(1~4), 큐 모드, 단건 모드
+// - AUTO_NEXT(localStorage 'autonext') 반영
+// - Samsung Internet/viewport 보정, Topbar 자동 숨김/드롭다운
+// - XSS-safe (카드 생성 createElement 중심)
+// - 스크롤 페이징, onReady/onStateChange, 제스처로 소리 허용
+
 import { auth, db } from './firebase-init.js';
 import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
 import { collection, getDocs, query, where, orderBy, limit, startAfter, doc, getDoc } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
 
-/* ---------- viewport fix ---------- */
+/* ==========================
+   Viewport / Browser Fixes
+========================== */
 function updateVh(){
   document.documentElement.style.setProperty('--app-vh', `${window.innerHeight}px`);
 }
@@ -13,11 +21,7 @@ updateVh();
 addEventListener('resize', updateVh, {passive:true});
 addEventListener('orientationchange', updateVh, {passive:true});
 
-/* ---------- Samsung Internet 보정 ---------- */
 const isSamsungInternet = /SamsungBrowser/i.test(navigator.userAgent);
-if (isSamsungInternet) {
-  document.documentElement.classList.add('ua-sbrowser');
-}
 function updateSnapHeightForSamsung(){
   if (!isSamsungInternet) return;
   const vc = document.getElementById('videoContainer');
@@ -32,7 +36,9 @@ if (window.visualViewport) {
   visualViewport.addEventListener('resize', updateSnapHeightForSamsung, {passive:true});
 }
 
-/* ---------- DOM ---------- */
+/* ==========================
+   DOM / Topbar / Dropdown
+========================== */
 const topbar         = document.getElementById("topbar");
 const signupLink     = document.getElementById("signupLink");
 const signinLink     = document.getElementById("signinLink");
@@ -49,11 +55,17 @@ const brandHome      = document.getElementById("brandHome");
 const videoContainer = document.getElementById("videoContainer");
 const btnList        = document.getElementById('btnList');
 
-/* ---------- dropdown ---------- */
 let isMenuOpen=false;
 function openDropdown(){ isMenuOpen=true; dropdown?.classList.remove("hidden"); requestAnimationFrame(()=> dropdown?.classList.add("show")); menuBackdrop?.classList.add('show'); }
 function closeDropdown(){ isMenuOpen=false; dropdown?.classList.remove("show"); setTimeout(()=> dropdown?.classList.add("hidden"),180); menuBackdrop?.classList.remove('show'); }
-onAuthStateChanged(auth,(user)=>{ const loggedIn=!!user; signupLink?.classList.toggle("hidden", loggedIn); signinLink?.classList.toggle("hidden", loggedIn); if(welcome) welcome.textContent = loggedIn ? `Hi! ${user.displayName || '회원'}님` : ""; closeDropdown(); });
+
+onAuthStateChanged(auth,(user)=>{
+  const loggedIn=!!user;
+  signupLink?.classList.toggle("hidden", loggedIn);
+  signinLink?.classList.toggle("hidden", loggedIn);
+  if(welcome) welcome.textContent = loggedIn ? `Hi! ${user.displayName || '회원'}님` : "";
+  closeDropdown();
+});
 menuBtn?.addEventListener("click",(e)=>{ e.stopPropagation(); dropdown?.classList.contains("hidden") ? openDropdown() : closeDropdown(); });
 dropdown?.addEventListener("click",(e)=> e.stopPropagation());
 menuBackdrop?.addEventListener('click', closeDropdown);
@@ -75,7 +87,10 @@ function showTopbar(){ topbar?.classList.remove('hide'); if(hideTimer) clearTime
   tgt.addEventListener(ev, ()=>{ if(!isMenuOpen) showTopbar(); }, {passive:true});
 });
 
-/* ---------- selection ---------- */
+/* ==========================
+   Selection / Settings
+========================== */
+function getSelectedType(){ return localStorage.getItem('selectedType') || 'video'; }
 function parseCatsFromQuery(){
   try{
     const p = new URL(location.href).searchParams.get('cats');
@@ -84,39 +99,37 @@ function parseCatsFromQuery(){
     return arr.length ? arr : null;
   }catch{ return null; }
 }
-function getSelectedCats(){
-  const fromUrl = parseCatsFromQuery();
-  if (fromUrl) return fromUrl;
-  try{ return JSON.parse(localStorage.getItem('selectedCats')||'null'); }catch{ return "ALL"; }
-}
-function readAutoNext(){
-  const v = (localStorage.getItem('autonext') || '').toLowerCase();
-  return v === '1' || v === 'true' || v === 'on';
-}
-let AUTO_NEXT = readAutoNext();
-window.addEventListener('storage', (e)=>{ if(e.key === 'autonext'){ AUTO_NEXT = readAutoNext(); } });
 
-const sel = getSelectedCats();
-const SEL_SET = Array.isArray(sel) ? new Set(sel) : (sel==="ALL" ? null : null);
-const wantsPersonal = (name)=> (SEL_SET?.has?.(name) || parseCatsFromQuery()?.includes(name));
-const PERSONAL_MODE = (['personal1','personal2','personal3','personal4'].some(wantsPersonal))
-  && !(SEL_SET && ([...SEL_SET].some(v => !/^personal[1-4]$/.test(v))));
+// 개인모드 판정
+const SEL_SET = null; // watch는 URL cats 활용
+const wantsPersonal = (name)=> (parseCatsFromQuery()?.includes(name));
+const PERSONAL_MODE = (['personal1','personal2','personal3','personal4'].some(wantsPersonal));
 
-/* ---------- YouTube 검증 ---------- */
+/* ==========================
+   YouTube Embed / Audio
+========================== */
 const YT_URL_WHITELIST = /^(https:\/\/(www\.)?youtube\.com\/(watch\?v=|shorts\/)|https:\/\/youtu\.be\/)/i;
 const YT_ID_SAFE = /^[a-zA-Z0-9_-]{6,20}$/;
 
-/* ---------- YouTube control ---------- */
 let userSoundConsent=false;
 let currentActive=null;
 const winToCard=new Map();
-function ytCmd(iframe, func, args=[]){ if(!iframe?.contentWindow) return; iframe.contentWindow.postMessage(JSON.stringify({event:"command", func, args}), "*"); }
-function applyAudioPolicy(iframe){ if(!iframe) return; if(userSoundConsent){ ytCmd(iframe,"setVolume",[100]); ytCmd(iframe,"unMute"); } else { ytCmd(iframe,"mute"); } }
 
-/* player events */
+function ytCmd(iframe, func, args=[]){
+  if(!iframe?.contentWindow) return;
+  iframe.contentWindow.postMessage(JSON.stringify({event:"command", func, args}), "*");
+}
+function applyAudioPolicy(iframe){
+  if(!iframe) return;
+  if(userSoundConsent){ ytCmd(iframe,"setVolume",[100]); ytCmd(iframe,"unMute"); }
+  else{ ytCmd(iframe,"mute"); }
+}
+
 addEventListener('message',(e)=>{
-  if(typeof e.data!=='string') return; let data; try{ data=JSON.parse(e.data); }catch{ return; }
+  if(typeof e.data!=='string') return;
+  let data; try{ data=JSON.parse(e.data); }catch{ return; }
   if(!data?.event) return;
+
   if(data.event==='onReady'){
     const card = winToCard.get(e.source); if(!card) return;
     const iframe = card.querySelector('iframe');
@@ -127,11 +140,12 @@ addEventListener('message',(e)=>{
   if(data.event==='onStateChange' && data.info===0){
     const card = winToCard.get(e.source); if(!card) return;
     const activeIframe = currentActive?.querySelector('iframe');
-    if(activeIframe && e.source===activeIframe.contentWindow && AUTO_NEXT){ goToNextCard(); }
+    if(activeIframe && e.source===activeIframe.contentWindow){
+      goToNextCard();
+    }
   }
 }, false);
 
-/* gesture capture */
 function grantSoundFromCard(){
   userSoundConsent=true;
   document.querySelectorAll('.gesture-capture').forEach(el=> el.classList.add('hidden'));
@@ -182,6 +196,7 @@ function makeInfoRow(text){
 
 function makeCard(url, docId){
   if(!YT_URL_WHITELIST.test(String(url||''))) return null;
+
   const id = safeExtractYouTubeId(url);
   if(!id) return null;
 
@@ -190,6 +205,7 @@ function makeCard(url, docId){
   card.dataset.vid = id;
   card.dataset.docId = docId || '';
 
+  // thumb 영역
   const thumbDiv = document.createElement('div');
   thumbDiv.className = 'thumb';
 
@@ -250,39 +266,30 @@ function ensureIframe(card, preload=false){
     }catch{}
   });
 
+  // thumb ↔ iframe 교체
   const thumb = card.querySelector('.thumb');
   if(thumb) card.replaceChild(iframe, thumb);
   else card.appendChild(iframe);
 }
 
-/* ---------- Feed (개인/공용) ---------- */
+/* ==========================
+   Feed Modes & Paging
+========================== */
 const PAGE_SIZE=10;
 let isLoading=false, hasMore=true, lastDoc=null;
 const loadedIds=new Set();
 
-function getSelectedCats(){
-  const fromUrl = parseCatsFromQuery();
-  if (fromUrl) return fromUrl;
-  try{ return JSON.parse(localStorage.getItem('selectedCats')||'null'); }catch{ return "ALL"; }
+function getParam(name){
+  try{ return new URL(location.href).searchParams.get(name); }catch{ return null; }
 }
-function resolveCatFilter(){
-  if(PERSONAL_MODE) return null;
-  const sel = getSelectedCats();
-  if (sel==="ALL" || !sel) return null;
-  if (Array.isArray(sel) && sel.length){
-    const filtered = sel.filter(v=> !/^personal[1-4]$/.test(v));
-    return filtered.length ? new Set(filtered) : null;
-  }
-  return null;
+function readAutoNext(){
+  const v = (localStorage.getItem('autonext') || '').toLowerCase();
+  return v === '1' || v === 'true' || v === 'on';
 }
-let CAT_FILTER = resolveCatFilter();
+let AUTO_NEXT = readAutoNext();
+window.addEventListener('storage', (e)=>{ if(e.key === 'autonext'){ AUTO_NEXT = readAutoNext(); } });
 
-function matchesFilter(data){
-  if(!CAT_FILTER) return true;
-  const cats = Array.isArray(data?.categories) ? data.categories : [];
-  for(const v of cats){ if(CAT_FILTER.has(v)) return true; }
-  return false;
-}
+let QUEUE_MODE = false;
 
 function resetFeed(){
   document.querySelectorAll('#videoContainer .video').forEach(el=> activeIO.unobserve(el));
@@ -290,17 +297,64 @@ function resetFeed(){
   isLoading=false; hasMore=true; lastDoc=null; loadedIds.clear(); currentActive=null;
 }
 
-/* ---- 개인모드 ---- */
+// ---- 공용 피드: 타입 서버 where + createdAt desc
+function matchesFilterByType(data, selType){ return data?.type === selType; }
+
+async function appendFromSnap(snap, initial, selType){
+  if(snap.empty){
+    if(initial) videoContainer.appendChild(makeInfoRow('해당 카테고리 영상이 없습니다.'));
+    hasMore=false; return;
+  }
+  let appended=0;
+  snap.docs.forEach(d=>{
+    if(loadedIds.has(d.id)) return;
+    const data=d.data();
+    if(!matchesFilterByType(data, selType)) return;
+    const card = makeCard(data.url, d.id);
+    if(!card) return;
+    loadedIds.add(d.id);
+    videoContainer.appendChild(card);
+    appended++;
+  });
+  lastDoc = snap.docs[snap.docs.length-1] || lastDoc;
+  if(snap.size < PAGE_SIZE) hasMore=false;
+  if(initial && appended===0){
+    videoContainer.appendChild(makeInfoRow('해당 카테고리 영상이 없습니다.'));
+  }
+}
+
+async function loadMoreCommon(initial=false){
+  if(isLoading || !hasMore) return;
+  isLoading=true;
+
+  const selType = getSelectedType();
+  try{
+    const base = collection(db,"videos");
+    const parts=[ where('type','==', selType), orderBy("createdAt","desc") ];
+    if(lastDoc) parts.push(startAfter(lastDoc));
+    parts.push(limit(PAGE_SIZE));
+    const snap = await getDocs(query(base, ...parts));
+    await appendFromSnap(snap, initial, selType);
+  }catch(e){
+    console.error(e);
+    if(initial){
+      videoContainer.appendChild(makeInfoRow('목록을 불러오지 못했습니다.'));
+    }
+  }finally{
+    isLoading=false;
+    updateSnapHeightForSamsung();
+  }
+}
+
+// ---- 개인모드: 로컬에서 페이징
 let personalItems=[], personalOffset=0;
 const PERSONAL_PAGE_SIZE = 12;
 
 function loadPersonalInit(){
   const urlCats = parseCatsFromQuery() || [];
-  const slot = (['personal1','personal2','personal3','personal4']
-    .find(n=> urlCats.includes(n))) || 'personal1';
-  const key  = `copytube_${slot}`;
+  const slot = (['personal1','personal2','personal3','personal4'].find(n=> urlCats.includes(n))) || 'personal1';
   try{
-    personalItems = JSON.parse(localStorage.getItem(key) || '[]');
+    personalItems = JSON.parse(localStorage.getItem(`copytube_${slot}`) || '[]');
     if(!Array.isArray(personalItems)) personalItems=[];
   }catch{ personalItems=[]; }
   personalItems.sort((a,b)=> (b?.savedAt||0) - (a?.savedAt||0));
@@ -335,120 +389,11 @@ function loadMorePersonal(initial=false){
   updateSnapHeightForSamsung();
 }
 
-/* ---- 공용모드: Firestore ---- */
-const MAX_SCAN_PAGES = 12; // 다중 카테고리일 때 스캔 허용 페이지 수
-
-async function loadMoreCommon(initial=false){
-  if(isLoading || !hasMore) return;
-  isLoading=true;
-
-  try{
-    const base = collection(db,"videos");
-    const filterSize = CAT_FILTER ? CAT_FILTER.size : 0;
-
-    if(!CAT_FILTER){
-      const parts=[ orderBy("createdAt","desc") ];
-      if(lastDoc) parts.push(startAfter(lastDoc));
-      parts.push(limit(PAGE_SIZE));
-      const snap = await getDocs(query(base, ...parts));
-      await appendFromSnap(snap, initial);
-    }
-    else if(filterSize <= 10){
-      const whereVals = Array.from(CAT_FILTER);
-      const parts=[ where("categories","array-contains-any", whereVals), orderBy("createdAt","desc") ];
-      if(lastDoc) parts.push(startAfter(lastDoc));
-      parts.push(limit(PAGE_SIZE));
-      const snap = await getDocs(query(base, ...parts));
-      await appendFromSnap(snap, initial, false);
-    }
-    else{
-      // 다중 카테고리(>10): 최신순 페이지들을 스캔하여 클라이언트 필터
-      let appended = 0;
-      let scannedPages = 0;
-      let localLast = lastDoc;
-      let reachedEnd = false;
-
-      while(appended < PAGE_SIZE && !reachedEnd && scannedPages < MAX_SCAN_PAGES){
-        const parts=[ orderBy("createdAt","desc") ];
-        if(localLast) parts.push(startAfter(localLast));
-        parts.push(limit(PAGE_SIZE));
-        const snap = await getDocs(query(base, ...parts));
-
-        if(snap.empty){
-          reachedEnd = true;
-          break;
-        }
-
-        for(const d of snap.docs){
-          localLast = d;
-          if(loadedIds.has(d.id)) continue;
-          const data = d.data();
-          if(matchesFilter(data)){
-            const card = makeCard(data.url, d.id);
-            if(!card) continue;
-            loadedIds.add(d.id);
-            videoContainer.appendChild(card);
-            appended++;
-            if(appended >= PAGE_SIZE) break;
-          }
-        }
-
-        scannedPages++;
-        lastDoc = localLast || lastDoc;
-        if(snap.size < PAGE_SIZE){ reachedEnd = true; }
-      }
-
-      hasMore = !reachedEnd;
-      if(initial){
-        if(appended===0){
-          if(hasMore){
-            videoContainer.appendChild(makeInfoRow('최근 업로드 상위에서 해당 카테고리를 찾는 중입니다. 아래로 스크롤하면 더 탐색합니다.'));
-          }else{
-            videoContainer.appendChild(makeInfoRow('해당 카테고리 영상이 없습니다.'));
-          }
-        }
-      }
-    }
-
-  }catch(e){
-    console.error(e);
-    if(initial){
-      videoContainer.appendChild(makeInfoRow('목록을 불러오지 못했습니다.'));
-    }
-  }finally{
-    isLoading=false;
-    updateSnapHeightForSamsung();
-  }
-}
-
-async function appendFromSnap(snap, initial, clientFilter=false){
-  if(snap.empty){
-    if(initial) videoContainer.appendChild(makeInfoRow('해당 카테고리 영상이 없습니다.'));
-    hasMore=false; return;
-  }
-  let appended=0;
-  snap.docs.forEach(d=>{
-    if(loadedIds.has(d.id)) return;
-    const data=d.data();
-    if(clientFilter && !matchesFilter(data)) return;
-    const card = makeCard(data.url, d.id);
-    if(!card) return;
-    loadedIds.add(d.id);
-    videoContainer.appendChild(card);
-    appended++;
-  });
-  lastDoc = snap.docs[snap.docs.length-1] || lastDoc;
-  if(snap.size < PAGE_SIZE) hasMore=false;
-  if(initial && appended===0){
-    videoContainer.appendChild(makeInfoRow('해당 카테고리 영상이 없습니다.'));
-  }
-}
-
 /* ---------- scroll 페이징 ---------- */
 videoContainer.addEventListener('scroll', ()=>{
   const nearBottom = videoContainer.scrollTop + videoContainer.clientHeight >= videoContainer.scrollHeight - 200;
   if(nearBottom){
-    if(QUEUE_MODE) return; // 큐 모드에서는 페이징 안 함
+    if(QUEUE_MODE) return; // 큐 모드에서는 더 불러오지 않음
     if(PERSONAL_MODE) loadMorePersonal(false);
     else loadMoreCommon(false);
   }
@@ -458,28 +403,24 @@ videoContainer.addEventListener('scroll', ()=>{
 async function goToNextCard(){
   const next = currentActive?.nextElementSibling;
   if(next && next.classList.contains('video')){
-    next.scrollIntoView({behavior:'smooth', block:'start'}); return;
+    next.scrollIntoView({behavior:'smooth', block:'start'});
+    return;
   }
-  if(QUEUE_MODE){ showTopbar(); return; }
+  if(QUEUE_MODE){ showTopbar(); return; } // 큐 모드에선 고정
   if(!hasMore){ showTopbar(); return; }
   const before = videoContainer.querySelectorAll('.video').length;
   if(PERSONAL_MODE) loadMorePersonal(false);
   else await loadMoreCommon(false);
   const after  = videoContainer.querySelectorAll('.video').length;
-  if(after>before){
-    videoContainer.querySelectorAll('.video')[before]?.scrollIntoView({ behavior:'smooth', block:'start' });
-  } else { showTopbar(); }
+  if(after>before){ videoContainer.querySelectorAll('.video')[before]?.scrollIntoView({ behavior:'smooth', block:'start' }); }
+  else{ showTopbar(); }
 }
 
-/* ---------- 큐 모드 ---------- */
-let QUEUE_MODE = false;
-function getParam(name){ try{ return new URL(location.href).searchParams.get(name); }catch{ return null; } }
-
+/* ---------- 큐 모드(목록에서 전달받은 재생목록을 그대로 사용) ---------- */
 function tryLoadFromQueue(){
   const hasIdx = getParam('idx') !== null;
   const hasDoc = !!getParam('doc');
   if (!hasIdx && !hasDoc) return false;
-
   let queue = [];
   try { queue = JSON.parse(sessionStorage.getItem('playQueue') || '[]'); } catch { queue = []; }
   if (!Array.isArray(queue) || queue.length === 0) return false;
@@ -525,6 +466,9 @@ function tryLoadFromQueue(){
 
 /* ---------- start ---------- */
 (async ()=>{
+  // AUTO_NEXT: shorts일 땐 기본 ON 추천, 하지만 여기서는 로컬 설정만 존중
+  // if (getSelectedType()==='shorts' && localStorage.getItem('autonext')==null) localStorage.setItem('autonext','1');
+
   if (tryLoadFromQueue()) {
     return;
   }
