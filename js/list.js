@@ -175,7 +175,7 @@ function isPersonalOnlySelection(){
   try{
     const raw = localStorage.getItem('selectedCats');
     const v = JSON.parse(raw || '[]');
-    return Array.isArray(v) && v.length === 1 && /^personal[1-8]$/.test(v[0]);
+    return Array.isArray(v) && v.length === 1 && /^personal[1-4]$/.test(v[0]);
   }catch{ return false; }
 }
 function getPersonalSlot(){
