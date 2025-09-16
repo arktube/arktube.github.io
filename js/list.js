@@ -1,16 +1,23 @@
-// js/list.js (v1.8.3-ak)
-// Arktube 포맷 정렬, 상단바 원본 준수, 개인자료 모드 호환(1~8), oEmbed 7일 캐시, 무한 스크롤, 인지형 선로딩, 스와이프 내비
+// js/list.js (v1.9.0-model, long/feature-complete)
+// - CATEGORY_MODEL 기반(type 분리)
+// - 서버 where('type','==', selType) + createdAt desc 페이징
+// - 개인자료 모드(슬롯 1~4, 로컬 저장소)
+// - 닉네임 캐시(users/{uid}) + 제목 oEmbed 7일 캐시
+// - 무한 스크롤 + 인지형 선로딩
+// - 스와이프 내비(좌 슬라이드로 index.html)
+// - 카드 클릭 시 watch.html로 큐/인덱스 전달
+
 import { auth, db } from './firebase-init.js';
 import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
-import { CATEGORY_GROUPS } from './categories.js';
+import { CATEGORY_MODEL } from './categories.js';
 import {
-  collection, getDocs, getDoc, doc, query, orderBy, limit, startAfter
+  collection, getDocs, getDoc, doc, query, orderBy, limit, startAfter, where
 } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
 
-/* ---------- 내비 중복 방지 ---------- */
+/* ---------- 전역 내비 중복 방지 플래그 ---------- */
 window.__swipeNavigating = window.__swipeNavigating || false;
 
-/* ---------- Topbar / 드롭다운 ---------- */
+/* ---------- Topbar 로그인 상태 & 드롭다운 ---------- */
 const signupLink = document.getElementById('signupLink');
 const signinLink = document.getElementById('signinLink');
 const welcome    = document.getElementById('welcome');
@@ -48,7 +55,6 @@ const $cards     = document.getElementById('cards');
 const $msg       = document.getElementById('msg') || document.getElementById('resultMsg');
 const $q         = document.getElementById('q');
 const $btnSearch = document.getElementById('btnSearch');
-const $btnClear  = document.getElementById('btnClear'); // optional
 const $btnMore   = document.getElementById('btnMore');
 
 /* ---------- 상태 ---------- */
@@ -59,6 +65,7 @@ let hasMore   = true;
 let isLoading = false;
 
 /* ---------- 유틸 ---------- */
+function getSelectedType(){ return localStorage.getItem('selectedType') || 'video'; }
 function getSelectedCats(){
   try {
     const raw = localStorage.getItem('selectedCats');
@@ -66,7 +73,7 @@ function getSelectedCats(){
     return Array.isArray(v) ? v : [];
   } catch { return []; }
 }
-function esc(s=''){ return String(s).replace(/[&<>\"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[m])); }
+function esc(s=''){ return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
 function extractId(url=''){
   const m = String(url).match(/(?:youtu\.be\/|v=|shorts\/|embed\/)([^?&\/]+)/);
   return m ? m[1] : '';
@@ -76,11 +83,11 @@ function toThumb(url, fallback=''){
   return id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : fallback;
 }
 
-/* ---- 카테고리 라벨: value->label 맵 ---- */
+/* ---- 카테고리 라벨: 이름(라벨) 반환 ---- */
 const LABEL_MAP = (() => {
   const m = {};
   try {
-    CATEGORY_GROUPS.forEach(g => g?.children?.forEach(c => {
+    CATEGORY_MODEL.groups.forEach(g => g?.children?.forEach(c => {
       if (c?.value) m[c.value] = c.label || c.value;
     }));
   } catch {}
@@ -139,7 +146,7 @@ async function hydrateTitleIfNeeded(titleEl, url, existingTitle){
 
 /* ---------- 닉네임 캐시 ---------- */
 const NickCache = {
-  map: new Map(), // uid -> nickname/displayName or ''
+  map: new Map(), // uid -> string (nickname/displayName) or ''(미상)
   get(uid){ return this.map.get(uid) || ''; },
   set(uid, name){ if(uid) this.map.set(uid, String(name||'')); }
 };
@@ -194,8 +201,8 @@ function readPersonalItems(slot){
 function getPersonalLabel(slot){
   try{
     const labels = JSON.parse(localStorage.getItem('personalLabels') || '{}');
-    return labels?.[slot] || slot;
-  }catch{ return slot; }
+    return labels?.[slot] || (slot || '개인자료');
+  }catch{ return slot || '개인자료'; }
 }
 
 function renderPersonalList(){
@@ -234,8 +241,9 @@ function renderPersonalList(){
     `;
     hydrateTitleIfNeeded(card.querySelector('.title'), url, title);
 
-    card.querySelector('.left') ?.addEventListener('click', ()=> openInWatchPersonal(sorted, idx, slot, label));
-    card.querySelector('.thumb')?.addEventListener('click', ()=> openInWatchPersonal(sorted, idx, slot, label));
+    const open = ()=> openInWatchPersonal(sorted, idx, slot, label);
+    card.querySelector('.left') ?.addEventListener('click', open);
+    card.querySelector('.thumb')?.addEventListener('click', open);
     frag.appendChild(card);
   });
 
@@ -259,9 +267,13 @@ function openInWatchPersonal(items, index, slot, label){
 /* ---------- 필터 ---------- */
 function filterDocs(){
   const cats = getSelectedCats();
+  const selType = getSelectedType();
   const q = ($q?.value || '').trim().toLowerCase();
 
   let list = allDocs.slice();
+
+  // type 강제 필터 (서버/클라 모두에서)
+  list = list.filter(x => (x.data?.type === selType));
 
   if (Array.isArray(cats) && cats.length){
     list = list.filter(x => {
@@ -286,15 +298,17 @@ async function loadPage(){
   isLoading = true;
   setStatus(allDocs.length ? `총 ${allDocs.length}개 불러옴 · 더 불러오는 중…` : '불러오는 중…');
 
+  const selType = getSelectedType();
   let batch = [];
   try {
-    const parts = [ orderBy('createdAt','desc') ];
+    const parts = [ where('type','==', selType), orderBy('createdAt','desc') ];
     if (lastDoc) parts.push(startAfter(lastDoc));
     parts.push(limit(PAGE_SIZE));
 
     const snap = await getDocs(query(collection(db,'videos'), ...parts));
     if (snap.empty) {
-      hasMore = false; toggleMore(false);
+      hasMore = false;
+      toggleMore(false);
       setStatus(allDocs.length ? `총 ${allDocs.length}개` : '등록된 영상이 없습니다.');
       isLoading=false; return false;
     }
@@ -306,10 +320,11 @@ async function loadPage(){
   } catch (e) {
     console.warn('[list] fallback:', e?.message || e);
     try {
-      const snap = await getDocs(query(collection(db,'videos'), limit(PAGE_SIZE*3)));
+      // 서버 where 실패 시: createdAt desc로 넉넉히 가져와 클라에서 type 필터
+      const snap = await getDocs(query(collection(db,'videos'), orderBy('createdAt','desc'), limit(PAGE_SIZE*3)));
       const arr = snap.docs.map(d => ({ id:d.id, data:d.data(), _t:(d.data()?.createdAt?.toMillis?.()||0) }));
       arr.sort((a,b)=> b._t - a._t);
-      batch = arr.map(({_t,...rest})=>rest);
+      batch = arr.map(({_t,...rest})=>rest).filter(x => x.data?.type === selType);
       allDocs = allDocs.concat(batch);
       hasMore = false;
     } catch(e2){
@@ -321,6 +336,7 @@ async function loadPage(){
     }
   }
 
+  // uploader 닉네임 미리 불러오기
   await preloadNicknamesFor(batch);
 
   render();
@@ -330,7 +346,7 @@ async function loadPage(){
   return true;
 }
 
-/* ---------- 인지형 선로딩 ---------- */
+/* ---------- 필터 인지형 선로딩(최소 PAGE_SIZE 보장 시도) ---------- */
 async function ensureMinFiltered(min = PAGE_SIZE){
   if (isPersonalOnlySelection()) return;
 
@@ -388,15 +404,16 @@ function render(){
 
     hydrateTitleIfNeeded(card.querySelector('.title'), url, title);
 
-    card.querySelector('.left') ?.addEventListener('click', ()=> openInWatch(list, idx));
-    card.querySelector('.thumb')?.addEventListener('click', ()=> openInWatch(list, idx));
+    const open = ()=> openInWatch(list, idx);
+    card.querySelector('.left') ?.addEventListener('click', open);
+    card.querySelector('.thumb')?.addEventListener('click', open);
 
     frag.appendChild(card);
   });
   $cards.appendChild(frag);
 }
 
-/* ---------- watch로 이동(큐 + 인덱스 + doc + cats) ---------- */
+/* ---------- watch로 이동(큐 + 인덱스 + doc + cats 파라미터) ---------- */
 function openInWatch(list, index){
   const queue = list.map(x => {
     const id = extractId(x.data?.url || '');
@@ -433,12 +450,6 @@ $q?.addEventListener('keydown', async (e)=>{
   }
 });
 $btnSearch?.addEventListener('click', async ()=>{
-  if(isPersonalOnlySelection()){ renderPersonalList(); return; }
-  render();
-  await ensureMinFiltered(PAGE_SIZE);
-});
-$btnClear ?.addEventListener('click', async ()=>{
-  if($q) $q.value='';
   if(isPersonalOnlySelection()){ renderPersonalList(); return; }
   render();
   await ensureMinFiltered(PAGE_SIZE);
@@ -491,7 +502,9 @@ window.addEventListener('scroll', async ()=>{
   if (after > before) render();
 }, { passive:true });
 
-/* ===================== Slide-out CSS (백업) ===================== */
+/* ===================== */
+/* Slide-out CSS (단순형/백업용) */
+/* ===================== */
 (function injectSlideCSS(){
   if (document.getElementById('slide-css-152')) return;
   const style = document.createElement('style');
@@ -508,7 +521,9 @@ window.addEventListener('scroll', async ()=>{
   document.head.appendChild(style);
 })();
 
-/* ===================== 단순형 스와이프 ===================== */
+/* ===================== */
+/* 단순형 스와이프 (중앙 30% 데드존 추가) */
+/* ===================== */
 function initSwipeNav({ goLeftHref=null, goRightHref=null, animateMs=260, deadZoneCenterRatio=0.30 } = {}){
   let sx=0, sy=0, t0=0, tracking=false;
   const THRESH_X = 70;
@@ -555,10 +570,13 @@ function initSwipeNav({ goLeftHref=null, goRightHref=null, animateMs=260, deadZo
   document.addEventListener('pointerdown',onStart, { passive:true });
   document.addEventListener('pointerup',  onEnd,   { passive:true });
 }
-// list: 우→좌 = index (단순형 + 중앙 데드존 30%)
+
+// ✅ list: 우→좌 = index (단순형 + 중앙 데드존 30%)
 initSwipeNav({ goLeftHref: 'index.html', goRightHref: null, deadZoneCenterRatio: 0.30 });
 
-/* ===================== 고급형 스와이프 ===================== */
+/* ===================== */
+/* 고급형 스와이프 — 끌리는 모션 + 방향 잠금 + 중앙 30% 데드존 */
+/* ===================== */
 (function(){
   function initDragSwipe({ goLeftHref=null, goRightHref=null, threshold=60, slop=45, timeMax=700, feel=1.0, deadZoneCenterRatio=0.15 }={}){
     const page = document.querySelector('main') || document.body;
@@ -664,6 +682,6 @@ initSwipeNav({ goLeftHref: 'index.html', goRightHref: null, deadZoneCenterRatio:
     document.addEventListener('pointerup',   end,   { passive:true, capture:true });
   }
 
-  // list: 우→좌 = index (오른쪽 페이지 없음 → 오른쪽 끌림 차단)
+  // list: 우→좌 = index (오른쪽 페이지 없음 → 오른쪽 끌림 완전 차단, 중앙 데드존 15%)
   initDragSwipe({ goLeftHref: 'index.html', goRightHref: null, threshold:60, slop:45, timeMax:700, feel:1.0, deadZoneCenterRatio: 0.15 });
 })();
