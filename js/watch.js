@@ -1,9 +1,6 @@
-// js/watch.js (v1.0.6-xss-safe)
-// - XSS 방어: 카드 렌더링에서 innerHTML 제거(모두 createElement/textContent)
-// - YouTube URL/ID 화이트리스트 검증 추가
-// - 폴백 스캔 확장: 다중 카테고리(>10)일 때 최근 문서 스캔 페이지수를 12로 확대
-// - 초기 로드 안내 개선: 상단부에서 아직 못 찾았을 때는 '탐색 중' 메시지 표시 후 스크롤로 지속 탐색
-
+// js/watch.js (v1.0.7-ak)
+// XSS 방어(카드 createElement), YouTube 화이트리스트, 교차 페이지 큐/단건/피드 모드, auto-next, 대규모 카테고리 스캔(MAX 12)
+// 삼성 브라우저 스냅 보정, 상단바 자동 숨김, 개인자료 1~8 슬롯 호환
 import { auth, db } from './firebase-init.js';
 import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
 import { collection, getDocs, query, where, orderBy, limit, startAfter, doc, getDoc } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
@@ -16,7 +13,7 @@ updateVh();
 addEventListener('resize', updateVh, {passive:true});
 addEventListener('orientationchange', updateVh, {passive:true});
 
-/* ---------- Samsung Internet 전용 보정 ---------- */
+/* ---------- Samsung Internet 보정 ---------- */
 const isSamsungInternet = /SamsungBrowser/i.test(navigator.userAgent);
 if (isSamsungInternet) {
   document.documentElement.classList.add('ua-sbrowser');
@@ -101,20 +98,18 @@ window.addEventListener('storage', (e)=>{ if(e.key === 'autonext'){ AUTO_NEXT = 
 
 const sel = getSelectedCats();
 const SEL_SET = Array.isArray(sel) ? new Set(sel) : (sel==="ALL" ? null : null);
-const wantsPersonal1 = SEL_SET?.has?.('personal1') || parseCatsFromQuery()?.includes('personal1');
-const wantsPersonal2 = SEL_SET?.has?.('personal2') || parseCatsFromQuery()?.includes('personal2');
-const PERSONAL_MODE = (wantsPersonal1 || wantsPersonal2) && !(SEL_SET && ([...SEL_SET].some(v => v!=='personal1' && v!=='personal2')));
+const wantsPersonal = (name)=> (SEL_SET?.has?.(name) || parseCatsFromQuery()?.includes(name));
+const PERSONAL_MODE = (['personal1','personal2','personal3','personal4','personal5','personal6','personal7','personal8'].some(wantsPersonal))
+  && !(SEL_SET && ([...SEL_SET].some(v => !/^personal[1-8]$/.test(v))));
 
 /* ---------- YouTube 검증 ---------- */
 const YT_URL_WHITELIST = /^(https:\/\/(www\.)?youtube\.com\/(watch\?v=|shorts\/)|https:\/\/youtu\.be\/)/i;
-// 유튜브 ID는 알파벳/숫자/_- 6~20 (실제는 11이 일반적)
 const YT_ID_SAFE = /^[a-zA-Z0-9_-]{6,20}$/;
 
 /* ---------- YouTube control ---------- */
 let userSoundConsent=false;
 let currentActive=null;
 const winToCard=new Map();
-
 function ytCmd(iframe, func, args=[]){ if(!iframe?.contentWindow) return; iframe.contentWindow.postMessage(JSON.stringify({event:"command", func, args}), "*"); }
 function applyAudioPolicy(iframe){ if(!iframe) return; if(userSoundConsent){ ytCmd(iframe,"setVolume",[100]); ytCmd(iframe,"unMute"); } else { ytCmd(iframe,"mute"); } }
 
@@ -136,7 +131,7 @@ addEventListener('message',(e)=>{
   }
 }, false);
 
-/* gesture capture on card — iOS 스크롤 방해 X */
+/* gesture capture */
 function grantSoundFromCard(){
   userSoundConsent=true;
   document.querySelectorAll('.gesture-capture').forEach(el=> el.classList.add('hidden'));
@@ -186,9 +181,7 @@ function makeInfoRow(text){
 }
 
 function makeCard(url, docId){
-  // URL 화이트리스트 검사
   if(!YT_URL_WHITELIST.test(String(url||''))) return null;
-
   const id = safeExtractYouTubeId(url);
   if(!id) return null;
 
@@ -197,7 +190,6 @@ function makeCard(url, docId){
   card.dataset.vid = id;
   card.dataset.docId = docId || '';
 
-  // thumb 영역
   const thumbDiv = document.createElement('div');
   thumbDiv.className = 'thumb';
 
@@ -258,7 +250,6 @@ function ensureIframe(card, preload=false){
     }catch{}
   });
 
-  // thumb ↔ iframe 교체
   const thumb = card.querySelector('.thumb');
   if(thumb) card.replaceChild(iframe, thumb);
   else card.appendChild(iframe);
@@ -269,12 +260,17 @@ const PAGE_SIZE=10;
 let isLoading=false, hasMore=true, lastDoc=null;
 const loadedIds=new Set();
 
+function getSelectedCats(){
+  const fromUrl = parseCatsFromQuery();
+  if (fromUrl) return fromUrl;
+  try{ return JSON.parse(localStorage.getItem('selectedCats')||'null'); }catch{ return "ALL"; }
+}
 function resolveCatFilter(){
   if(PERSONAL_MODE) return null;
   const sel = getSelectedCats();
   if (sel==="ALL" || !sel) return null;
   if (Array.isArray(sel) && sel.length){
-    const filtered = sel.filter(v=> v!=='personal1' && v!=='personal2');
+    const filtered = sel.filter(v=> !/^personal[1-8]$/.test(v));
     return filtered.length ? new Set(filtered) : null;
   }
   return null;
@@ -294,12 +290,14 @@ function resetFeed(){
   isLoading=false; hasMore=true; lastDoc=null; loadedIds.clear(); currentActive=null;
 }
 
-/* ---- 개인모드: 로컬에서 읽어 페이징 ---- */
+/* ---- 개인모드 ---- */
 let personalItems=[], personalOffset=0;
 const PERSONAL_PAGE_SIZE = 12;
 
 function loadPersonalInit(){
-  const slot = wantsPersonal1 ? 'personal1' : wantsPersonal2 ? 'personal2' : 'personal1';
+  const urlCats = parseCatsFromQuery() || [];
+  const slot = (['personal1','personal2','personal3','personal4','personal5','personal6','personal7','personal8']
+    .find(n=> urlCats.includes(n))) || 'personal1';
   const key  = `copytube_${slot}`;
   try{
     personalItems = JSON.parse(localStorage.getItem(key) || '[]');
@@ -338,7 +336,7 @@ function loadMorePersonal(initial=false){
 }
 
 /* ---- 공용모드: Firestore ---- */
-const MAX_SCAN_PAGES = 12; // 폴백 스캔 허용 페이지 수(각 10개 기준 최대 120개까지)
+const MAX_SCAN_PAGES = 12; // 다중 카테고리일 때 스캔 허용 페이지 수
 
 async function loadMoreCommon(initial=false){
   if(isLoading || !hasMore) return;
@@ -364,7 +362,7 @@ async function loadMoreCommon(initial=false){
       await appendFromSnap(snap, initial, false);
     }
     else{
-      // 다중 카테고리(>10): 최신순으로 여러 페이지를 스캔하면서 클라이언트 필터링
+      // 다중 카테고리(>10): 최신순 페이지들을 스캔하여 클라이언트 필터
       let appended = 0;
       let scannedPages = 0;
       let localLast = lastDoc;
@@ -381,8 +379,6 @@ async function loadMoreCommon(initial=false){
           break;
         }
 
-        // 문서 순회
-        let addedThisRound = 0;
         for(const d of snap.docs){
           localLast = d;
           if(loadedIds.has(d.id)) continue;
@@ -392,22 +388,19 @@ async function loadMoreCommon(initial=false){
             if(!card) continue;
             loadedIds.add(d.id);
             videoContainer.appendChild(card);
-            appended++; addedThisRound++;
+            appended++;
             if(appended >= PAGE_SIZE) break;
           }
         }
 
-        // 페이지 진행 상태 갱신
         scannedPages++;
         lastDoc = localLast || lastDoc;
         if(snap.size < PAGE_SIZE){ reachedEnd = true; }
-        // addedThisRound가 0이더라도 끝난 건 아님(다음 페이지 계속 탐색)
       }
 
-      hasMore = !reachedEnd; // 끝에 도달했을 때만 false
+      hasMore = !reachedEnd;
       if(initial){
         if(appended===0){
-          // 아직 끝까지 가진 않았으면 '탐색 중' 안내만 표시 (스크롤 시 계속 탐색)
           if(hasMore){
             videoContainer.appendChild(makeInfoRow('최근 업로드 상위에서 해당 카테고리를 찾는 중입니다. 아래로 스크롤하면 더 탐색합니다.'));
           }else{
@@ -455,7 +448,7 @@ async function appendFromSnap(snap, initial, clientFilter=false){
 videoContainer.addEventListener('scroll', ()=>{
   const nearBottom = videoContainer.scrollTop + videoContainer.clientHeight >= videoContainer.scrollHeight - 200;
   if(nearBottom){
-    if(QUEUE_MODE) return; // 큐 모드에서는 더 불러오지 않음
+    if(QUEUE_MODE) return; // 큐 모드에서는 페이징 안 함
     if(PERSONAL_MODE) loadMorePersonal(false);
     else loadMoreCommon(false);
   }
@@ -464,18 +457,21 @@ videoContainer.addEventListener('scroll', ()=>{
 /* ---------- auto-next ---------- */
 async function goToNextCard(){
   const next = currentActive?.nextElementSibling;
-  if(next && next.classList.contains('video')){ next.scrollIntoView({behavior:'smooth', block:'start'}); return; }
-  if(QUEUE_MODE){ showTopbar(); return; } // 큐 모드에선 고정
+  if(next && next.classList.contains('video')){
+    next.scrollIntoView({behavior:'smooth', block:'start'}); return;
+  }
+  if(QUEUE_MODE){ showTopbar(); return; }
   if(!hasMore){ showTopbar(); return; }
   const before = videoContainer.querySelectorAll('.video').length;
   if(PERSONAL_MODE) loadMorePersonal(false);
   else await loadMoreCommon(false);
   const after  = videoContainer.querySelectorAll('.video').length;
-  if(after>before){ videoContainer.querySelectorAll('.video')[before]?.scrollIntoView({ behavior:'smooth', block:'start' }); }
-  else{ showTopbar(); }
+  if(after>before){
+    videoContainer.querySelectorAll('.video')[before]?.scrollIntoView({ behavior:'smooth', block:'start' });
+  } else { showTopbar(); }
 }
 
-/* ---------- 큐 모드(목록에서 전달받은 재생목록을 그대로 사용) ---------- */
+/* ---------- 큐 모드 ---------- */
 let QUEUE_MODE = false;
 function getParam(name){ try{ return new URL(location.href).searchParams.get(name); }catch{ return null; } }
 
@@ -483,6 +479,7 @@ function tryLoadFromQueue(){
   const hasIdx = getParam('idx') !== null;
   const hasDoc = !!getParam('doc');
   if (!hasIdx && !hasDoc) return false;
+
   let queue = [];
   try { queue = JSON.parse(sessionStorage.getItem('playQueue') || '[]'); } catch { queue = []; }
   if (!Array.isArray(queue) || queue.length === 0) return false;
