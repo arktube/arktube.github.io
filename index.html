@@ -3,8 +3,9 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>arktube - 카테고리 선택</title>
+  <title>ArkTube - 카테고리 선택</title>
 
+  <!-- CSP -->
   <meta http-equiv="Content-Security-Policy" content="
     default-src 'self';
     connect-src 'self' https://www.googleapis.com https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://firebaseinstallations.googleapis.com https://www.gstatic.com https://www.youtube.com;
@@ -16,7 +17,15 @@
     base-uri 'self';
   ">
 
+  <!-- 스타일 -->
   <link rel="stylesheet" href="css/style.css"/>
+
+  <!-- PWA / Icons (ArkTube 표준 세트) -->
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" type="image/png" sizes="32x32" href="/image/arktube_icon_32.png">
+  <link rel="apple-touch-icon" href="/image/arktube_icon_192.png">
+
   <style>
     :root{ --cta-width:148px; }
     .lead{ font-size:20px; color:#e6e6e6; margin:0 0 6px; }
@@ -33,18 +42,18 @@
     @media (min-width:900px){ .child-grid{ grid-template-columns:repeat(4, minmax(0,1fr)); } }
     .child-grid label{ background:#0f0f0f; border:1px solid #2a2a2a; border-radius:8px; padding:6px 8px; font-size:14px; line-height:1.2; display:flex; gap:6px; align-items:center; justify-content:flex-start; }
     .muted{ color:#9aa0a6; font-size:12px; }
+    /* 로고 크기(사용자 선호) */
+    .brand-logo{ height:48px; }
+    @media (max-width:420px){ .brand-logo{ height:40px; } }
   </style>
-
-  <!-- PWA/아이콘(선택) -->
-  <link rel="manifest" href="manifest.json">
-  <meta name="theme-color" content="#000000">
-  <link rel="icon" type="image/png" sizes="32x32" href="image/copytube_logo_32.png">
 </head>
+
 <body>
+  <!-- 상단바 -->
   <header id="topbar">
     <div class="brand">
-      <a id="brandHome" href="#" aria-label="arktube 홈으로">
-        <img class="brand-logo" src="image/copytube_logo_side.png" alt="arktube"/>
+      <a id="brandHome" href="/" aria-label="ArkTube 홈으로">
+        <img class="brand-logo" src="/image/arktube_side.png" alt="ArkTube">
       </a>
     </div>
     <div class="right" style="position:relative;">
@@ -53,7 +62,7 @@
       <span id="welcome" class="welcome"></span>
       <button id="menuBtn" class="icon" aria-label="menu">三</button>
       <div id="dropdownMenu" class="dropdown hidden" role="menu" aria-hidden="true">
-        <button id="btnAbout" class="menu-strong" type="button">arktube는…</button>
+        <button id="btnAbout" class="menu-strong" type="button">ArkTube는…</button>
         <button id="btnMyUploads" type="button">내영상관리</button>
         <button id="btnSignOut" type="button">Sign out</button>
         <button id="btnList" type="button">영상목록</button>
@@ -62,6 +71,7 @@
     </div>
   </header>
 
+  <!-- 본문 -->
   <section class="intro">
     <div style="width:100%; max-width:980px; margin:0 auto;">
       <p class="lead">보고 싶은 카테고리를 선택하고</p>
@@ -97,6 +107,16 @@
     </div>
   </section>
 
+  <!-- 로그인 유지/드롭다운/상단바 스크립트 포함 -->
   <script type="module" src="js/index.js"></script>
+
+  <!-- SW 등록(기본 연결 스니펫) -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(console.error);
+      });
+    }
+  </script>
 </body>
 </html>
