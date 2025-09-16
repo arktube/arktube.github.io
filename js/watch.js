@@ -296,7 +296,7 @@ const PERSONAL_PAGE_SIZE = 12;
 
 function loadPersonalInit(){
   const urlCats = parseCatsFromQuery() || [];
-  const slot = (['personal1','personal2','personal3','personal4','personal5','personal6','personal7','personal8']
+  const slot = (['personal1','personal2','personal3','personal4']
     .find(n=> urlCats.includes(n))) || 'personal1';
   const key  = `copytube_${slot}`;
   try{
