@@ -1,102 +1,71 @@
-// js/categories.js (arktube v1 - Christian taxonomy)
+// js/categories.js
+// 최종 스펙: 유형(type)과 주제 카테고리(groups)를 분리 관리
+// - type: 'shorts' | 'video' (데이터에 필수 저장)
+// - groups: 주제 카테고리들 (개인자료 1~4 포함)
 
-/** 공통 세부카테고리 세트 */
-const SHARED_GROUPS = [
-  {
-    key: 'faith_life',
-    label: '신앙생활',
-    children: [
-      { value:'christian_knowledge', label:'기독교지식' },
-      { value:'one_word_day',        label:'하루한말씀' },
-      { value:'comfort',             label:'위로영상' },
-      { value:'faith_vlog',          label:'신앙브이로그' },
-      { value:'angel_babies',        label:'아기천사들' },
-      { value:'gathering_ad',        label:'모임광고' },
-    ],
-  },
-  {
-    key: 'praise',
-    label: '찬양',
-    children: [
-      { value:'hymn',        label:'찬송가' },
-      { value:'ccm',         label:'CCM' },
-      { value:'kids_praise', label:'어린이 찬양' },
-    ],
-  },
-  {
-    key: 'word',
-    label: '말씀',
-    children: [
-      { value:'bible_reading', label:'성경통독' },
-      { value:'bible_study',   label:'성경공부' },
-      { value:'meditation',    label:'묵상' },
-      { value:'sermon',        label:'설교' },
-    ],
-  },
-  {
-    key: 'prayer',
-    label: '기도',
-    children: [
-      { value:'testimony', label:'간증' },
-      { value:'prayer',    label:'기도' },
-      { value:'intercede', label:'중보기도' },
-    ],
-  },
-  {
-    key: 'next_gen',
-    label: '다음세대',
-    children: [
-      { value:'kids_sermon', label:'어린이 설교' },
-      { value:'kids_praise2',label:'어린이 찬양' },
-      { value:'youth',       label:'청소년·청년' },
-    ],
-  },
-  {
-    key: 'media',
-    label: '미디어',
-    children: [
-      { value:'christian_youtuber', label:'기독교 유튜버' },
-      { value:'christian_movie',    label:'기독교 영화·드라마' },
-    ],
-  },
-  {
-    key: 'mission_history',
-    label: '선교·역사',
-    children: [
-      { value:'korean_church_history', label:'한국교회사' },
-      { value:'reformation',           label:'종교개혁' },
-      { value:'world_mission',         label:'세계선교' },
-      { value:'historical_theology',   label:'역사신학' },
-      { value:'figures',               label:'인물' },
-    ],
-  },
-  {
-    key: 'general_info',
-    label: '일반정보',
-    children: [
-      { value:'common',   label:'상식' },
-      { value:'lifetips', label:'생활팁' },
-      { value:'health',   label:'건강' },
-      { value:'fitness',  label:'운동' },
-    ],
-  },
-  {
-    key: 'by_person',
-    label: '인물별 모음',
-    children: [
-      { value:'pick1', label:'추천1' },
-      { value:'pick2', label:'추천2' },
-    ],
-  },
-];
+export const CATEGORY_MODEL = {
+  types: [
+    { value: 'shorts', label: '쇼츠' },
+    { value: 'video',  label: '일반영상' }
+  ],
+  groups: [
+    {
+      group: '개인자료',
+      children: [
+        { value: 'personal1', label: '자료1' },
+        { value: 'personal2', label: '자료2' },
+        { value: 'personal3', label: '자료3' },
+        { value: 'personal4', label: '자료4' }
+      ]
+    },
+    {
+      group: '콘텐츠',
+      children: [
+        { value: 'music',       label: '뮤직' },
+        { value: 'gaming',      label: '게임' },
+        { value: 'news',        label: '뉴스' },
+        { value: 'documentary', label: '다큐' },
+        { value: 'movie',       label: '영화' },
+        { value: 'vlog',        label: '브이로그' },
+        { value: 'talk',        label: '토크/인터뷰' }
+      ]
+    },
+    {
+      group: '학습/개발',
+      children: [
+        { value: 'education',   label: '학습' },
+        { value: 'programming', label: '프로그래밍' },
+        { value: 'web',         label: '웹' },
+        { value: 'mobile',      label: '모바일' },
+        { value: 'ai',          label: 'AI/머신러닝' },
+        { value: 'design',      label: '디자인/UX' },
+        { value: 'tools',       label: '툴/생산성' }
+      ]
+    },
+    {
+      group: '기타',
+      children: [
+        { value: 'review',      label: '리뷰' },
+        { value: 'howto',       label: '튜토리얼' },
+        { value: 'science',     label: '과학' },
+        { value: 'tech',        label: '테크' },
+        { value: 'etc',         label: '기타' }
+      ]
+    }
+  ]
+};
 
-/** 더큰카테고리: 쇼츠 / 일반영상 */
-export const CATEGORY_MODEL = [
-  { superKey:'shorts', superLabel:'쇼츠', groups: SHARED_GROUPS },
-  { superKey:'video',  superLabel:'일반영상', groups: SHARED_GROUPS },
-];
+// 편의 유틸(선택)
+export const CATEGORY_VALUES = CATEGORY_MODEL.groups.flatMap(g => g.children?.map(c => c.value) || []);
+export const TYPE_VALUES     = CATEGORY_MODEL.types.map(t => t.value);
 
-// (옵션) 전체 value 나열
-export function ALL_CATEGORY_VALUES(){
-  return CATEGORY_MODEL.flatMap(s => s.groups.flatMap(g => g.children.map(c => c.value)));
+// value → label (type/카테고리 공용)
+export function labelOf(value){
+  const t = CATEGORY_MODEL.types.find(x=>x.value===value);
+  if (t) return t.label;
+  for(const g of CATEGORY_MODEL.groups){
+    const c = (g.children||[]).find(x=>x.value===value);
+    if (c) return c.label || value;
+  }
+  return value;
 }
