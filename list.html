@@ -3,39 +3,43 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>영상 목록 - Arktube</title>
+  <title>ArkTube - 영상목록</title>
 
-  <!-- CSP -->
   <meta http-equiv="Content-Security-Policy" content="
     default-src 'self';
     connect-src 'self' https://www.googleapis.com https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://firebaseinstallations.googleapis.com https://www.gstatic.com https://www.youtube.com;
     img-src 'self' data: https://i.ytimg.com;
     frame-src https://www.youtube.com;
-    script-src 'self' https://www.gstatic.com 'unsafe-inline';
+    script-src 'self' https://www.gstatic.com https://www.youtube.com 'unsafe-inline';
     style-src 'self' 'unsafe-inline';
     object-src 'none';
     base-uri 'self';
   ">
 
   <link rel="stylesheet" href="css/style.css"/>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" type="image/png" sizes="32x32" href="/image/arktube_icon_32.png">
+  <link rel="apple-touch-icon" href="/image/arktube_icon_192.png">
 
   <style>
-    .brand-logo{ height:48px; } @media (max-width:420px){ .brand-logo{ height:40px; } }
-    body{ padding-top:48px; }
-    main{ max-width:1100px; margin:0 auto; padding:0 16px 40px; }
-
-    .toolbar{ display:grid; grid-template-columns: 1fr auto auto; gap:8px; align-items:center; }
-    .search{ display:flex; gap:8px; align-items:center; border:1px solid var(--border); background:#0f0f0f; border-radius:10px; padding:8px 10px; }
-    .search input{ flex:1; min-width:140px; border:0; outline:0; background:transparent; color:#fff; }
-    .btn{ padding:8px 10px; border-radius:10px; border:1px solid #2a2a2a; background:#151515; color:#fff; cursor:pointer; }
+    .container{ max-width:980px; margin:72px auto 24px; padding:0 16px; }
+    .filters{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:4px 0 10px; }
+    .s_bar{ display:flex; align-items:center; gap:8px; flex:1; }
+    .s_bar .search{ display:flex; gap:8px; align-items:center; flex:1 1 auto; min-width:200px; height:38px; padding:0 10px; border:1px solid var(--border); background:#0f0f0f; border-radius:10px; }
+    .s_bar input{ flex:1 1 auto; min-width:60px; height:100%; border:0; outline:0; background:transparent; color:#fff; }
+    .btn{ height:38px; padding:0 12px; border-radius:10px; border:1px solid #2a2a2a; background:#151515; color:#fff; cursor:pointer; }
     .btn:hover{ background:#1a1a1a; }
-
-    .cards{ display:flex; flex-direction:column; gap:7px; margin-top:10px; }
-
-    .slide-in-right{ animation: sir .24s ease-out both; }
-    @keyframes sir{ from{ transform:translateX(16px); opacity:0; } to{ transform:none; opacity:1; } }
-
-    .msg{ margin:8px 0; font-size:13px; color:#ccc; min-height:1.2em; }
+    .chip { border:1px solid #2a2a2a; border-radius:999px; padding:2px 8px; font-size:12px; color:#ddd; }
+    .list{ display:grid; gap:10px; }
+    .card{ display:grid; grid-template-columns:minmax(0,1fr) 160px; grid-template-areas:"title thumb" "url thumb" "cats thumb"; gap:10px; padding:8px; border:1px solid var(--border); background:var(--bg-2); border-radius:12px; }
+    .title{ grid-area:title; font-weight:800; font-size:16px; line-height:1.25; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+    .url{ grid-area:url; font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .chips{ grid-area:cats; display:flex; flex-wrap:wrap; gap:4px; }
+    .right{ grid-area:thumb; justify-self:end; }
+    .thumb-wrap{ width:160px; aspect-ratio:16/9; border-radius:8px; overflow:hidden; background:#000; }
+    .thumb{ width:100%; height:100%; object-fit:cover; display:block; cursor:pointer; }
+    .brand-logo{ height:48px; } @media (max-width:420px){ .brand-logo{ height:40px; } }
   </style>
 
   <!-- PWA -->
@@ -57,9 +61,12 @@
   <meta name="twitter:image" content="https://copytube.github.io/image/copytube_logo_512.png">
 </head>
 <body>
+  <!-- 상단바 -->
   <header id="topbar">
     <div class="brand">
-      <a href="./" aria-label="Arktube 홈으로"><img class="brand-logo" src="image/new_copytube_logo_side_w.png" alt="Arktube"/></a>
+      <a id="brandHome" href="/" aria-label="ArkTube 홈으로">
+        <img class="brand-logo" src="/image/arktube_side.png" alt="ArkTube">
+      </a>
     </div>
     <div class="right" style="position:relative;">
       <a id="signupLink" class="link" href="signup.html">Sign up</a>
@@ -67,38 +74,38 @@
       <span id="welcome" class="welcome"></span>
       <button id="menuBtn" class="icon" aria-label="menu">三</button>
       <div id="dropdownMenu" class="dropdown hidden" role="menu" aria-hidden="true">
-        <button id="btnAbout" type="button">Arktube는…</button>
+        <button id="btnAbout" class="menu-strong" type="button">ArkTube는…</button>
+        <button id="btnMyUploads" type="button">내영상관리</button>
         <button id="btnSignOut" type="button">Sign out</button>
-        <button id="btnList" type="button">영상목록</button>
         <button id="btnGoUpload" class="menu-strong" type="button">추천영상등록</button>
       </div>
     </div>
   </header>
 
-  <main>
-    <h2>영상 목록</h2>
-
-    <div class="s_bar">
-      <div class="search">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M21 21l-4.35-4.35M16 10.5A5.5 5.5 0 1 1 5 10.5a5.5 5.5 0 0 1 11 0Z" stroke="#9aa0a6" stroke-width="2" stroke-linecap="round"/>
-        </svg>
-        <input id="q" type="search" placeholder="제목/URL 검색"/>
+  <main class="container">
+    <div class="filters">
+      <div class="s_bar">
+        <div class="search"><input id="q" type="search" placeholder="제목/URL/카테고리 검색"/></div>
+        <button id="btnSearch" class="btn">검색</button>
+        <button id="btnReset" class="btn">초기화</button>
       </div>
-      <button id="btnSearch" class="btn">검색</button>
-    </div>
-
-    <div id="msg" class="msg">불러오는 중…</div>
-
-    <div id="cards" class="cards slide-in-right" aria-live="polite"></div>
-    <div id="more" style="text-align:center; margin:12px 0; display:none;">
+      <select id="typeSel" class="btn" style="height:38px;">
+        <option value="">전체</option>
+        <option value="shorts">쇼츠</option>
+        <option value="video">일반</option>
+      </select>
       <button id="btnMore" class="btn">더 보기</button>
     </div>
+    <div id="list" class="list"></div>
   </main>
 
-  <script type="module" src="js/firebase-init.js"></script>
-  <script type="module" src="js/auth.js"></script>
-  <script type="module" src="js/categories.js"></script>
-  <script type="module" src="js/list.js?v=1.8.3-ak"></script>
+  <script type="module" src="js/list.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(console.error);
+      });
+    }
+  </script>
 </body>
 </html>
