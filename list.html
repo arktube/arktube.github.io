@@ -1,111 +1,84 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>영상 목록 - CopyTube</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>영상 목록 - Arktube</title>
 
-  <!-- CSP: 프로젝트 파일들과 동일 정책 유지 -->
-  <meta http-equiv="Content-Security-Policy" content="
-    default-src 'self';
-    connect-src 'self' https://www.googleapis.com https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://firebaseinstallations.googleapis.com https://www.gstatic.com https://www.youtube.com;
-    img-src 'self' data: https://i.ytimg.com;
-    frame-src https://www.youtube.com;
-    script-src 'self' https://www.gstatic.com 'unsafe-inline';
-    style-src 'self' 'unsafe-inline';
-    object-src 'none';
-    base-uri 'self';
-  ">
 
-  <link rel="stylesheet" href="css/style.css"/>
+<!-- CSP: 프로젝트 파일들과 동일 정책 유지 -->
+<meta http-equiv="Content-Security-Policy" content="
+default-src 'self';
+connect-src 'self' https://www.googleapis.com https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://firebaseinstallations.googleapis.com https://www.gstatic.com https://www.youtube.com;
+img-src 'self' data: https://i.ytimg.com;
+frame-src https://www.youtube.com;
+script-src 'self' https://www.gstatic.com 'unsafe-inline';
+style-src 'self' 'unsafe-inline';
+object-src 'none';
+base-uri 'self';
+">
 
-  <!-- 페이지 전용 최소 스타일: 목록 2열 카드(목록1.3 밀도 준수) -->
-  <style>
-    body{ padding-top:48px; }
-    main{ max-width:1100px; margin:0 auto; padding:0 16px 40px; }
 
-    .toolbar{ display:grid; grid-template-columns: 1fr auto auto; gap:8px; align-items:center; }
-    .search{ display:flex; gap:8px; align-items:center; border:1px solid var(--border); background:#0f0f0f; border-radius:10px; padding:8px 10px; }
-    .search input{ flex:1; min-width:140px; border:0; outline:0; background:transparent; color:#fff; }
-    .btn{ padding:8px 10px; border-radius:10px; border:1px solid #2a2a2a; background:#151515; color:#fff; cursor:pointer; }
-    .btn:hover{ background:#1a1a1a; }
+<link rel="stylesheet" href="css/style.css"/>
 
-    /* 카드 2열(왼쪽: 제목/URL/칩 3행, 오른쪽: 썸네일 좁게) */
-    .cards{ display:flex; flex-direction:column; gap:7px; margin-top:10px; }
- 
-    /* 슬라이드 인(가벼운 등장감) */
-    .slide-in-right{ animation: sir .24s ease-out both; }
-    @keyframes sir{ from{ transform:translateX(16px); opacity:0; } to{ transform:none; opacity:1; } }
 
-    .msg{ margin:8px 0; font-size:13px; color:#ccc; min-height:1.2em; }
-  </style>
-      <!-- PWA Manifest -->
-  <link rel="manifest" href="manifest.json">
-  <meta name="theme-color" content="#000000">
-  <link rel="icon" type="image/png" sizes="32x32" href="image/copytube_logo_32.png">
-  <link rel="icon" type="image/png" sizes="192x192" href="image/copytube_logo_fullblack_192.png">
-  <link rel="icon" type="image/png" sizes="512x512" href="image/copytube_logo_fullblack_512.png">
+<!-- 페이지 전용 최소 스타일: 목록 2열 카드(목록1.3 밀도 준수) -->
+<style>
+/* 상단바 로고 크기 정책 (모바일 40px / 데스크톱 48px) */
+.brand-logo{ height:48px; }
+@media (max-width:420px){ .brand-logo{ height:40px; } }
 
-  <!-- Open Graph (카카오톡/페북 등 미리보기) -->
-<meta property="og:title" content="CopyTube" />
-<meta property="og:description" content="내가 만든 영상 공유 플랫폼, CopyTube" />
+
+body{ padding-top:48px; }
+main{ max-width:1100px; margin:0 auto; padding:0 16px 40px; }
+
+
+.toolbar{ display:grid; grid-template-columns: 1fr auto auto; gap:8px; align-items:center; }
+.search{ display:flex; gap:8px; align-items:center; border:1px solid var(--border); background:#0f0f0f; border-radius:10px; padding:8px 10px; }
+.search input{ flex:1; min-width:140px; border:0; outline:0; background:transparent; color:#fff; }
+.btn{ padding:8px 10px; border-radius:10px; border:1px solid #2a2a2a; background:#151515; color:#fff; cursor:pointer; }
+.btn:hover{ background:#1a1a1a; }
+
+
+.cards{ display:flex; flex-direction:column; gap:7px; margin-top:10px; }
+
+
+.slide-in-right{ animation: sir .24s ease-out both; }
+@keyframes sir{ from{ transform:translateX(16px); opacity:0; } to{ transform:none; opacity:1; } }
+
+
+.msg{ margin:8px 0; font-size:13px; color:#ccc; min-height:1.2em; }
+</style>
+
+
+<!-- PWA Manifest -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#000000">
+<link rel="icon" type="image/png" sizes="32x32" href="image/copytube_logo_32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="image/copytube_logo_fullblack_192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="image/copytube_logo_fullblack_512.png">
+
+
+<!-- Open Graph / Twitter -->
+<meta property="og:title" content="Arktube" />
+<meta property="og:description" content="내가 만든 영상 공유 플랫폼, Arktube" />
 <meta property="og:image" content="https://copytube.github.io/image/copytube_logo_512.png" />
 <meta property="og:url" content="https://copytube.github.io/" />
 <meta property="og:type" content="website" />
-
-<!-- 트위터 카드 (선택사항) -->
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="CopyTube">
-<meta name="twitter:description" content="내가 만든 영상 공유 플랫폼, CopyTube">
+<meta name="twitter:title" content="Arktube">
+<meta name="twitter:description" content="내가 만든 영상 공유 플랫폼, Arktube">
 <meta name="twitter:image" content="https://copytube.github.io/image/copytube_logo_512.png">
 </head>
 <body>
-  <!-- 공통 상단바(원본 유지 원칙) -->
-  <header id="topbar">
-    <div class="brand">
-      <a href="./" aria-label="CopyTube 홈으로"><img class="brand-logo" src="image/new_copytube_logo_side_w.png" alt="CopyTube"/></a>
-    </div>
-    <div class="right" style="position:relative;">
-      <a id="signupLink" class="link" href="signup.html">Sign up</a>
-      <a id="signinLink" class="link" href="signin.html">Sign in</a>
-      <span id="welcome" class="welcome"></span>
-      <button id="menuBtn" class="icon" aria-label="menu">三</button>
-      <div id="dropdownMenu" class="dropdown hidden" role="menu" aria-hidden="true">
-        <button id="btnAbout" type="button">CopyTube는…</button>
-        <button id="btnSignOut" type="button">Sign out</button>
-        <button id="btnList" type="button">영상목록</button>
-        <button id="btnGoUpload" class="menu-strong" type="button">추천영상등록</button>        
-      </div>
-    </div>
-  </header>
-
-  <main>
-    <h2>영상 목록</h2>
-
-<div class="s_bar">
-  <div class="search">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-      <path d="M21 21l-4.35-4.35M16 10.5A5.5 5.5 0 1 1 5 10.5a5.5 5.5 0 0 1 11 0Z"
-            stroke="#9aa0a6" stroke-width="2" stroke-linecap="round"/>
-    </svg>
-    <input id="q" type="search" placeholder="제목/URL 검색"/>
-  </div>
-  <button id="btnSearch" class="btn">검색</button>
+<!-- 공통 상단바(원본 유지 원칙) -->
+<header id="topbar">
+<div class="brand">
+<a href="./" aria-label="Arktube 홈으로"><img class="brand-logo" src="image/new_copytube_logo_side_w.png" alt="Arktube"/></a>
 </div>
-
-
-    <div id="msg" class="msg">불러오는 중…</div>
-
-    <div id="cards" class="cards slide-in-right" aria-live="polite"></div>
-    <div id="more" style="text-align:center; margin:12px 0; display:none;">
-      <button id="btnMore" class="btn">더 보기</button>
-    </div>
-  </main>
-
-  <!-- 모듈 스크립트: 반드시 firebase-init / auth / categories 포함 -->
-  <script type="module" src="js/firebase-init.js"></script>
-  <script type="module" src="js/auth.js"></script>
-  <script type="module" src="js/categories.js"></script>
-  <script type="module" src="js/list.js?v=1.8.2"></script>
-</body>
+<div class="right" style="position:relative;">
+<a id="signupLink" class="link" href="signup.html">Sign up</a>
+<a id="signinLink" class="link" href="signin.html">Sign in</a>
+<span id="welcome" class="welcome"></span>
+<button id="menuBtn" class="icon" aria-label="menu">三</button>
 </html>
