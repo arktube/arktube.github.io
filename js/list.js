@@ -1,11 +1,8 @@
-// js/list.js (v1.9.1-ark, long/feature-complete)
-// - CATEGORY_MODEL 기반(type 분리)
-// - 서버 where('type','==', selType) + createdAt desc 페이징
-// - 개인자료 모드(슬롯 1~4, 로컬 저장소) — ArkTube 키 접두사 적용(구 키 호환)
-// - 닉네임 캐시(users/{uid}) + 제목 oEmbed 7일 캐시
-// - 무한 스크롤 + 인지형 선로딩
-// - 스와이프 내비(좌 슬라이드로 index.html)
-// - 카드 클릭 시 watch.html로 큐/인덱스 전달
+// js/list.js (v1.9.3-ark, personal keys w/o prefix, CATEGORY_MODEL-only)
+// - CATEGORY_GROUPS 전혀 사용 안 함
+// - 개인자료 저장/조회 키: 'personal1'~'personal4' (접두사 불사용)
+// - 라벨 키 기본: 'personalLabels' (과거 'arkPersonalLabels'/'copytubePersonalLabels'는 읽기 호환만)
+// - 나머지 기능 동일: where('type','==',selType)+createdAt desc, 무한스크롤, oEmbed 제목캐시, 닉네임 캐시, 스와이프
 
 import { auth, db } from './firebase-init.js';
 import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
@@ -13,13 +10,6 @@ import { CATEGORY_MODEL } from './categories.js';
 import {
   collection, getDocs, getDoc, doc, query, orderBy, limit, startAfter, where
 } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
-
-/* ---------- ArkTube 로컬 키/라벨 키 (구 키 호환) ---------- */
-const KEY_PREFIX_NEW = 'arktube_';
-const KEY_PREFIX_OLD = 'copytube_'; // 호환
-const LABELS_KEY_NEW = 'arkPersonalLabels';
-const LABELS_KEY_OLD1 = 'personalLabels';
-const LABELS_KEY_OLD2 = 'copytubePersonalLabels';
 
 /* ---------- 전역 내비 중복 방지 플래그 ---------- */
 window.__swipeNavigating = window.__swipeNavigating || false;
@@ -35,9 +25,8 @@ const btnGoUpload= document.getElementById('btnGoUpload');
 const btnAbout   = document.getElementById('btnAbout');
 const btnList    = document.getElementById('btnList');
 
-let isMenuOpen = false;
-function openDropdown(){ if(!dropdown) return; isMenuOpen = true; dropdown.classList.remove('hidden'); requestAnimationFrame(()=> dropdown.classList.add('show')); }
-function closeDropdown(){ if(!dropdown) return; isMenuOpen = false; dropdown.classList.remove('show'); setTimeout(()=> dropdown.classList.add('hidden'), 180); }
+function openDropdown(){ if(!dropdown) return; dropdown.classList.remove('hidden'); requestAnimationFrame(()=> dropdown.classList.add('show')); }
+function closeDropdown(){ if(!dropdown) return; dropdown.classList.remove('show'); setTimeout(()=> dropdown.classList.add('hidden'), 180); }
 
 onAuthStateChanged(auth, (user) => {
   const loggedIn = !!user;
@@ -90,14 +79,17 @@ function toThumb(url, fallback=''){
   return id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : fallback;
 }
 
-/* ---- 카테고리 라벨: 이름(라벨) 반환 ---- */
+/* ---- 카테고리 라벨: CATEGORY_MODEL 전용 ---- */
 const LABEL_MAP = (() => {
   const m = {};
   try {
+    if (!CATEGORY_MODEL || !Array.isArray(CATEGORY_MODEL.groups)) throw new Error('CATEGORY_MODEL.groups missing');
     CATEGORY_MODEL.groups.forEach(g => g?.children?.forEach(c => {
       if (c?.value) m[c.value] = c.label || c.value;
     }));
-  } catch {}
+  } catch (e) {
+    console.error('[list] CATEGORY_MODEL 불일치:', e?.message || e);
+  }
   return m;
 })();
 function getLabel(key){ return LABEL_MAP[key] || key; }
@@ -153,42 +145,27 @@ async function hydrateTitleIfNeeded(titleEl, url, existingTitle){
 
 /* ---------- 닉네임 캐시 ---------- */
 const NickCache = {
-  map: new Map(), // uid -> string (nickname/displayName) or ''(미상)
+  map: new Map(),
   get(uid){ return this.map.get(uid) || ''; },
   set(uid, name){ if(uid) this.map.set(uid, String(name||'')); }
 };
-
-function ownerUidOf(d = {}){
-  return d?.ownerUid || d?.uid || d?.userUid || null;
-}
-
+function ownerUidOf(d = {}){ return d?.ownerUid || d?.uid || d?.userUid || null; }
 async function preloadNicknamesFor(docs){
-  // docs: [{id, data}]
   const uids = new Set();
-  docs.forEach(x => {
-    const uid = ownerUidOf(x.data);
-    if (uid && !NickCache.map.has(uid)) uids.add(uid);
-  });
-  if (!uids.size) return;
-
-  const tasks = [...uids].map(async (uid) => {
+  docs.forEach(x => { const uid = ownerUidOf(x.data); if (uid && !NickCache.map.has(uid)) uids.add(uid); });
+  await Promise.all([...uids].map(async (uid)=> {
     try{
       const snap = await getDoc(doc(db, 'users', uid));
       const prof = snap.exists() ? snap.data() : null;
-      const name = prof?.nickname || prof?.displayName || '';
-      NickCache.set(uid, name);
-    }catch{
-      NickCache.set(uid, '');
-    }
-  });
-  await Promise.all(tasks);
+      NickCache.set(uid, prof?.nickname || prof?.displayName || '');
+    }catch{ NickCache.set(uid, ''); }
+  }));
 }
 
-/* ---------- 개인자료 모드 (슬롯 1~4) ---------- */
+/* ---------- 개인자료 모드 (슬롯 1~4, 접두사 없음) ---------- */
 function isPersonalOnlySelection(){
   try{
-    const raw = localStorage.getItem('selectedCats');
-    const v = JSON.parse(raw || '[]');
+    const v = JSON.parse(localStorage.getItem('selectedCats') || '[]');
     return Array.isArray(v) && v.length === 1 && /^personal[1-4]$/.test(v[0]);
   }catch{ return false; }
 }
@@ -198,22 +175,31 @@ function getPersonalSlot(){
     return Array.isArray(v) ? v[0] : null;
   }catch{ return null; }
 }
+// ▶ 저장/조회 키 = slot 그대로 사용: 'personal1' ~ 'personal4'
 function readPersonalItems(slot){
-  const keyNew = `${KEY_PREFIX_NEW}${slot}`;
-  const keyOld = `${KEY_PREFIX_OLD}${slot}`; // 호환
   try{
-    const raw = localStorage.getItem(keyNew) ?? localStorage.getItem(keyOld) ?? '[]';
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr : [];
+    const primary = localStorage.getItem(slot); // 표준
+    if (primary != null) {
+      const arr = JSON.parse(primary);
+      return Array.isArray(arr) ? arr : [];
+    }
+    // 과거 호환(읽기 전용): copytube_/arktube_ 접두사
+    const legacy = localStorage.getItem('copytube_' + slot) ?? localStorage.getItem('arktube_' + slot);
+    if (legacy != null) {
+      const arr = JSON.parse(legacy);
+      return Array.isArray(arr) ? arr : [];
+    }
+    return [];
   }catch{ return []; }
 }
+// ▶ 라벨 키: 기본 'personalLabels' (읽기 호환: arkPersonalLabels, copytubePersonalLabels)
 function getPersonalLabel(slot){
   try{
-    const labelsRaw = localStorage.getItem(LABELS_KEY_NEW)
-                   ?? localStorage.getItem(LABELS_KEY_OLD1)
-                   ?? localStorage.getItem(LABELS_KEY_OLD2)
-                   ?? '{}';
-    const labels = JSON.parse(labelsRaw);
+    const raw = localStorage.getItem('personalLabels')
+            ?? localStorage.getItem('arkPersonalLabels')
+            ?? localStorage.getItem('copytubePersonalLabels')
+            ?? '{}';
+    const labels = JSON.parse(raw);
     return labels?.[slot] || (slot || '개인자료');
   }catch{ return slot || '개인자료'; }
 }
@@ -284,8 +270,6 @@ function filterDocs(){
   const q = ($q?.value || '').trim().toLowerCase();
 
   let list = allDocs.slice();
-
-  // type 강제 필터 (서버/클라 모두에서)
   list = list.filter(x => (x.data?.type === selType));
 
   if (Array.isArray(cats) && cats.length){
@@ -333,7 +317,6 @@ async function loadPage(){
   } catch (e) {
     console.warn('[list] fallback:', e?.message || e);
     try {
-      // 서버 where 실패 시: createdAt desc로 넉넉히 가져와 클라에서 type 필터
       const snap = await getDocs(query(collection(db,'videos'), orderBy('createdAt','desc'), limit(PAGE_SIZE*3)));
       const arr = snap.docs.map(d => ({ id:d.id, data:d.data(), _t:(d.data()?.createdAt?.toMillis?.()||0) }));
       arr.sort((a,b)=> b._t - a._t);
@@ -349,7 +332,6 @@ async function loadPage(){
     }
   }
 
-  // uploader 닉네임 미리 불러오기
   await preloadNicknamesFor(batch);
 
   render();
@@ -583,8 +565,6 @@ function initSwipeNav({ goLeftHref=null, goRightHref=null, animateMs=260, deadZo
   document.addEventListener('pointerdown',onStart, { passive:true });
   document.addEventListener('pointerup',  onEnd,   { passive:true });
 }
-
-// ✅ list: 우→좌 = index (단순형 + 중앙 데드존 30%)
 initSwipeNav({ goLeftHref: 'index.html', goRightHref: null, deadZoneCenterRatio: 0.30 });
 
 /* ===================== */
@@ -695,6 +675,5 @@ initSwipeNav({ goLeftHref: 'index.html', goRightHref: null, deadZoneCenterRatio:
     document.addEventListener('pointerup',   end,   { passive:true, capture:true });
   }
 
-  // list: 우→좌 = index (오른쪽 페이지 없음 → 오른쪽 끌림 완전 차단, 중앙 데드존 15%)
   initDragSwipe({ goLeftHref: 'index.html', goRightHref: null, threshold:60, slop:45, timeMax:700, feel:1.0, deadZoneCenterRatio: 0.15 });
 })();
