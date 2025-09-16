@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Copytube - 영상 보기</title>
+  <title>Arktube - 영상 보기</title>
 
   <meta http-equiv="Content-Security-Policy" content="
     default-src 'self';
@@ -18,6 +18,7 @@
 
   <link rel="stylesheet" href="css/style.css"/>
   <style>
+    .brand-logo{ height:48px; } @media (max-width:420px){ .brand-logo{ height:40px; } }
     :root{ --app-vh: 100vh; }
     #videoContainer{
       height: var(--app-vh);
@@ -49,37 +50,35 @@
     .gesture-capture{ position:absolute; inset:0; z-index:20; display:flex; align-items:center; justify-content:center; background:transparent; cursor:pointer; }
     .gesture-capture.hidden{ display:none; }
 
-    /* Topbar reuse */
     #topbar{ position:fixed; inset:0 0 auto 0; z-index:1000; background:var(--bg-1); transition:transform .25s ease; }
     #topbar.hide{ transform:translateY(-100%); }
     #menuBackdrop{ position:fixed; inset:0; background:transparent; z-index:900; display:none; }
     #menuBackdrop.show{ display:block; }
   </style>
-      <!-- PWA Manifest -->
+
+  <!-- PWA -->
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#000000">
   <link rel="icon" type="image/png" sizes="32x32" href="image/copytube_logo_32.png">
   <link rel="icon" type="image/png" sizes="192x192" href="image/copytube_logo_fullblack_192.png">
   <link rel="icon" type="image/png" sizes="512x512" href="image/copytube_logo_fullblack_512.png">
 
-  <!-- Open Graph (카카오톡/페북 등 미리보기) -->
-<meta property="og:title" content="CopyTube" />
-<meta property="og:description" content="내가 만든 영상 공유 플랫폼, CopyTube" />
-<meta property="og:image" content="https://copytube.github.io/image/copytube_logo_512.png" />
-<meta property="og:url" content="https://copytube.github.io/" />
-<meta property="og:type" content="website" />
-
-<!-- 트위터 카드 (선택사항) -->
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="CopyTube">
-<meta name="twitter:description" content="내가 만든 영상 공유 플랫폼, CopyTube">
-<meta name="twitter:image" content="https://copytube.github.io/image/copytube_logo_512.png">
+  <!-- OG/Twitter -->
+  <meta property="og:title" content="Arktube" />
+  <meta property="og:description" content="내가 만든 영상 공유 플랫폼, Arktube" />
+  <meta property="og:image" content="https://copytube.github.io/image/copytube_logo_512.png" />
+  <meta property="og:url" content="https://copytube.github.io/" />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Arktube">
+  <meta name="twitter:description" content="내가 만든 영상 공유 플랫폼, Arktube">
+  <meta name="twitter:image" content="https://copytube.github.io/image/copytube_logo_512.png">
 </head>
 <body>
   <header id="topbar">
     <div class="brand">
-      <a id="brandHome" href="#" aria-label="CopyTube 홈으로">
-        <img class="brand-logo" src="image/new_copytube_logo_side_w.png" alt="CopyTube"/>
+      <a id="brandHome" href="#" aria-label="Arktube 홈으로">
+        <img class="brand-logo" src="image/new_copytube_logo_side_w.png" alt="Arktube"/>
       </a>
     </div>
     <div class="right" style="position:relative;">
@@ -88,7 +87,7 @@
       <span id="welcome" class="welcome"></span>
       <button id="menuBtn" class="icon" aria-label="menu">三</button>
       <div id="dropdownMenu" class="dropdown hidden" role="menu" aria-hidden="true">
-        <button id="btnAbout"       type="button">CopyTube는…</button>
+        <button id="btnAbout"       type="button">Arktube는…</button>
         <button id="btnGoCategory"  class="menu-strong" type="button">카테고리 선택</button>
         <button id="btnMyUploads"   type="button">내영상관리</button>
         <button id="btnSignOut"     type="button">Sign out</button>
@@ -103,6 +102,6 @@
 
   <script type="module" src="js/firebase-init.js"></script>
   <script type="module" src="js/auth.js"></script>
-  <script type="module" src="js/watch.js?v=1.0"></script>
+  <script type="module" src="js/watch.js?v=1.0.7-ak"></script>
 </body>
 </html>
