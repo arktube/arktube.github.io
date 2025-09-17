@@ -3,57 +3,83 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>ArkTube - 카테고리 선택</title>
+  <title>Copytube - 카테고리 선택</title>
 
-  <!-- CSP -->
   <meta http-equiv="Content-Security-Policy" content="
     default-src 'self';
     connect-src 'self' https://www.googleapis.com https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://firebaseinstallations.googleapis.com https://www.gstatic.com https://www.youtube.com;
     img-src 'self' data: https://i.ytimg.com;
     frame-src https://www.youtube.com;
-    script-src 'self' https://www.gstatic.com https://www.youtube.com 'unsafe-inline';
+    script-src 'self' https://www.gstatic.com 'unsafe-inline';
     style-src 'self' 'unsafe-inline';
     object-src 'none';
     base-uri 'self';
   ">
 
-  <!-- 스타일 -->
   <link rel="stylesheet" href="css/style.css"/>
-
-  <!-- PWA / Icons (ArkTube 표준 세트) -->
-  <link rel="manifest" href="/manifest.json">
-  <meta name="theme-color" content="#000000">
-  <link rel="icon" type="image/png" sizes="32x32" href="/image/arktube_icon_32.png">
-  <link rel="apple-touch-icon" href="/image/arktube_icon_192.png">
-
   <style>
     :root{ --cta-width:148px; }
     .lead{ font-size:20px; color:#e6e6e6; margin:0 0 6px; }
     .sublead{ font-size:14px; color:#9aa0a6; margin:0 0 12px; }
-    .cta-row{ display:grid; grid-template-columns:1fr var(--cta-width) auto auto 1fr; align-items:center; column-gap:10px; margin:6px 0 10px; }
+    .cta-row{
+      display:grid; grid-template-columns:1fr var(--cta-width) auto 1fr; align-items:center; column-gap:10px; margin:4px 0;
+    }
     .btn-primary{ grid-column:2; padding:8px 14px; border:0; border-radius:8px; background:#4ea1ff; color:#fff; font-weight:800; cursor:pointer; font-size:18px; width:var(--cta-width); text-align:center; }
     .inline-check{ display:inline-flex; align-items:center; gap:8px; font-size:13px; color:#ddd; user-select:none; line-height:1; }
     .inline-check input{ width:16px; height:16px; margin:0; accent-color:#4ea1ff; appearance:auto; vertical-align:middle; }
-    .cat-head{ display:grid; grid-template-columns:1fr var(--cta-width) auto 1fr; align-items:center; column-gap:10px; margin:0; }
-    .cat-title{ grid-column:2; width:var(--cta-width); margin:0; padding:8px 14px; background:transparent; border:0; border-radius:8px; color:#fff; font-weight:800; font-size:20px; text-align:center; user-select:none; cursor:pointer; }
-    .group{ border:1px solid var(--border); border-radius:12px; background:var(--bg-3); padding:8px; margin:8px 0; text-align:left; max-width:980px; margin-left:auto; margin-right:auto; }
-    .group legend{ padding:0 4px; font-weight:800; font-size:15px; color:#eee; margin-bottom:0; line-height:1.05; }
-    .child-grid{ margin-top:2px; display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:4px; }
+    .cta-row .inline-check:not(.ghost){ grid-column:3; justify-self:flex-start; }
+    .cta-row .inline-check.ghost{ display:none; }
+
+    .cat-head{ display:grid; grid-template-columns:1fr var(--cta-width) auto 1fr; align-items:center; column-gap:0; margin:0; }
+    /* h3 → button으로 변경, 클릭/포커스 안정화 */
+    .cat-title{
+      grid-column:2; display:inline-block; width:var(--cta-width);
+      margin:0; padding:8px 14px; background:transparent; border:0; border-radius:8px; color:#fff;
+      font-weight:800; font-size:20px; text-align:center; user-select:none; cursor:pointer;
+      appearance:none; -webkit-appearance:none;
+    }
+    .cat-title:active{ transform:translateY(0.5px); focus{ outline: none; }; focus-visible{                     /* 접근성 보완(선택) */
+  outline: 2px solid #4ea1ff;
+  outline-offset: 2px;
+} }
+    .cat-right{ grid-column:3; }
+
+    .group{ border:1px solid var(--border); border-radius:12px; background:var(--bg-3); padding:4px; margin:4px 0; text-align:left; max-width:900px; margin-left:auto; margin-right:auto; }
+    .group legend{ display:flex; align-items:center; gap:8px; padding:0 4px; font-weight:800; font-size:15px; color:#eee; margin-bottom:0; line-height:1.05; }
+    .group .group-toggle{ display:inline-flex; align-items:center; gap:8px; padding:6px 8px; border-radius:8px; background:#101010; border:1px solid #2a2a2a; color:#e5e7eb; cursor:pointer; font-weight:800; }
+    .group .group-toggle input{ accent-color:#4ea1ff; }
+    .child-grid{ margin-top:0; display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:4px; }
     @media (min-width:900px){ .child-grid{ grid-template-columns:repeat(4, minmax(0,1fr)); } }
     .child-grid label{ background:#0f0f0f; border:1px solid #2a2a2a; border-radius:8px; padding:6px 8px; font-size:14px; line-height:1.2; display:flex; gap:6px; align-items:center; justify-content:flex-start; }
-    .muted{ color:#9aa0a6; font-size:12px; }
-    /* 로고 크기(사용자 선호) */
-    .brand-logo{ height:48px; }
-    @media (max-width:420px){ .brand-logo{ height:40px; } }
-  </style>
-</head>
 
+    .icon-mute{ vertical-align:middle; margin-left:4px; }
+  </style>
+    <!-- PWA Manifest -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" type="image/png" sizes="32x32" href="image/copycat_32.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="image/copytube_icon_192.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="image/copytube_icon_512.png">
+
+  <!-- Open Graph (카카오톡/페북 등 미리보기) -->
+<meta property="og:title" content="CopyTube" />
+<meta property="og:description" content="내가 만든 영상 공유 플랫폼, CopyTube" />
+<meta property="og:image" content="https://copytube.github.io/image/copytube_logo_512.png" />
+<meta property="og:url" content="https://copytube.github.io/" />
+<meta property="og:type" content="website" />
+
+<!-- 트위터 카드 (선택사항) -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="CopyTube">
+<meta name="twitter:description" content="내가 만든 영상 공유 플랫폼, CopyTube">
+<meta name="twitter:image" content="https://copytube.github.io/image/copytube_logo_512.png">
+
+</head>
 <body>
-  <!-- 상단바 -->
   <header id="topbar">
     <div class="brand">
-      <a id="brandHome" href="/" aria-label="ArkTube 홈으로">
-        <img class="brand-logo" src="/image/arktube_side.png" alt="ArkTube">
+      <a id="brandHome" href="#" aria-label="CopyTube 홈으로">
+        <img class="brand-logo" src="image/new_copytube_logo_side_w.png" alt="CopyTube"/>
       </a>
     </div>
     <div class="right" style="position:relative;">
@@ -62,40 +88,38 @@
       <span id="welcome" class="welcome"></span>
       <button id="menuBtn" class="icon" aria-label="menu">三</button>
       <div id="dropdownMenu" class="dropdown hidden" role="menu" aria-hidden="true">
-        <button id="btnAbout" class="menu-strong" type="button">ArkTube는…</button>
+        <button id="btnAbout" class="menu-strong" type="button">CopyTube는…</button>
         <button id="btnMyUploads" type="button">내영상관리</button>
         <button id="btnSignOut" type="button">Sign out</button>
         <button id="btnList" type="button">영상목록</button>
-        <button id="btnGoUpload" class="menu-strong" type="button">추천영상등록</button>
+        <button id="btnGoUpload" class="menu-strong" type="button">추천영상등록</button>        
       </div>
     </div>
   </header>
 
-  <!-- 본문 -->
   <section class="intro">
     <div style="width:100%; max-width:980px; margin:0 auto;">
-      <p class="lead">보고 싶은 카테고리를 선택하고</p>
-      <p class="lead">영상보기를 누르세요.</p>
-      <p class="sublead">첫 화면 우상단 🔊를 눌러 음소거를 해제할 수 있어요.</p>
+      <p class="lead">영상보기를 눌러 선택된 카테고리의</p> <p class="lead">영상을 시청하세요.</p>
+      <p class="sublead">첫 화면 상단
+        <img src="image/mute.jpg" alt="음소거 아이콘" class="icon-mute" width="16" height="16" loading="lazy" decoding="async">
+        을 눌러 음소거를 해제해 주세요.
+      </p>
 
       <div class="cta-row">
+        <label class="inline-check ghost" aria-hidden="true">
+          <input type="checkbox" disabled/> 연속재생
+        </label>
+
         <button id="btnWatch" class="btn-primary">▶ 영상보기</button>
 
-        <label class="inline-check" title="영상 종료 시 자동으로 다음 영상으로 이동">
+        <label class="inline-check" id="autoNextWrap" title="영상 종료 시 자동으로 다음 영상으로 이동">
           <input type="checkbox" id="cbAutoNext"/> 연속재생
-        </label>
-
-        <label class="inline-check" title="쇼츠만 재생">
-          <input type="checkbox" id="cbShortsOnly"/> 쇼츠만
-        </label>
-
-        <label class="inline-check" title="일반영상만 재생">
-          <input type="checkbox" id="cbVideoOnly"/> 일반만
         </label>
       </div>
 
       <div class="cat-head">
-        <button type="button" class="cat-title" id="btnOpenOrder" aria-label="카테고리 순서 설정">카테고리</button>
+        <!-- 여기: h3 → button 으로 변경 -->
+        <button type="button" class="cat-title" id="btnOpenOrder" aria-label="카테고리 순서 설정 열기">카테고리</button>
         <div class="cat-right">
           <label class="inline-check" title="모든 카테고리 선택/해제">
             <input type="checkbox" id="cbToggleAll"/> 전체선택
@@ -107,16 +131,9 @@
     </div>
   </section>
 
-  <!-- 로그인 유지/드롭다운/상단바 스크립트 포함 -->
-  <script type="module" src="js/index.js"></script>
+  <script type="module" src="js/firebase-init.js"></script>
+  <script type="module" src="js/auth.js"></script>
+  <script type="module" src="js/index.js?v=1.2.4"></script>
 
-  <!-- SW 등록(기본 연결 스니펫) -->
-  <script>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js').catch(console.error);
-      });
-    }
-  </script>
 </body>
 </html>

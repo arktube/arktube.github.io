@@ -3,74 +3,83 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>ArkTube - 시청</title>
+  <title>Copytube - 영상 보기</title>
 
   <meta http-equiv="Content-Security-Policy" content="
     default-src 'self';
     connect-src 'self' https://www.googleapis.com https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://firebaseinstallations.googleapis.com https://www.gstatic.com https://www.youtube.com;
     img-src 'self' data: https://i.ytimg.com;
     frame-src https://www.youtube.com;
-    script-src 'self' https://www.gstatic.com https://www.youtube.com 'unsafe-inline';
+    script-src 'self' https://www.gstatic.com 'unsafe-inline';
     style-src 'self' 'unsafe-inline';
     object-src 'none';
     base-uri 'self';
   ">
 
   <link rel="stylesheet" href="css/style.css"/>
-
-  <!-- PWA / Icons -->
-  <link rel="manifest" href="/manifest.json">
-  <meta name="theme-color" content="#000000">
-  <link rel="icon" type="image/png" sizes="32x32" href="/image/arktube_icon_32.png">
-  <link rel="apple-touch-icon" href="/image/arktube_icon_192.png">
-
   <style>
-    :root{ --app-vh:100vh; }
+    :root{ --app-vh: 100vh; }
     #videoContainer{
       height: var(--app-vh);
-      overscroll-behavior-y: contain; scroll-snap-type:y mandatory;
-      overflow-y:scroll; background:#000;
+      overflow-y: scroll;
+      scroll-snap-type: y mandatory;
+      overscroll-behavior-y: contain;
+      background:#000;
     }
     @supports (height: 100svh){ #videoContainer{ height: 100svh; } }
     .video{
-      height: var(--app-vh); scroll-snap-align:start; scroll-snap-stop:always;
-      display:flex; align-items:center; justify-content:center; background:#000; position:relative;
+      height: var(--app-vh);
+      scroll-snap-align: start;
+      scroll-snap-stop: always;
+      position:relative; display:flex; align-items:center; justify-content:center; background:#000;
     }
-    @supports (height: 100svh){ .video{ height:100svh; } }
-    .yt{ width:100%; height:100%; border:0; background:#000; }
+    @supports (height: 100svh){ .video{ height: 100svh; } }
+    .thumb{ width:100%; height:100%; display:flex; align-items:center; justify-content:center; position:relative; background:#000; }
+    .thumb img{ max-width:100%; max-height:100%; object-fit:contain; border:0; }
+    .playhint{
+      position:absolute; bottom:16px; left:50%; transform:translateX(-50%);
+      padding:6px 10px; background:rgba(0,0,0,.45); border-radius:6px; font-size:13px; color:#fff; text-align:center;
+    }
+    .mute-tip{
+      position:absolute; top:12px; left:50%; transform:translateX(-50%);
+      padding:6px 10px; background:rgba(0,0,0,.45); border-radius:6px; color:#fff; font-size:12px;
+    }
+    .video iframe{ width:100%; height:100%; border:0; }
 
-    .hint{ position:absolute; inset:auto 0 12px 0; color:#cfcfcf; font-size:14px; text-align:center; }
-    .top-hud{
-      position:fixed; left:12px; top:62px; z-index:25; display:flex; gap:8px; flex-wrap:wrap;
-    }
-    .hud-btn{
-      background:#111; color:#fff; border:1px solid #333; border-radius:10px; padding:8px 10px; font-weight:700; cursor:pointer;
-    }
-    .hud-btn:hover{ background:#161616; }
-    .status-badge{
-      position:fixed; right:12px; top:62px; z-index:25;
-      background:#111; color:#fff; border:1px solid #333; border-radius:999px; padding:6px 10px; font-size:12px; opacity:.9;
-    }
-    .toast{
-      position:fixed; left:50%; transform:translateX(-50%);
-      bottom:22px; background:rgba(0,0,0,.75); color:#fff; border:1px solid #333;
-      border-radius:10px; padding:8px 12px; font-size:13px; z-index:30; opacity:0; transition:opacity .2s;
-    }
-    .toast.show{ opacity:1; }
-    .skeleton{
-      position:absolute; inset:0; display:grid; place-items:center; color:#777; font-size:13px;
-      background:linear-gradient(90deg,#0d0d0d 0%, #101010 50%, #0d0d0d 100%); background-size:200% 100%; animation:sk 1.1s infinite linear;
-    }
-    @keyframes sk{0%{background-position:0 0}100%{background-position:-200% 0}}
-    .brand-logo{ height:48px; } @media (max-width:420px){ .brand-logo{ height:40px; } }
+    .gesture-capture{ position:absolute; inset:0; z-index:20; display:flex; align-items:center; justify-content:center; background:transparent; cursor:pointer; }
+    .gesture-capture.hidden{ display:none; }
+
+    /* Topbar reuse */
+    #topbar{ position:fixed; inset:0 0 auto 0; z-index:1000; background:var(--bg-1); transition:transform .25s ease; }
+    #topbar.hide{ transform:translateY(-100%); }
+    #menuBackdrop{ position:fixed; inset:0; background:transparent; z-index:900; display:none; }
+    #menuBackdrop.show{ display:block; }
   </style>
+      <!-- PWA Manifest -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" type="image/png" sizes="32x32" href="image/copytube_logo_32.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="image/copytube_logo_fullblack_192.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="image/copytube_logo_fullblack_512.png">
+
+  <!-- Open Graph (카카오톡/페북 등 미리보기) -->
+<meta property="og:title" content="CopyTube" />
+<meta property="og:description" content="내가 만든 영상 공유 플랫폼, CopyTube" />
+<meta property="og:image" content="https://copytube.github.io/image/copytube_logo_512.png" />
+<meta property="og:url" content="https://copytube.github.io/" />
+<meta property="og:type" content="website" />
+
+<!-- 트위터 카드 (선택사항) -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="CopyTube">
+<meta name="twitter:description" content="내가 만든 영상 공유 플랫폼, CopyTube">
+<meta name="twitter:image" content="https://copytube.github.io/image/copytube_logo_512.png">
 </head>
 <body>
-  <!-- 상단바 -->
   <header id="topbar">
     <div class="brand">
-      <a id="brandHome" href="/" aria-label="ArkTube 홈으로">
-        <img class="brand-logo" src="/image/arktube_side.png" alt="ArkTube">
+      <a id="brandHome" href="#" aria-label="CopyTube 홈으로">
+        <img class="brand-logo" src="image/new_copytube_logo_side_w.png" alt="CopyTube"/>
       </a>
     </div>
     <div class="right" style="position:relative;">
@@ -79,41 +88,21 @@
       <span id="welcome" class="welcome"></span>
       <button id="menuBtn" class="icon" aria-label="menu">三</button>
       <div id="dropdownMenu" class="dropdown hidden" role="menu" aria-hidden="true">
-        <button id="btnAbout" class="menu-strong" type="button">ArkTube는…</button>
-        <button id="btnMyUploads" type="button">내영상관리</button>
-        <button id="btnSignOut" type="button">Sign out</button>
-        <button id="btnList" type="button">영상목록</button>
-        <button id="btnGoUpload" class="menu-strong" type="button">추천영상등록</button>
+        <button id="btnAbout"       type="button">CopyTube는…</button>
+        <button id="btnGoCategory"  class="menu-strong" type="button">카테고리 선택</button>
+        <button id="btnMyUploads"   type="button">내영상관리</button>
+        <button id="btnSignOut"     type="button">Sign out</button>
+        <button id="btnList"        type="button">영상목록</button>
+        <button id="btnGoUpload"    class="menu-strong" type="button">추천영상등록</button>
       </div>
     </div>
   </header>
 
-  <!-- HUD -->
-  <div class="top-hud">
-    <button id="btnPrev" class="hud-btn" title="이전(PgUp/↑/K)">◀ 이전</button>
-    <button id="btnNext" class="hud-btn" title="다음(PgDn/↓/J)">다음 ▶</button>
-    <button id="btnMute" class="hud-btn" title="음소거(T)">🔇 Mute</button>
-    <button id="btnShuffle" class="hud-btn" title="셔플(S)">셔플</button>
-    <button id="btnRepeat" class="hud-btn" title="반복(R)">반복 꺼짐</button>
-    <button id="btnBlacklist" class="hud-btn" title="이 영상 숨기기(B)">숨기기</button>
-  </div>
-  <div id="status" class="status-badge">준비중…</div>
-  <div id="toast" class="toast" role="status" aria-live="polite"></div>
-
-  <!-- 플레이 컨테이너 -->
+  <div id="menuBackdrop"></div>
   <main id="videoContainer"></main>
 
-  <!-- YouTube Iframe API (제어 강화) -->
-  <script src="https://www.youtube.com/iframe_api"></script>
-  <script type="module" src="js/watch.js"></script>
-
-  <!-- SW 등록 -->
-  <script>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js').catch(console.error);
-      });
-    }
-  </script>
+  <script type="module" src="js/firebase-init.js"></script>
+  <script type="module" src="js/auth.js"></script>
+  <script type="module" src="js/watch.js?v=1.0"></script>
 </body>
 </html>
