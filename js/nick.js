@@ -1,52 +1,64 @@
-// js/nick.js (arktube v1)
-import { auth, db, onAuthStateChanged, setNicknameProfile, sanitizeNickname } from './auth.js';
-import { doc, getDoc } from './auth.js';
+// js/nick.js
+import { auth, db } from './firebase-init.js?v=1.5.1';
+import { onAuthStateChanged } from './auth.js?v=1.5.1';
+import { doc, setDoc, serverTimestamp, getDoc } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
 
-const $ = (id)=>document.getElementById(id);
-const input = $("nickInput");
-const saveBtn = $("nickSave");
-const msg = $("msg");
-
-function show(text, ok=false){
-  if(!msg) return;
-  msg.textContent = text;
-  msg.className = "msg show " + (ok ? "ok" : "err");
+// auth.js의 sanitizeNickname과 동일 정규식 유지
+function sanitizeNickname(raw){
+  const s = String(raw||'').trim();
+  if (!s) return '';
+  return /^[\w가-힣\-_.]{2,20}$/.test(s) ? s : '';
 }
 
-// 미로그인 접근 차단 + 기존 닉 프리필
-onAuthStateChanged(async (user)=>{
-  if(!user){
-    location.replace("signin.html");
+const $input = document.getElementById('nick');
+const $save  = document.getElementById('saveNick');
+const $msg   = document.getElementById('msg');
+
+function tip(t, ok=false){
+  if (!$msg) return;
+  $msg.textContent = t;
+  $msg.className = 'msg show ' + (ok ? 'ok':'err');
+}
+
+let currentUid = null;
+
+onAuthStateChanged(auth, async (user)=>{
+  if (!user) {
+    // 비로그인 접근 시 로그인 페이지로
+    location.replace('./signin.html');
     return;
   }
+  currentUid = user.uid;
+
+  // 이미 닉이 있으면 바로 홈으로
   try{
-    const snap = await getDoc(doc(db, "users", user.uid));
+    const snap = await getDoc(doc(db,'users', currentUid));
     const data = snap.exists() ? snap.data() : {};
-    const nick = (typeof data?.nick === "string" && data.nick.trim()) || user.displayName || "";
-    if(nick && input && !input.value) input.value = nick;
-  }catch(e){
-    console.warn("[nick] preload err:", e);
-  }
+    if (data && typeof data.nickname === 'string' && data.nickname.trim()){
+      location.replace('./index.html');
+    }
+  }catch(e){ /* ignore */ }
 });
 
-saveBtn?.addEventListener("click", async ()=>{
-  const user = auth.currentUser;
-  if(!user){
-    location.replace("signin.html");
-    return;
-  }
-  const raw = input?.value ?? "";
-  const clean = sanitizeNickname(raw);
-  if(!clean){
-    show("형식: 한글/영문/숫자/[-_.], 2~20자입니다.");
+$save?.addEventListener('click', async ()=>{
+  if (!currentUid) return;
+  const nick = sanitizeNickname($input?.value);
+  if (!nick) {
+    tip('닉네임은 2~20자, 한글/영문/숫자/[-_.]만 가능합니다.');
     return;
   }
   try{
-    await setNicknameProfile(user.uid, clean, { claimUniq: true });
-    show("저장되었습니다. 홈으로 이동합니다…", true);
-    setTimeout(()=>location.replace("index.html"), 400);
+    $save.disabled = true;
+    await setDoc(doc(db,'users', currentUid), {
+      nickname: nick,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+    tip('저장되었습니다. 이동합니다…', true);
+    setTimeout(()=> location.replace('./index.html'), 300);
   }catch(e){
     console.error(e);
-    show(e?.message || "저장 중 오류가 발생했습니다.");
+    tip('저장 실패: ' + (e?.message || e));
+  }finally{
+    $save.disabled = false;
   }
 });
