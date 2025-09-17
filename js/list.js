@@ -1,20 +1,16 @@
-// js/list.js (v1.9.3-ark, personal keys w/o prefix, CATEGORY_MODEL-only)
-// - CATEGORY_GROUPS 전혀 사용 안 함
-// - 개인자료 저장/조회 키: 'personal1'~'personal4' (접두사 불사용)
-// - 라벨 키 기본: 'personalLabels' (과거 'arkPersonalLabels'/'copytubePersonalLabels'는 읽기 호환만)
-// - 나머지 기능 동일: where('type','==',selType)+createdAt desc, 무한스크롤, oEmbed 제목캐시, 닉네임 캐시, 스와이프
-
+// js/list.js (v1.9.0-ascdesc) — 칩=이름 표시 + 닉네임 3행 + oEmbed(7일 캐시) + 무한 스크롤 + 필터 인지형 선로딩 + 스와이프 방향잠금 + 중앙 30% 데드존
+// + 정렬 토글: 최신순(desc)↔등록순(asc) — 쿼리 리셋 & 재조회 방식
 import { auth, db } from './firebase-init.js';
-import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
-import { CATEGORY_MODEL } from './categories.js';
+import { onAuthStateChanged, signOut as fbSignOut } from './auth.js?v=1.5.1';
+import { CATEGORY_GROUPS } from './categories.js?v=1.5.1';
 import {
-  collection, getDocs, getDoc, doc, query, orderBy, limit, startAfter, where
+  collection, getDocs, getDoc, doc, query, orderBy, limit, startAfter
 } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
 
 /* ---------- 전역 내비 중복 방지 플래그 ---------- */
 window.__swipeNavigating = window.__swipeNavigating || false;
 
-/* ---------- Topbar 로그인 상태 & 드롭다운 ---------- */
+/* ---------- Topbar 로그인 상태 동기화 & 드롭다운 ---------- */
 const signupLink = document.getElementById('signupLink');
 const signinLink = document.getElementById('signinLink');
 const welcome    = document.getElementById('welcome');
@@ -25,8 +21,9 @@ const btnGoUpload= document.getElementById('btnGoUpload');
 const btnAbout   = document.getElementById('btnAbout');
 const btnList    = document.getElementById('btnList');
 
-function openDropdown(){ if(!dropdown) return; dropdown.classList.remove('hidden'); requestAnimationFrame(()=> dropdown.classList.add('show')); }
-function closeDropdown(){ if(!dropdown) return; dropdown.classList.remove('show'); setTimeout(()=> dropdown.classList.add('hidden'), 180); }
+let isMenuOpen = false;
+function openDropdown(){ if(!dropdown) return; isMenuOpen = true; dropdown.classList.remove('hidden'); requestAnimationFrame(()=> dropdown.classList.add('show')); }
+function closeDropdown(){ if(!dropdown) return; isMenuOpen = false; dropdown.classList.remove('show'); setTimeout(()=> dropdown.classList.add('hidden'), 180); }
 
 onAuthStateChanged(auth, (user) => {
   const loggedIn = !!user;
@@ -47,11 +44,13 @@ btnAbout   ?.addEventListener('click', ()=>{ location.href = 'about.html';  clos
 btnList    ?.addEventListener('click', ()=>{ location.href = 'list.html';   closeDropdown(); });
 
 /* ---------- DOM ---------- */
-const $cards     = document.getElementById('cards');
-const $msg       = document.getElementById('msg') || document.getElementById('resultMsg');
-const $q         = document.getElementById('q');
-const $btnSearch = document.getElementById('btnSearch');
-const $btnMore   = document.getElementById('btnMore');
+const $cards       = document.getElementById('cards');
+const $msg         = document.getElementById('msg') || document.getElementById('resultMsg');
+const $q           = document.getElementById('q');
+const $btnSearch   = document.getElementById('btnSearch');
+const $btnClear    = document.getElementById('btnClear'); // optional
+const $btnMore     = document.getElementById('btnMore');
+const $btnSort     = document.getElementById('btnSortToggle'); // ★ 신규: 정렬 토글
 
 /* ---------- 상태 ---------- */
 const PAGE_SIZE = 60;
@@ -59,9 +58,54 @@ let allDocs   = [];
 let lastDoc   = null;
 let hasMore   = true;
 let isLoading = false;
+let sortDir   = 'desc'; // 'desc'=최신순, 'asc'=등록순
+
+/* ---------- 정렬 토글(상태/표시/재조회) ---------- */
+const SORT_KEY = 'list_sort_dir';
+function readSortDir(){
+  try{
+    const v = (localStorage.getItem(SORT_KEY)||'').toLowerCase();
+    return (v==='asc' || v==='desc') ? v : 'desc';
+  }catch{ return 'desc'; }
+}
+function saveSortDir(dir){
+  try{ localStorage.setItem(SORT_KEY, dir==='asc'?'asc':'desc'); }catch{}
+}
+function labelFor(dir){
+  // 버튼 라벨 = 현재 정렬 상태를 보여줌
+  return dir==='asc' ? '등록순' : '최신순';
+}
+function applySortButtonUI(){
+  if(!$btnSort) return;
+  $btnSort.textContent = labelFor(sortDir);
+  $btnSort.setAttribute('aria-pressed', sortDir==='asc' ? 'true' : 'false');
+  $btnSort.title = (sortDir==='asc' ? '등록된 순서대로 보기' : '최신 등록 먼저 보기');
+}
+function setSortDir(dir){
+  sortDir = (dir==='asc') ? 'asc' : 'desc';
+  saveSortDir(sortDir);
+  applySortButtonUI();
+}
+function resetPaging(){
+  allDocs = [];
+  lastDoc = null;
+  hasMore = true;
+}
+async function reloadWithCurrentSort(){
+  if(!$btnSort) return;
+  $btnSort.disabled = true;
+  setStatus('불러오는 중…');
+  $cards.innerHTML = '';
+  resetPaging();
+  try{
+    await loadPage();
+    await ensureMinFiltered(PAGE_SIZE);
+  }finally{
+    $btnSort.disabled = false;
+  }
+}
 
 /* ---------- 유틸 ---------- */
-function getSelectedType(){ return localStorage.getItem('selectedType') || 'video'; }
 function getSelectedCats(){
   try {
     const raw = localStorage.getItem('selectedCats');
@@ -79,20 +123,18 @@ function toThumb(url, fallback=''){
   return id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : fallback;
 }
 
-/* ---- 카테고리 라벨: CATEGORY_MODEL 전용 ---- */
-const LABEL_MAP = (() => {
-  const m = {};
-  try {
-    if (!CATEGORY_MODEL || !Array.isArray(CATEGORY_MODEL.groups)) throw new Error('CATEGORY_MODEL.groups missing');
-    CATEGORY_MODEL.groups.forEach(g => g?.children?.forEach(c => {
-      if (c?.value) m[c.value] = c.label || c.value;
-    }));
-  } catch (e) {
-    console.error('[list] CATEGORY_MODEL 불일치:', e?.message || e);
-  }
-  return m;
-})();
-function getLabel(key){ return LABEL_MAP[key] || key; }
+/* ---- 카테고리 라벨: 이름(라벨) 반환 ---- */
+ const LABEL_MAP = (() => {
+   const m = {};
+   try {
+     CATEGORY_GROUPS.forEach(g => g?.children?.forEach(c => {
+       if (c?.value) m[c.value] = c.label || c.value;
+     }));
+   } catch {}
+   return m;
+ })();
+
+ function getLabel(key){ return LABEL_MAP[key] || key; }
 
 function setStatus(t){ if($msg) $msg.textContent = t || ''; }
 function toggleMore(show){ if($btnMore) $btnMore.style.display = show ? '' : 'none'; }
@@ -145,28 +187,43 @@ async function hydrateTitleIfNeeded(titleEl, url, existingTitle){
 
 /* ---------- 닉네임 캐시 ---------- */
 const NickCache = {
-  map: new Map(),
+  map: new Map(), // uid -> string (nickname/displayName) or ''(미상)
   get(uid){ return this.map.get(uid) || ''; },
   set(uid, name){ if(uid) this.map.set(uid, String(name||'')); }
 };
-function ownerUidOf(d = {}){ return d?.ownerUid || d?.uid || d?.userUid || null; }
+
+function ownerUidOf(d = {}){
+  return d?.ownerUid || d?.uid || d?.userUid || null;
+}
+
 async function preloadNicknamesFor(docs){
+  // docs: [{id, data}]
   const uids = new Set();
-  docs.forEach(x => { const uid = ownerUidOf(x.data); if (uid && !NickCache.map.has(uid)) uids.add(uid); });
-  await Promise.all([...uids].map(async (uid)=> {
+  docs.forEach(x => {
+    const uid = ownerUidOf(x.data);
+    if (uid && !NickCache.map.has(uid)) uids.add(uid);
+  });
+  if (!uids.size) return;
+
+  const tasks = [...uids].map(async (uid) => {
     try{
       const snap = await getDoc(doc(db, 'users', uid));
       const prof = snap.exists() ? snap.data() : null;
-      NickCache.set(uid, prof?.nickname || prof?.displayName || '');
-    }catch{ NickCache.set(uid, ''); }
-  }));
+      const name = prof?.nickname || prof?.displayName || '';
+      NickCache.set(uid, name);
+    }catch{
+      NickCache.set(uid, '');
+    }
+  });
+  await Promise.all(tasks);
 }
 
-/* ---------- 개인자료 모드 (슬롯 1~4, 접두사 없음) ---------- */
+/* ---------- 개인자료 모드 ---------- */
 function isPersonalOnlySelection(){
   try{
-    const v = JSON.parse(localStorage.getItem('selectedCats') || '[]');
-    return Array.isArray(v) && v.length === 1 && /^personal[1-4]$/.test(v[0]);
+    const raw = localStorage.getItem('selectedCats');
+    const v = JSON.parse(raw || '[]');
+    return Array.isArray(v) && v.length === 1 && (v[0] === 'personal1' || v[0] === 'personal2');
   }catch{ return false; }
 }
 function getPersonalSlot(){
@@ -175,33 +232,18 @@ function getPersonalSlot(){
     return Array.isArray(v) ? v[0] : null;
   }catch{ return null; }
 }
-// ▶ 저장/조회 키 = slot 그대로 사용: 'personal1' ~ 'personal4'
 function readPersonalItems(slot){
+  const key = `copytube_${slot}`;
   try{
-    const primary = localStorage.getItem(slot); // 표준
-    if (primary != null) {
-      const arr = JSON.parse(primary);
-      return Array.isArray(arr) ? arr : [];
-    }
-    // 과거 호환(읽기 전용): copytube_/arktube_ 접두사
-    const legacy = localStorage.getItem('copytube_' + slot) ?? localStorage.getItem('arktube_' + slot);
-    if (legacy != null) {
-      const arr = JSON.parse(legacy);
-      return Array.isArray(arr) ? arr : [];
-    }
-    return [];
+    const arr = JSON.parse(localStorage.getItem(key) || '[]');
+    return Array.isArray(arr) ? arr : [];
   }catch{ return []; }
 }
-// ▶ 라벨 키: 기본 'personalLabels' (읽기 호환: arkPersonalLabels, copytubePersonalLabels)
 function getPersonalLabel(slot){
   try{
-    const raw = localStorage.getItem('personalLabels')
-            ?? localStorage.getItem('arkPersonalLabels')
-            ?? localStorage.getItem('copytubePersonalLabels')
-            ?? '{}';
-    const labels = JSON.parse(raw);
-    return labels?.[slot] || (slot || '개인자료');
-  }catch{ return slot || '개인자료'; }
+    const labels = JSON.parse(localStorage.getItem('personalLabels') || '{}');
+    return labels?.[slot] || (slot === 'personal1' ? '개인자료1' : '개인자료2');
+  }catch{ return slot; }
 }
 
 function renderPersonalList(){
@@ -240,9 +282,8 @@ function renderPersonalList(){
     `;
     hydrateTitleIfNeeded(card.querySelector('.title'), url, title);
 
-    const open = ()=> openInWatchPersonal(sorted, idx, slot, label);
-    card.querySelector('.left') ?.addEventListener('click', open);
-    card.querySelector('.thumb')?.addEventListener('click', open);
+    card.querySelector('.left') ?.addEventListener('click', ()=> openInWatchPersonal(sorted, idx, slot, label));
+    card.querySelector('.thumb')?.addEventListener('click', ()=> openInWatchPersonal(sorted, idx, slot, label));
     frag.appendChild(card);
   });
 
@@ -263,14 +304,12 @@ function openInWatchPersonal(items, index, slot, label){
   location.href = `watch.html?idx=${index}&cats=${encodeURIComponent(slot)}`;
 }
 
-/* ---------- 필터 ---------- */
+/* ---------- 필터 공통 ---------- */
 function filterDocs(){
   const cats = getSelectedCats();
-  const selType = getSelectedType();
   const q = ($q?.value || '').trim().toLowerCase();
 
   let list = allDocs.slice();
-  list = list.filter(x => (x.data?.type === selType));
 
   if (Array.isArray(cats) && cats.length){
     list = list.filter(x => {
@@ -295,20 +334,14 @@ async function loadPage(){
   isLoading = true;
   setStatus(allDocs.length ? `총 ${allDocs.length}개 불러옴 · 더 불러오는 중…` : '불러오는 중…');
 
-  const selType = getSelectedType();
   let batch = [];
   try {
-    const parts = [ where('type','==', selType), orderBy('createdAt','desc') ];
+    const parts = [ orderBy('createdAt', sortDir) ];
     if (lastDoc) parts.push(startAfter(lastDoc));
     parts.push(limit(PAGE_SIZE));
 
     const snap = await getDocs(query(collection(db,'videos'), ...parts));
-    if (snap.empty) {
-      hasMore = false;
-      toggleMore(false);
-      setStatus(allDocs.length ? `총 ${allDocs.length}개` : '등록된 영상이 없습니다.');
-      isLoading=false; return false;
-    }
+    if (snap.empty) { hasMore = false; toggleMore(false); setStatus(allDocs.length ? `총 ${allDocs.length}개` : '등록된 영상이 없습니다.'); isLoading=false; return false; }
 
     batch = snap.docs.map(d => ({ id: d.id, data: d.data() }));
     allDocs = allDocs.concat(batch);
@@ -317,10 +350,10 @@ async function loadPage(){
   } catch (e) {
     console.warn('[list] fallback:', e?.message || e);
     try {
-      const snap = await getDocs(query(collection(db,'videos'), orderBy('createdAt','desc'), limit(PAGE_SIZE*3)));
+      const snap = await getDocs(query(collection(db,'videos'), limit(PAGE_SIZE*3)));
       const arr = snap.docs.map(d => ({ id:d.id, data:d.data(), _t:(d.data()?.createdAt?.toMillis?.()||0) }));
-      arr.sort((a,b)=> b._t - a._t);
-      batch = arr.map(({_t,...rest})=>rest).filter(x => x.data?.type === selType);
+      arr.sort((a,b)=> sortDir==='asc' ? (a._t - b._t) : (b._t - a._t));
+      batch = arr.map(({_t,...rest})=>rest);
       allDocs = allDocs.concat(batch);
       hasMore = false;
     } catch(e2){
@@ -332,6 +365,7 @@ async function loadPage(){
     }
   }
 
+  // 배치 내 uploader 닉네임 미리 불러오기
   await preloadNicknamesFor(batch);
 
   render();
@@ -359,6 +393,11 @@ async function ensureMinFiltered(min = PAGE_SIZE){
 
 /* ---------- 렌더 ---------- */
 function render(){
+  // 개인자료 모드: 정렬 토글 숨김(의미 없음)
+  if ($btnSort) {
+    $btnSort.style.display = isPersonalOnlySelection() ? 'none' : '';
+  }
+
   if (isPersonalOnlySelection()){
     renderPersonalList();
     return;
@@ -399,9 +438,8 @@ function render(){
 
     hydrateTitleIfNeeded(card.querySelector('.title'), url, title);
 
-    const open = ()=> openInWatch(list, idx);
-    card.querySelector('.left') ?.addEventListener('click', open);
-    card.querySelector('.thumb')?.addEventListener('click', open);
+    card.querySelector('.left') ?.addEventListener('click', ()=> openInWatch(list, idx));
+    card.querySelector('.thumb')?.addEventListener('click', ()=> openInWatch(list, idx));
 
     frag.appendChild(card);
   });
@@ -449,6 +487,12 @@ $btnSearch?.addEventListener('click', async ()=>{
   render();
   await ensureMinFiltered(PAGE_SIZE);
 });
+$btnClear ?.addEventListener('click', async ()=>{
+  if($q) $q.value='';
+  if(isPersonalOnlySelection()){ renderPersonalList(); return; }
+  render();
+  await ensureMinFiltered(PAGE_SIZE);
+});
 $btnMore  ?.addEventListener('click', async ()=>{
   $btnMore.disabled = true; $btnMore.textContent = '불러오는 중…';
   try {
@@ -459,9 +503,20 @@ $btnMore  ?.addEventListener('click', async ()=>{
   }
 });
 
+/* ---------- 정렬 토글 바인딩 ---------- */
+$btnSort?.addEventListener('click', async ()=>{
+  // asc<->desc 토글
+  setSortDir(sortDir==='asc' ? 'desc' : 'asc');
+  await reloadWithCurrentSort();
+});
+
 /* ---------- 시작 ---------- */
 (async function init(){
   try{
+    // 정렬 초기화: 저장된 값 우선
+    setSortDir(readSortDir());
+    applySortButtonUI();
+
     if (isPersonalOnlySelection()){
       renderPersonalList();
       return;
@@ -565,10 +620,12 @@ function initSwipeNav({ goLeftHref=null, goRightHref=null, animateMs=260, deadZo
   document.addEventListener('pointerdown',onStart, { passive:true });
   document.addEventListener('pointerup',  onEnd,   { passive:true });
 }
+
+// ✅ list: 우→좌 = index (단순형 + 중앙 데드존 30%)
 initSwipeNav({ goLeftHref: 'index.html', goRightHref: null, deadZoneCenterRatio: 0.30 });
 
 /* ===================== */
-/* 고급형 스와이프 — 끌리는 모션 + 방향 잠금 + 중앙 15% 데드존 */
+/* 고급형 스와이프 — 끌리는 모션 + 방향 잠금 + 중앙 30% 데드존 */
 /* ===================== */
 (function(){
   function initDragSwipe({ goLeftHref=null, goRightHref=null, threshold=60, slop=45, timeMax=700, feel=1.0, deadZoneCenterRatio=0.15 }={}){
@@ -675,5 +732,6 @@ initSwipeNav({ goLeftHref: 'index.html', goRightHref: null, deadZoneCenterRatio:
     document.addEventListener('pointerup',   end,   { passive:true, capture:true });
   }
 
+  // list: 우→좌 = index (오른쪽 페이지 없음 → 오른쪽 끌림 완전 차단, 중앙 데드존 15%)
   initDragSwipe({ goLeftHref: 'index.html', goRightHref: null, threshold:60, slop:45, timeMax:700, feel:1.0, deadZoneCenterRatio: 0.15 });
 })();
