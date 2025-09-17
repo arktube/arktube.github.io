@@ -1,111 +1,85 @@
-// js/auth.js  (arktube Auth, KidsAni v0.1.4 호환 래퍼)
-// - onAuthStateChanged: (cb)와 (auth, cb) 모두 지원
-// - signOut: 인자 무시(넘겨도 OK) → 기존 코드와 100% 호환
-// - Firestore 유틸 재수출(페이지에서 직접 import 가능)
-// - 최초 로그인 시 users/{uid} 문서 보강 + 닉네임 고유 맵 옵션
+// js/auth.js  (ArkTube Google Only, drop-in)
+// - 기존 코드와의 호환을 위해 export 형태 유지
+// - 이메일/비번 관련 함수는 제거하되, 혹시 남은 코드가 import해도 즉시 에러로 안내되도록 보호 래퍼 제공
+// - 최초 로그인 시 /users/{uid} 최소 프로필 생성
 
-import { auth, db } from "./firebase-init.js";
+import { auth, db } from './firebase-init.js?v=1.5.1';
 export { auth, db };
 
-// Firebase Auth 원함수
 import {
   GoogleAuthProvider,
   signInWithPopup,
-  onAuthStateChanged as fbOnAuthStateChanged,
-  signOut as fbSignOut,
-  updateProfile as fbUpdateProfile,
+  signInWithRedirect,
+  getRedirectResult,
+  onAuthStateChanged as _onAuthStateChanged,
+  signOut as _signOut
 } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
 
-// Firestore 원함수(페이지에서 직접 쓰고 싶을 때 재수출)
-export {
-  doc,
-  runTransaction,
-  setDoc,
-  getDoc,
-  serverTimestamp,
+import {
+  doc, runTransaction, setDoc, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
 
-// ─────────────────────────────────────
-// onAuthStateChanged 래퍼: 두 형태 모두 지원
-//   권장: onAuthStateChanged((user)=>{})
-//   호환: onAuthStateChanged(auth, (user)=>{})
-export function onAuthStateChanged(cbOrAuth, maybeCb) {
-  const cb = (typeof cbOrAuth === "function") ? cbOrAuth : maybeCb;
-  if (typeof cb !== "function") throw new Error("onAuthStateChanged: callback이 없습니다.");
-  return fbOnAuthStateChanged(auth, cb);
+// re-export 필요한 firestore 유틸(페이지에서 쓰고 있을 수 있음)
+export { doc, runTransaction, serverTimestamp };
+
+/* helpers (닉네임 클리너는 일부 페이지에서 재사용할 수 있어 유지) */
+export function sanitizeNickname(raw){
+  const s = String(raw||'').trim();
+  if (!s) return '';
+  // 허용: 한글/영문/숫자/[-_.], 길이 2~20
+  if (!/^[\w가-힣\-_.]{2,20}$/.test(s)) return '';
+  return s;
 }
 
-// 구글 로그인(Popup)
+/* 최초 로그인 시 /users/{uid} 최소 프로필 생성/갱신 */
+export async function ensureUserDoc(uid, displayName, photoURL){
+  try{
+    await setDoc(doc(db,'users', uid), {
+      displayName: displayName || '회원',
+      photoURL: photoURL || null,
+      updatedAt: serverTimestamp()
+    }, { merge:true });
+  }catch(e){ /* ignore */ }
+}
+
+/* ============ Google Only ============ */
+const provider = new GoogleAuthProvider();
+// 계정 선택 강제(필요 시 주석 해제)
+// provider.setCustomParameters({ prompt: 'select_account' });
+
 export async function signInWithGoogle() {
-  const provider = new GoogleAuthProvider();
-  provider.setCustomParameters({ prompt: "select_account" });
-  const cred = await signInWithPopup(auth, provider);
-  return cred.user; // 필요 시 cred 추가 반환 가능
-}
-
-// signOut: 인자 무시(넘겨도 OK) — 기존 코드와 호환
-export async function signOut(..._args) { await fbSignOut(auth); }
-export async function logout(..._args) { await fbSignOut(auth); } // 별칭
-
-// ─────────────────────────────────────
-// 닉네임 정규화(한글/영문/숫자/[-_.], 2~20자)
-export function sanitizeNickname(raw) {
-  const s = String(raw ?? "").trim();
-  return /^[\w가-힣\-_.]{2,20}$/.test(s) ? s : "";
-}
-
-// 최초 로그인/가입 직후: /users/{uid} 보강(존재하면 merge)
-export async function ensureUserDoc(uid, displayName) {
-  const { doc, setDoc, serverTimestamp } =
-    await import("https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js");
+  // 팝업 우선, 실패 시 리다이렉트 폴백(iOS 사파리 등)
   try {
-    await setDoc(
-      doc(db, "users", uid),
-      {
-        displayName: displayName || "회원",
-        updatedAt: serverTimestamp(),
-        createdAt: serverTimestamp(),
-      },
-      { merge: true },
-    );
-  } catch (e) {
-    console.warn("[ensureUserDoc] failed:", e);
+    const res = await signInWithPopup(auth, provider);
+    const u = res.user;
+    await ensureUserDoc(u.uid, u.displayName, u.photoURL);
+    return u;
+  } catch (err) {
+    // 팝업 불가 환경일 수 있음 → 리다이렉트로 폴백
+    await signInWithRedirect(auth, provider);
+    // 리다이렉트 후 복귀 시 처리
+    try {
+      const rr = await getRedirectResult(auth);
+      if (rr?.user) {
+        const u = rr.user;
+        await ensureUserDoc(u.uid, u.displayName, u.photoURL);
+        return u;
+      }
+    } catch(e){ /* ignore */ }
+    throw err;
   }
 }
 
-// (옵션) 닉네임-UID 고유 맵: nickname_to_uid/{lowerNick} = { uid, updatedAt }
-export async function claimNicknameUniq(uid, nick) {
-  const lower = String(nick || "").toLowerCase();
-  if (!lower) throw new Error("닉네임이 비었습니다.");
-  const { doc, runTransaction, serverTimestamp } =
-    await import("https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js");
-  const ref = doc(db, "nickname_to_uid", lower);
-  await runTransaction(db, async (tx) => {
-    const snap = await tx.get(ref);
-    if (snap.exists() && snap.data()?.uid !== uid) {
-      throw new Error("이미 사용 중인 닉네임입니다.");
-    }
-    tx.set(ref, { uid, updatedAt: serverTimestamp() });
-  });
+export const onAuthStateChanged = _onAuthStateChanged;
+
+// 기존 코드 호환: 일부 페이지가 fbSignOut 이름으로 import
+export async function fbSignOut(){ await _signOut(auth); }
+
+/* ===== 이메일/비번 API 사용 차단용 가드(혹시 남은 import가 있을 때 즉시 에러) ===== */
+function _blocked(name){
+  return () => { throw new Error(`[auth.js] ${name}는 비활성화되었습니다: ArkTube는 Google 로그인 전용입니다.`); };
 }
-
-// 닉네임 저장 통합(프로필 + /users/{uid} + 고유맵)
-export async function setNicknameProfile(uid, nick, { claimUniq = true } = {}) {
-  const clean = sanitizeNickname(nick);
-  if (!clean) throw new Error("닉네임 형식: 한글/영문/숫자/[-_.], 2~20자");
-  const { doc, setDoc, serverTimestamp } =
-    await import("https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js");
-
-  if (claimUniq) await claimNicknameUniq(uid, clean);
-
-  await setDoc(
-    doc(db, "users", uid),
-    { displayName: clean, updatedAt: serverTimestamp(), createdAt: serverTimestamp() },
-    { merge: true },
-  );
-
-  if (auth.currentUser?.uid === uid) {
-    await fbUpdateProfile(auth.currentUser, { displayName: clean });
-  }
-  return clean;
-}
+export const signInWithEmailAndPassword = _blocked('signInWithEmailAndPassword');
+export const createUserWithEmailAndPassword = _blocked('createUserWithEmailAndPassword');
+export const updateProfile = _blocked('updateProfile(이메일/비번 경로)');
+export const deleteUser = _blocked('deleteUser(이메일/비번 경로)');
