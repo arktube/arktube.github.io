@@ -1,7 +1,7 @@
-// js/auth.js  (ArkTube Google Only, drop-in)
-// - 기존 코드와의 호환을 위해 export 형태 유지
-// - 이메일/비번 관련 함수는 제거하되, 혹시 남은 코드가 import해도 즉시 에러로 안내되도록 보호 래퍼 제공
-// - 최초 로그인 시 /users/{uid} 최소 프로필 생성
+// js/auth.js  (ArkTube Google Only, drop-in, backwards-compatible)
+// - CopyTube처럼 auth 고정 래퍼 방식 유지
+// - 동시에 (auth, cb) 형태도 허용하여 기존 호출부 영향 0으로 만듦
+// - 최초 로그인 시 /users/{uid} 최소 프로필 생성 (선택적: 필요 시 유지)
 
 import { auth, db } from './firebase-init.js?v=1.5.1';
 export { auth, db };
@@ -19,67 +19,67 @@ import {
   doc, getDoc, runTransaction, setDoc, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
 
-// re-export 필요한 firestore 유틸(페이지에서 쓰고 있을 수 있음)
+// 필요할 수 있는 firestore 유틸 재노출
 export { doc, getDoc, runTransaction, serverTimestamp };
 
-/* helpers (닉네임 클리너는 일부 페이지에서 재사용할 수 있어 유지) */
-export function sanitizeNickname(raw){
-  const s = String(raw||'').trim();
-  if (!s) return '';
-  // 허용: 한글/영문/숫자/[-_.], 길이 2~20
-  if (!/^[\w가-힣\-_.]{2,20}$/.test(s)) return '';
-  return s;
-}
-
-/* 최초 로그인 시 /users/{uid} 최소 프로필 생성/갱신 */
-export async function ensureUserDoc(uid, displayName, photoURL){
-  try{
-    await setDoc(doc(db,'users', uid), {
-      displayName: displayName || '회원',
-      photoURL: photoURL || null,
-      updatedAt: serverTimestamp()
-    }, { merge:true });
-  }catch(e){ /* ignore */ }
-}
-
-/* ============ Google Only ============ */
-const provider = new GoogleAuthProvider();
-// 계정 선택 강제(필요 시 주석 해제)
-// provider.setCustomParameters({ prompt: 'select_account' });
-
-export async function signInWithGoogle() {
-  // 팝업 우선, 실패 시 리다이렉트 폴백(iOS 사파리 등)
-  try {
-    const res = await signInWithPopup(auth, provider);
-    const u = res.user;
-    await ensureUserDoc(u.uid, u.displayName, u.photoURL);
-    return u;
-  } catch (err) {
-    // 팝업 불가 환경일 수 있음 → 리다이렉트로 폴백
-    await signInWithRedirect(auth, provider);
-    // 리다이렉트 후 복귀 시 처리
-    try {
-      const rr = await getRedirectResult(auth);
-      if (rr?.user) {
-        const u = rr.user;
-        await ensureUserDoc(u.uid, u.displayName, u.photoURL);
-        return u;
-      }
-    } catch(e){ /* ignore */ }
-    throw err;
+/* -------------------------------------------------------
+ * onAuthStateChanged 호환 래퍼
+ * - (cb) 또는 (auth, cb) 모두 허용
+ * - 내부적으로 기본 auth를 고정해서 사용 (CopyTube 스타일)
+ * - 다른 auth 인스턴스를 명시적으로 넘긴 경우도 정상 처리
+ * ----------------------------------------------------- */
+export function onAuthStateChanged(a, b) {
+  // 형태 1: onAuthStateChanged(cb)
+  if (typeof a === 'function' && b === undefined) {
+    return _onAuthStateChanged(auth, a);
   }
+  // 형태 2: onAuthStateChanged(auth, cb)
+  if (a && typeof b === 'function') {
+    // a가 우리 기본 auth이든, 외부에서 다른 auth를 넘기든 그대로 처리
+    return _onAuthStateChanged(a, b);
+  }
+  throw new TypeError('onAuthStateChanged: expected (cb) or (auth, cb)');
 }
 
-export const onAuthStateChanged = (cb) => _onAuthStateChanged(auth, cb);
-
-// 기존 코드 호환: 일부 페이지가 fbSignOut 이름으로 import
-export async function fbSignOut(){ await _signOut(auth); }
-
-/* ===== 이메일/비번 API 사용 차단용 가드(혹시 남은 import가 있을 때 즉시 에러) ===== */
-function _blocked(name){
-  return () => { throw new Error(`[auth.js] ${name}는 비활성화되었습니다: ArkTube는 Google 로그인 전용입니다.`); };
+/* -------------------------
+ * Google 로그인/로그아웃
+ * ----------------------- */
+export async function signInWithGooglePopup() {
+  const provider = new GoogleAuthProvider();
+  const result = await signInWithPopup(auth, provider);
+  await _ensureUserDoc(result?.user?.uid);
+  return result;
 }
-export const signInWithEmailAndPassword = _blocked('signInWithEmailAndPassword');
-export const createUserWithEmailAndPassword = _blocked('createUserWithEmailAndPassword');
-export const updateProfile = _blocked('updateProfile(이메일/비번 경로)');
-export const deleteUser = _blocked('deleteUser(이메일/비번 경로)');
+
+export async function signInWithGoogleRedirect() {
+  const provider = new GoogleAuthProvider();
+  await signInWithRedirect(auth, provider);
+}
+
+export async function handleRedirectResult() {
+  const result = await getRedirectResult(auth);
+  if (result?.user?.uid) await _ensureUserDoc(result.user.uid);
+  return result;
+}
+
+export async function signOut() {
+  return _signOut(auth);
+}
+
+/* ----------------------------------------------
+ * 최초 로그인시 users/{uid} 최소 프로필 보장 (선택)
+ * -------------------------------------------- */
+async function _ensureUserDoc(uid) {
+  if (!uid) return;
+  const ref = doc(db, 'users', uid);
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) {
+      tx.set(ref, {
+        createdAt: serverTimestamp(),
+        nickname: null,
+        role: 'user'
+      });
+    }
+  });
+}
