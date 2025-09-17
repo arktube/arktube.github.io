@@ -38,10 +38,12 @@
       font-weight:800; font-size:20px; text-align:center; user-select:none; cursor:pointer;
       appearance:none; -webkit-appearance:none;
     }
-    .cat-title:active{ transform:translateY(0.5px); focus{ outline: none; }; focus-visible{                     /* 접근성 보완(선택) */
-  outline: 2px solid #4ea1ff;
-  outline-offset: 2px;
-} }
+    .cat-title:active{ transform:translateY(0.5px)
+    .cat-title:focus{ outline: none; }
+    .cat-title:focus-visible{                     /* 접근성 보완(선택) */
+        outline: 2px solid #4ea1ff;
+        outline-offset: 2px;
+    }
     .cat-right{ grid-column:3; }
 
     .group{ border:1px solid var(--border); border-radius:12px; background:var(--bg-3); padding:4px; margin:4px 0; text-align:left; max-width:900px; margin-left:auto; margin-right:auto; }
