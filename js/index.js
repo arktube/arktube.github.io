@@ -32,7 +32,7 @@ function getActiveType() {
 
   // 3) 저장값 or 기본 'video'
   const saved = localStorage.getItem(TYPE_KEY);
-  return (saved === 'shorts' || saved === 'video') ? saved : 'video';
+  return (saved === 'shorts' || saved === 'video') ? saved : 'shorts';
 }
 function setActiveType(t){
   const type = (t === 'shorts' ? 'shorts' : 'video');
