@@ -70,7 +70,7 @@ export async function signInWithGoogle() {
   }
 }
 
-export const onAuthStateChanged = _onAuthStateChanged;
+export const onAuthStateChanged = (cb) => _onAuthStateChanged(auth, cb);
 
 // 기존 코드 호환: 일부 페이지가 fbSignOut 이름으로 import
 export async function fbSignOut(){ await _signOut(auth); }
