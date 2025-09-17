@@ -1,7 +1,8 @@
 // js/index.js (v1.7.2) — drag-follow & simple swipe kept + 중앙 30% 데드존
 import { CATEGORY_GROUPS } from './categories.js';
 import { auth } from './firebase-init.js';
-import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
+import { onAuthStateChanged } from './auth.js';
+import { signOut as fbSignOut } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
 
 const GROUP_ORDER_KEY = 'groupOrderV1';
 const isPersonalVal = (v)=> /^personal[1-8]$/.test(v);
