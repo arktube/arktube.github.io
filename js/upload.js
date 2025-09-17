@@ -4,7 +4,8 @@
 // - URL 화이트리스트(YouTube/https만) — javascript:, data: 등 차단
 // - 기존 기능/UX, Firestore 스키마(uid) 그대로 유지
 import { auth, db } from './firebase-init.js';
-import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
+import { onAuthStateChanged } from './auth.js';
+import { signOut as fbSignOut } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
 import { addDoc, collection, serverTimestamp } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
 import { CATEGORY_GROUPS } from './categories.js';
 
@@ -47,7 +48,7 @@ btnSignOut  ?.addEventListener('click', async ()=>{ await fbSignOut(auth); close
 /* ------- 공통 키 ------- */
 const GROUP_ORDER_KEY      = 'groupOrderV1';
 const PERSONAL_LABELS_KEY  = 'personalLabels';
-const isPersonal = (v)=> v==='personal1' || v==='personal2';
+const isPersonal = (v)=> /^personal[1-8]$/.test(v);
 
 /* ------- 메시지 ------- */
 const msgTop = $('#msgTop');
@@ -141,7 +142,7 @@ function renderCats(){
         btn.textContent = '이름변경';
         btn.addEventListener('click', ()=>{
           const key = btn.getAttribute('data-key');
-          const cur = getPersonalLabels()[key] || (key==='personal1'?'자료1':'자료2');
+          const cur = getPersonalLabels()[key] || ('자료' + key.replace('personal',''));
           const name = prompt('개인자료 이름(최대 12자):', cur);
           if(!name) return;
           setPersonalLabel(key, name);
