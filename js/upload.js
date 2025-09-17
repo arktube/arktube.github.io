@@ -3,10 +3,10 @@
 // - 개인 라벨 추가 방어: 길이/문자 제한 + DOM 주입 차단
 // - URL 화이트리스트(YouTube/https만) — javascript:, data: 등 차단
 // - 기존 기능/UX, Firestore 스키마(uid) 그대로 유지
-import { auth, db } from './firebase-init.js?v=1.5.1';
-import { onAuthStateChanged, signOut as fbSignOut } from './auth.js?v=1.5.1';
+import { auth, db } from './firebase-init.js';
+import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
 import { addDoc, collection, serverTimestamp } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
-import { CATEGORY_GROUPS } from './categories.js?v=1.5.1';
+import { CATEGORY_GROUPS } from './categories.js';
 
 /* ------- 전역 내비 중복 방지 ------- */
 window.__swipeNavigating = window.__swipeNavigating || false;
