@@ -1,10 +1,10 @@
 // js/index.js (v1.7.2) — drag-follow & simple swipe kept + 중앙 30% 데드존
-import { CATEGORY_GROUPS } from './categories.js?v=1.5.1';
-import { auth } from './firebase-init.js?v=1.5.1';
-import { onAuthStateChanged, signOut as fbSignOut } from './auth.js?v=1.5.1';
+import { CATEGORY_GROUPS } from './categories.js';
+import { auth } from './firebase-init.js';
+import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
 
 const GROUP_ORDER_KEY = 'groupOrderV1';
-const isPersonalVal = (v)=> v==='personal1' || v==='personal2';
+const isPersonalVal = (v)=> /^personal[1-8]$/.test(v);
 
 // 전역 내비게이션 가드(단순형/고급형 중복 방지)
 window.__swipeNavigating = window.__swipeNavigating || false;
