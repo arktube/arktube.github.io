@@ -1,7 +1,7 @@
 // js/auth.js  (ArkTube Google Only, drop-in, backwards-compatible)
-// - CopyTube처럼 auth 고정 래퍼 방식 유지
-// - 동시에 (auth, cb) 형태도 허용하여 기존 호출부 영향 0으로 만듦
-// - 최초 로그인 시 /users/{uid} 최소 프로필 생성 (선택적: 필요 시 유지)
+// - onAuthStateChanged(cb) / onAuthStateChanged(auth, cb) 둘 다 지원
+// - Google 로그인 팝업/리다이렉트 지원 + 리다이렉트 결과 처리 핸들러
+// - 최초 로그인 시 users/{uid} 최소 문서 생성 (없을 때만)
 
 import { auth, db } from './firebase-init.js?v=1.5.1';
 export { auth, db };
@@ -26,17 +26,18 @@ export { doc, getDoc, runTransaction, serverTimestamp };
  * onAuthStateChanged 호환 래퍼
  * - (cb) 또는 (auth, cb) 모두 허용
  * - 내부적으로 기본 auth를 고정해서 사용 (CopyTube 스타일)
- * - 다른 auth 인스턴스를 명시적으로 넘긴 경우도 정상 처리
+ * - 다른 auth 인스턴스를 넘겨도 그대로 처리
  * ----------------------------------------------------- */
 export function onAuthStateChanged(a, b) {
   // 형태 1: onAuthStateChanged(cb)
   if (typeof a === 'function' && b === undefined) {
-    return _onAuthStateChanged(auth, a);
+    return _onAuthStateChanged(auth, (user) => { try { a(user); } catch(e){ console.error('[auth] listener error:', e); } },
+      (err)=>console.error('[auth] onAuthStateChanged error:', err));
   }
   // 형태 2: onAuthStateChanged(auth, cb)
   if (a && typeof b === 'function') {
-    // a가 우리 기본 auth이든, 외부에서 다른 auth를 넘기든 그대로 처리
-    return _onAuthStateChanged(a, b);
+    return _onAuthStateChanged(a, (user) => { try { b(user); } catch(e){ console.error('[auth] listener error:', e); } },
+      (err)=>console.error('[auth] onAuthStateChanged error:', err));
   }
   throw new TypeError('onAuthStateChanged: expected (cb) or (auth, cb)');
 }
@@ -66,8 +67,13 @@ export async function signOut() {
   return _signOut(auth);
 }
 
+// 호환: 기존 코드가 fbSignOut 이름을 import하는 경우를 위해 별칭 제공
+export async function fbSignOut() {
+  return _signOut(auth);
+}
+
 /* ----------------------------------------------
- * 최초 로그인시 users/{uid} 최소 프로필 보장 (선택)
+ * 최초 로그인시 users/{uid} 최소 프로필 보장 (없을 때만)
  * -------------------------------------------- */
 async function _ensureUserDoc(uid) {
   if (!uid) return;
