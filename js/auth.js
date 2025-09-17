@@ -16,11 +16,11 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
 
 import {
-  doc, runTransaction, setDoc, serverTimestamp
+  doc, getDoc, runTransaction, setDoc, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
 
 // re-export 필요한 firestore 유틸(페이지에서 쓰고 있을 수 있음)
-export { doc, runTransaction, serverTimestamp };
+export { doc, getDoc, runTransaction, serverTimestamp };
 
 /* helpers (닉네임 클리너는 일부 페이지에서 재사용할 수 있어 유지) */
 export function sanitizeNickname(raw){
