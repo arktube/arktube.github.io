@@ -102,50 +102,52 @@ function validateNick(nick) {
 // 규칙: handle = lower(nickname), 필드 {nickname, ownerUid, createdAt}
 // 트랜잭션으로 중복 차단 + users/{uid}에 nickname 저장
 // nick.js 내 createNickTx() 함수만 교체
+// 규칙: handle = lower(nickname), 필드 {nickname, ownerUid, createdAt}
+// 트랜잭션으로 중복 차단 + users/{uid}에 nickname 저장
 async function createNickTx(uid, nickname) {
   const handle = nickname.toLowerCase();
   const nickRef = doc(db, 'nicks', handle);
   const userRef = doc(db, 'users', uid);
 
-  await runTransaction(db, async (tx) => {
-    const nickSnap = await tx.get(nickRef);
-    if (nickSnap.exists()) throw { code: 'ALREADY_EXISTS' };
+  try {
+    await runTransaction(db, async (tx) => {
+      const nickSnap = await tx.get(nickRef);
+      if (nickSnap.exists()) throw { code: 'ALREADY_EXISTS' };
 
-    const userSnap = await tx.get(userRef);
-    const userExists = userSnap.exists();
+      const userSnap = await tx.get(userRef);
+      const userExists = userSnap.exists();
 
-    // 1) nicks 예약 (create-only)
-    tx.set(nickRef, {
-      nickname,
-      ownerUid: uid,
-      createdAt: serverTimestamp(),
+      // 1) nicks 예약 (create-only)
+      tx.set(nickRef, {
+        nickname,
+        ownerUid: uid,
+        createdAt: serverTimestamp(),
+      });
+
+      // 2) users 프로필 저장
+      if (userExists) {
+        // update 규칙: nickname, updatedAt 만 보냄 (createdAt 금지)
+        tx.set(userRef, {
+          nickname,
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+      } else {
+        // create일 때만 createdAt 허용
+        tx.set(userRef, {
+          nickname,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+      }
     });
 
-    // 2) users 프로필 저장
-    if (userExists) {
-      // ✅ update 규칙: nickname, updatedAt 만 보냄 (createdAt 금지)
-      tx.set(userRef, {
-        nickname,
-        updatedAt: serverTimestamp(),
-      }, { merge: true });
-    } else {
-      // ✅ create일 때만 createdAt 허용
-      tx.set(userRef, {
-        nickname,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      }, { merge: true });
-    }
-  });
-
-  return 'ok';
-}
-catch (e) {
-    if (e && e.code) return e.code;
-    // 규칙 거부(permission-denied) 등은 콘솔에서 확인
-    throw e;
+    return 'ok';
+  } catch (e) {
+    if (e && e.code) return e.code; // 'ALREADY_EXISTS' | 'USER_HAS_NICK' 등
+    throw e; // 그 외 오류는 상위에서 처리
   }
 }
+
 
 function showError(msg) {
   errEl.style.display = 'block';
