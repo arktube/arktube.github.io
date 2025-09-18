@@ -104,10 +104,6 @@ export const CATEGORY_GROUPS = [
       { value: 'personal2',  label: '자료2' },
       { value: 'personal3',  label: '자료3' },
       { value: 'personal4',  label: '자료4' },
-      { value: 'personal5',  label: '자료5' },
-      { value: 'personal6',  label: '자료6' },
-      { value: 'personal7',  label: '자료7' },
-      { value: 'personal8',  label: '자료8' },
     ],
   },
 ];
