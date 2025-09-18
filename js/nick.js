@@ -24,7 +24,7 @@ let pending = false;
 
 const MIN_LEN = 2;
 const MAX_LEN = 20;
-const ALLOWED_RE = /^[\p{L}\p{N}\-\_\s]+$/u;
+const ALLOWED_RE = /^[\p{L}\p{N}_\-\s]+$/u;
 const RESERVED = ['admin','administrator','system','null','undefined','support','root'];
 
 input.addEventListener('input', () => {
