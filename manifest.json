@@ -12,7 +12,7 @@
   "icons": [
     { "src": "/image/arktube_icon_32b.png",  "sizes": "32x32",   "type": "image/png", "purpose": "any" },
     { "src": "/image/arktube_icon_192b.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "/image/arktube_512.png",      "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    { "src": "/image/arktube_512b.png",      "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
   ],
   "categories": ["productivity", "utilities", "video"]
 }
