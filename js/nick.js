@@ -101,39 +101,46 @@ function validateNick(nick) {
 
 // 규칙: handle = lower(nickname), 필드 {nickname, ownerUid, createdAt}
 // 트랜잭션으로 중복 차단 + users/{uid}에 nickname 저장
+// nick.js 내 createNickTx() 함수만 교체
 async function createNickTx(uid, nickname) {
-  const handle = nickname.toLowerCase(); // 규칙: lower(nickname)
+  const handle = nickname.toLowerCase();
   const nickRef = doc(db, 'nicks', handle);
   const userRef = doc(db, 'users', uid);
 
-  try {
-    await runTransaction(db, async (tx) => {
-      const nickSnap = await tx.get(nickRef);
-      if (nickSnap.exists()) { throw { code:'ALREADY_EXISTS' }; }
+  await runTransaction(db, async (tx) => {
+    const nickSnap = await tx.get(nickRef);
+    if (nickSnap.exists()) throw { code: 'ALREADY_EXISTS' };
 
-      // 유저 문서에 이미 nickname 있으면 정책상 막기(선택사항)
-      const userSnap = await tx.get(userRef);
-      if (userSnap.exists() && userSnap.data()?.nickname) {
-        throw { code:'USER_HAS_NICK' };
-      }
+    const userSnap = await tx.get(userRef);
+    const userExists = userSnap.exists();
 
-      // nicks create-only
-      tx.set(nickRef, {
-        nickname,
-        ownerUid: uid,
-        createdAt: serverTimestamp(),
-      });
+    // 1) nicks 예약 (create-only)
+    tx.set(nickRef, {
+      nickname,
+      ownerUid: uid,
+      createdAt: serverTimestamp(),
+    });
 
-      // users merge
+    // 2) users 프로필 저장
+    if (userExists) {
+      // ✅ update 규칙: nickname, updatedAt 만 보냄 (createdAt 금지)
       tx.set(userRef, {
         nickname,
         updatedAt: serverTimestamp(),
-        createdAt: userSnap.exists() ? userSnap.data().createdAt ?? serverTimestamp() : serverTimestamp(),
-      }, { merge:true });
-    });
+      }, { merge: true });
+    } else {
+      // ✅ create일 때만 createdAt 허용
+      tx.set(userRef, {
+        nickname,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+    }
+  });
 
-    return 'ok';
-  } catch (e) {
+  return 'ok';
+}
+catch (e) {
     if (e && e.code) return e.code;
     // 규칙 거부(permission-denied) 등은 콘솔에서 확인
     throw e;
