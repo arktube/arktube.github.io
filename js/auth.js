@@ -89,3 +89,28 @@ async function _ensureUserDoc(uid) {
     }
   });
 }
+/* ✅ 추가: 외부에서 쓸 수 있도록 공개 export */
+export async function ensureUserDoc(uid) {
+  return _ensureUserDoc(uid);
+}
+
+/* ✅ 추가: signup.js가 기대하는 이름으로 로그인 함수 제공 */
+export async function signInWithGoogle() {
+  const provider = new GoogleAuthProvider();
+  try {
+    const result = await signInWithPopup(auth, provider);
+    const user = result?.user ?? null;
+    if (user?.uid) await _ensureUserDoc(user.uid);
+    return user; // signup.js에서 user를 바로 사용
+  } catch (e) {
+    // 팝업 불가 환경이면 redirect 폴백
+    try {
+      await signInWithRedirect(auth, provider);
+      // redirect 후 복귀 시점은 별도 처리 없으면 user를 즉시 못 받지만,
+      // 팝업이 가능한 환경이라면 여기로 오지 않습니다.
+      return null;
+    } catch {
+      throw e; // 원래 오류 다시 던져서 상위에서 메시지 표시
+    }
+  }
+}
