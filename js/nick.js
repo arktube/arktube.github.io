@@ -1,13 +1,13 @@
-// js/nick.js (ArkTube 최종 — 닉네임 중복 방지 + 규칙 일치)
-// - 예약 컬렉션: nicks/{lower(nickname)} (create-only)
-// - users/{uid}.nickname 저장 (merge)
-// - 배치 커밋으로 원자 처리
+// js/nick.js (ArkTube — 닉네임 설정 최종판: 2단계 쓰기 + 롤백)
+// - Step1: nicks/{lower(nickname)} create-only (중복 차단)
+// - Step2: users/{uid}.nickname merge (규칙이 nicks 소유/존재 검사)
+// - 실패 시 롤백: Step2 실패하면 Step1에서 만든 nicks 문서 삭제
 // - 한글/영문/숫자/[-_.], 2~20자 + 제로폭 제거 + NFC 정규화
 
-import { auth, db } from './firebase-init.js?v=1.5.1';
+import { db } from './firebase-init.js?v=1.5.1';
 import { onAuthStateChanged } from './auth.js?v=1.5.1';
 import {
-  doc, getDoc, writeBatch, serverTimestamp
+  doc, getDoc, setDoc, deleteDoc, serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
 
 // 보이지 않는 제어/제로폭 문자 제거
@@ -34,6 +34,7 @@ function tip(t, ok=false){
 
 let currentUid = null;
 
+// 이미 로그인되어 있으면 현재 닉 로딩 → 있으면 홈으로
 onAuthStateChanged(async (user)=>{
   if (!user) {
     location.replace('./signin.html');
@@ -41,7 +42,6 @@ onAuthStateChanged(async (user)=>{
   }
   currentUid = user.uid;
 
-  // 이미 닉이 있으면 바로 홈으로
   try{
     const snap = await getDoc(doc(db,'users', currentUid));
     const data = snap.exists() ? snap.data() : {};
@@ -49,7 +49,6 @@ onAuthStateChanged(async (user)=>{
       location.replace('./index.html');
     }
   }catch(e){
-    // 읽기 실패 시에는 페이지에 머물러서 재시도 가능
     console.warn('[nick] preload failed:', e);
   }
 });
@@ -60,34 +59,46 @@ async function saveNicknameAtomic(uid, rawNick){
 
   const lowerId = nickname.toLowerCase(); // 한글은 변화 없음
   const userRef = doc(db, 'users', uid);
-  const newRef  = doc(db, 'nicks', lowerId);
+  const nickRef = doc(db, 'nicks', lowerId);
 
-  // 기존 닉(예약) 확인: 있으면 old 예약 해제
-  const snap = await getDoc(userRef);
-  const oldNickname = snap.exists() ? (snap.data().nickname || '') : '';
+  // 현재 유저의 기존 닉 확인 (나중에 해제)
+  const userSnap = await getDoc(userRef);
+  const oldNickname = userSnap.exists() ? (userSnap.data().nickname || '') : '';
   const oldLowerId  = oldNickname ? oldNickname.toLowerCase() : null;
 
-  const batch = writeBatch(db);
-
-  if (oldLowerId && oldLowerId !== lowerId) {
-    // 규칙: nicks/{handle} delete는 ownerUid == auth.uid만 허용 → 본인 예약만 삭제 가능
-    batch.delete(doc(db, 'nicks', oldLowerId));
+  // 기존 닉과 동일하면 바로 성공 처리
+  if (oldLowerId && oldLowerId === lowerId) {
+    // 그래도 users.updatedAt만 보정
+    await setDoc(userRef, { updatedAt: serverTimestamp() }, { merge: true });
+    return;
   }
 
-  // 새 예약(규칙상 create-only, 이미 존재하면 커밋 전체가 거절됨 → 중복 방지)
-  batch.set(newRef, {
+  // Step1) 새 닉 예약 생성 (create-only; 규칙: ID==lower(nickname), ownerUid==auth.uid)
+  // 필드는 ['nickname','ownerUid','createdAt']만!
+  await setDoc(nickRef, {
     nickname,
     ownerUid: uid,
-    createdAt: serverTimestamp()
-  });
+    createdAt: serverTimestamp(),
+  }, { merge: false });
 
-  // 사용자 문서 갱신(merge)
-  batch.set(userRef, {
-    nickname,
-    updatedAt: serverTimestamp()
-  }, { merge: true });
+  let step2Done = false;
+  try {
+    // Step2) users/{uid}에 nickname 저장 (규칙이 nicks 존재/소유 검사)
+    await setDoc(userRef, {
+      nickname,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+    step2Done = true;
 
-  await batch.commit();
+    // (선택) 이전 예약 해제: 본인 소유일 때만 규칙 통과
+    if (oldLowerId && oldLowerId !== lowerId) {
+      await deleteDoc(doc(db, 'nicks', oldLowerId));
+    }
+  } catch (e) {
+    // 롤백: Step2 실패 시, 방금 만든 예약 삭제
+    try { await deleteDoc(nickRef); } catch(_) {}
+    throw e;
+  }
 }
 
 $save?.addEventListener('click', async ()=>{
@@ -99,11 +110,11 @@ $save?.addEventListener('click', async ()=>{
     tip('저장되었습니다. 이동합니다…', true);
     setTimeout(()=> location.replace('./index.html'), 250);
   }catch(e){
-    console.error(e);
-    // 규칙 위반(중복 포함) → 대부분 permission-denied
+    console.error('[nick] commit error:', e);
+    // 규칙 위반(중복/소유 등) → 대부분 permission-denied
     const msg =
       e?.code === 'permission-denied'
-        ? '이미 사용 중인 닉네임입니다.'
+        ? '이미 사용 중이거나 권한이 없습니다.'
         : (e?.message || '저장에 실패했습니다.');
     tip(msg);
   }finally{
