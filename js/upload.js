@@ -1,13 +1,16 @@
-// js/upload.js (v1.7.1-xss-safe)
-// - XSS 방어: 카테고리 렌더에서 innerHTML 미사용(모두 createElement/textContent)
-// - 개인 라벨 추가 방어: 길이/문자 제한 + DOM 주입 차단
-// - URL 화이트리스트(YouTube/https만) — javascript:, data: 등 차단
-// - 기존 기능/UX, Firestore 스키마(uid) 그대로 유지
+// js/upload.js (ArkTube v1.8.0 — XSS-safe + Shorts/Video 구분 + 규칙 정합)
+// - 공개 규칙 정합: {type,url,title,categories,ownerUid,createdAt[,thumbnail]}
+// - XSS 방어: innerHTML 미사용(전부 DOM API)
+// - 개인자료는 로컬 저장(단독 선택 시)
+// - URL 화이트리스트: https + youtube 도메인만
+// - 상단바 드롭다운, 스와이프 네비 포함
+
 import { auth, db } from './firebase-init.js';
 import { onAuthStateChanged } from './auth.js';
 import { signOut as fbSignOut } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
 import { addDoc, collection, serverTimestamp } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
 import { CATEGORY_GROUPS } from './categories.js';
+import { parseYouTube, isAllowedYouTube } from './youtube-utils.js';
 
 /* ------- 전역 내비 중복 방지 ------- */
 window.__swipeNavigating = window.__swipeNavigating || false;
@@ -61,7 +64,6 @@ function getPersonalLabels(){
 }
 function setPersonalLabel(key,label){
   let s = String(label||'').replace(/\r\n?/g,'\n').trim();
-  // 길이, 금지문자(꺾쇠/따옴표) 제거 — 추가 방어
   s = s.slice(0,12).replace(/[<>"]/g,'').replace(/[\u0000-\u001F]/g,'');
   const map = getPersonalLabels();
   map[key] = s;
@@ -96,9 +98,7 @@ function renderCats(){
   const personalLabels = getPersonalLabels();
   const groups = applyGroupOrder(CATEGORY_GROUPS);
 
-  // 기존 innerHTML 사용 → 모두 제거
-  catsBox.replaceChildren(); // 안전하게 초기화
-
+  catsBox.replaceChildren(); // 안전 초기화
   const frag = document.createDocumentFragment();
 
   for (const g of groups){
@@ -148,7 +148,6 @@ function renderCats(){
           setPersonalLabel(key, name);
           renderCats();
         });
-        // 공백 추가
         label.appendChild(document.createTextNode(' '));
         label.appendChild(btn);
       }
@@ -160,7 +159,6 @@ function renderCats(){
       const note = document.createElement('div');
       note.className = 'muted';
       note.style.margin = '6px 4px 2px';
-      // 텍스트만
       note.textContent = '개인자료는 단독 등록/재생만 가능합니다.';
       fieldset.appendChild(note);
     }
@@ -194,10 +192,6 @@ renderCats();
 /* ------- URL 유틸 ------- */
 const urlsBox = $('#urls');
 function parseUrls(){ return urlsBox.value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean); }
-function extractId(url){ const m=String(url).match(/(?:youtu\.be\/|v=|shorts\/|embed\/)([^?&/]+)/); return m?m[1]:''; }
-
-// (XSS/악성 URL 방지) — https + YouTube만 허용
-const YT_WHITELIST = /^(https:\/\/(www\.)?youtube\.com\/(watch\?v=|shorts\/)|https:\/\/youtu\.be\/)/i;
 
 /* ------- 제목 가져오기: oEmbed ------- */
 async function fetchTitleById(id){
@@ -241,20 +235,21 @@ async function submitAll(){
 
   // A) 개인자료 단독 → 로컬 저장
   if(personals.length===1 && normals.length===0){
-    const slot = personals[0]; // 'personal1' | 'personal2'
+    const slot = personals[0];
     const key  = `copytube_${slot}`;
     let arr=[]; try{ arr=JSON.parse(localStorage.getItem(key)||'[]'); }catch{ arr=[]; }
     let added=0;
     for(const raw of lines){
-      if(!YT_WHITELIST.test(raw)) { continue; } // 안전하지 않은 URL 차단
-      if(!extractId(raw)) continue;
+      if(!isAllowedYouTube(raw)) { continue; } // 안전하지 않은 URL 차단
+      const info = parseYouTube(raw);
+      if(!info.ok || !info.id) continue;
       arr.push({ url: raw, savedAt: Date.now() });
       added++;
     }
     localStorage.setItem(key, JSON.stringify(arr));
     urlsBox.value='';
     document.querySelectorAll('.cat:checked').forEach(c=> c.checked=false);
-    setMsg(`로컬 저장 완료: ${added}건 (${slot==='personal1'?'개인자료1':'개인자료2'})`);
+    setMsg(`로컬 저장 완료: ${added}건 (${slot})`);
     return;
   }
 
@@ -284,24 +279,32 @@ async function submitAll(){
   for(let i=0;i<list.length;i++){
     const url = list[i];
 
-    // 안전 URL 검사
-    if(!YT_WHITELIST.test(url)){ fail++; setMsg(`YouTube 링크만 등록할 수 있습니다. (${ok+fail}/${list.length})`); continue; }
+    // 1) 허용 도메인/프로토콜 검사
+    if(!isAllowedYouTube(url)){
+      fail++; setMsg(`YouTube 링크만 등록할 수 있습니다. (${ok+fail}/${list.length})`); continue;
+    }
 
-    const id  = extractId(url);
-    if(!id){ fail++; setMsg(`등록 중... (${ok+fail}/${list.length})`); continue; }
+    // 2) 파싱 → type/id 확보
+    const info = parseYouTube(url);
+    if(!info.ok || !info.id || !info.type){
+      fail++; setMsg(`알 수 없는 YouTube 링크 형식입니다. (${ok+fail}/${list.length})`); continue;
+    }
 
-    // 제목 oEmbed — 실패해도 진행
+    // 3) 제목 (규칙상 필수 → 실패 시 대체)
     let title = '';
-    try{ title = await fetchTitleById(id); }catch{}
+    try{ title = await fetchTitleById(info.id); }catch{}
+    if(!title) title = `YouTube ${info.id}`;
 
+    // 4) Firestore 저장 (규칙 정합)
     try{
       const docData = {
+        type: info.type,              // 'shorts' | 'video'
         url,
-        ...(title ? { title } : {}),     // 빈 문자열이면 필드 생략
+        title,
         categories: normals,
-        uid: user.uid,                   // (레거시 스키마 유지) — 규칙 ownerOf()가 uid/ownerUid 모두 수용
+        ownerUid: user.uid,
         createdAt: serverTimestamp(),
-        // thumbnail: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+        // thumbnail: `https://i.ytimg.com/vi/${info.id}/hqdefault.jpg`, // 선택
       };
       await addDoc(collection(db,'videos'), docData);
       ok++;
@@ -345,54 +348,6 @@ try{
 })();
 
 /* ===================== */
-/* 단순형 스와이프 정의(중앙 30% 데드존 추가) — 호출 안 함 */
-/* ===================== */
-function simpleSwipeNav({ goLeftHref=null, goRightHref=null, animateMs=260, deadZoneCenterRatio=0.30 } = {}){
-  let sx=0, sy=0, t0=0, tracking=false;
-  const THRESH_X = 70, MAX_OFF_Y = 80, MAX_TIME = 600;
-
-  const getPoint = (e) => e.touches?.[0] || e.changedTouches?.[0] || e;
-
-  function onStart(e){
-    const p = getPoint(e);
-    if(!p) return;
-
-    // 중앙 데드존
-    const vw = Math.max(document.documentElement.clientWidth, window.innerWidth || 0);
-    const dz = Math.max(0, Math.min(0.9, deadZoneCenterRatio));
-    const L  = vw * (0.5 - dz/2);
-    const R  = vw * (0.5 + dz/2);
-    if (p.clientX >= L && p.clientX <= R) { tracking = false; return; }
-
-    sx = p.clientX; sy = p.clientY; t0 = Date.now(); tracking = true;
-  }
-  function onEnd(e){
-    if(!tracking) return; tracking = false;
-    if (window.__swipeNavigating) return;
-
-    const p = getPoint(e);
-    const dx = p.clientX - sx;
-    const dy = p.clientY - sy;
-    const dt = Date.now() - t0;
-    if (Math.abs(dy) > MAX_OFF_Y || dt > MAX_TIME) return;
-
-    if (dx <= -THRESH_X && goLeftHref){
-      window.__swipeNavigating = true;
-      document.documentElement.classList.add('slide-out-left');
-      setTimeout(()=> location.href = goLeftHref, animateMs);
-    } else if (dx >= THRESH_X && goRightHref){
-      window.__swipeNavigating = true;
-      document.documentElement.classList.add('slide-out-right');
-      setTimeout(()=> location.href = goRightHref, animateMs);
-    }
-  }
-  document.addEventListener('touchstart', onStart, { passive:true });
-  document.addEventListener('touchend',   onEnd,   { passive:true });
-  document.addEventListener('pointerdown',onStart, { passive:true });
-  document.addEventListener('pointerup',  onEnd,   { passive:true });
-}
-
-/* ===================== */
 /* 고급형 스와이프 — 끌리는 모션 + 방향 잠금 + 중앙 데드존(15%) */
 /* ===================== */
 (function(){
@@ -400,7 +355,6 @@ function simpleSwipeNav({ goLeftHref=null, goRightHref=null, animateMs=260, dead
     const page = document.querySelector('main') || document.body;
     if(!page) return;
 
-    // 드래그 성능 힌트
     if(!page.style.willChange || !page.style.willChange.includes('transform')){
       page.style.willChange = (page.style.willChange ? page.style.willChange + ', transform' : 'transform');
     }
@@ -446,15 +400,15 @@ function simpleSwipeNav({ goLeftHref=null, goRightHref=null, animateMs=260, dead
         return;
       }
 
-      // 방향 잠금: upload는 오른쪽으로만 이동 허용(goRightHref만 설정)
+      // upload는 오른쪽으로만 이동 허용(goRightHref만)
       let dxAdj = dx;
-      if (dx < 0) dxAdj = 0; // 왼쪽 이동 완전 차단
+      if (dx < 0) dxAdj = 0;
       if (dxAdj === 0){
         page.style.transform = 'translateX(0px)';
         return;
       }
 
-      e.preventDefault(); // 수평 제스처 시 스크롤 방지
+      e.preventDefault();
       page.style.transform = 'translateX(' + (dxAdj * feel) + 'px)';
     }
 
@@ -471,7 +425,6 @@ function simpleSwipeNav({ goLeftHref=null, goRightHref=null, animateMs=260, dead
         return;
       }
 
-      // 오른쪽 스와이프만 성공 처리
       if(dx >= threshold && goRightHref){
         window.__swipeNavigating = true;
         page.style.transition = 'transform 160ms ease';
@@ -482,7 +435,6 @@ function simpleSwipeNav({ goLeftHref=null, goRightHref=null, animateMs=260, dead
       }
     }
 
-    // 터치 & 포인터 (end/up은 capture:true 권장)
     document.addEventListener('touchstart',  start, { passive:true });
     document.addEventListener('touchmove',   move,  { passive:false });
     document.addEventListener('touchend',    end,   { passive:true, capture:true });
@@ -492,6 +444,6 @@ function simpleSwipeNav({ goLeftHref=null, goRightHref=null, animateMs=260, dead
     document.addEventListener('pointerup',   end,   { passive:true, capture:true });
   }
 
-  // upload: 오른쪽으로 스와이프하면 index로 (왼쪽은 아예 안 움직임)
+  // upload: 오른쪽으로 스와이프하면 index로
   initDragSwipe({ goLeftHref: null, goRightHref: 'index.html', threshold:60, slop:45, timeMax:700, feel:1.0, deadZoneCenterRatio: 0.15 });
 })();
