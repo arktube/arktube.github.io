@@ -2,6 +2,21 @@
 
 export const CATEGORY_GROUPS = [
   {
+    key: 'praise',
+    label: '찬양',
+    children: [
+      { value:'hymn',        label:'찬송가' },
+      { value:'ccm',         label:'CCM' },
+      { value:'ccm1',         label:'찬양감사기쁨' },
+      { value:'ccm2',         label:'소망위로용서' },
+      { value:'ccm3',         label:'사랑축복' },
+      { value:'ccm4',         label:'말씀묵상' },
+      { value:'ccm5',         label:'교회선교' },            
+      { value:'ccm6',         label:'특별절기' },            
+      { value:'kids_praise', label:'어린이 찬양' },
+    ],
+  },
+  {
     key: 'faith_life',
     label: '신앙생활',
     children: [
@@ -12,16 +27,7 @@ export const CATEGORY_GROUPS = [
       { value:'angel_babies',        label:'아기천사들' },
       { value:'gathering_ad',        label:'모임광고' },
     ],
-  },
-  {
-    key: 'praise',
-    label: '찬양',
-    children: [
-      { value:'hymn',        label:'찬송가' },
-      { value:'ccm',         label:'CCM' },
-      { value:'kids_praise', label:'어린이 찬양' },
-    ],
-  },
+  },  
   {
     key: 'word',
     label: '말씀',
