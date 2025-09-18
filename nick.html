@@ -1,47 +1,78 @@
-<!-- nick.html (ArkTube v1, header 없음/필요시 추가 가능) -->
 <!doctype html>
 <html lang="ko">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>닉네임 설정 | ArkTube</title>
-  <meta name="color-scheme" content="dark light"/>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>닉네임 만들기 | ArkTube</title>
+
+  <!-- 기본 스타일(심플/모바일 우선) -->
   <style>
-    :root{--bg:#000;--panel:#111;--text:#fafafa;--muted:#bdbdbd;--btn-h:44px;--maxw:720px;}
-    html,body{height:100%;margin:0;font-family:system-ui,Segoe UI,Roboto,"Noto Sans KR","Malgun Gothic",sans-serif;background:var(--bg);color:var(--text)}
-    .wrap{min-height:100%;display:grid;place-items:center;padding:24px 14px}
-    .card{width:100%;max-width:var(--maxw);background:#121212;border:1px solid #1d1d1d;border-radius:16px;padding:22px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
-    h2{margin:0 0 10px}
-    .muted{color:var(--muted);margin:6px 0 16px}
-    input[type=text]{width:100%;padding:12px;margin-top:6px;border-radius:8px;border:1px solid #333;background:#000;color:#fff}
-    .row{display:flex;gap:8px;margin-top:12px}
-    .btn{height:var(--btn-h);padding:0 16px;border-radius:10px;border:1px solid #2a2a2a;background:#151515;color:#fff;cursor:pointer;text-decoration:none}
-    .btn-primary{background:#1f2937;border-color:#334155}
-    .msg{margin-top:10px;padding:10px 12px;border-radius:12px;font-size:14px;display:none}
-    .msg.show{display:block}
-    .msg.ok{background:#072f16;color:#b7ffcf;border:1px solid #0e5830}
-    .msg.err{background:#2a0e10;color:#ffc9c9;border:1px solid #5d1f25}
+    :root{
+      --bg:#0f1720; --panel:#0b1220; --text:#eef2ff; --muted:#9aa4b2;
+      --accent:#7c3aed; --danger:#ef4444; --radius:12px;
+      --maxw:760px; --input-h:52px;
+    }
+    html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,'Noto Sans KR','Malgun Gothic',sans-serif}
+    .wrap{min-height:100%;display:flex;align-items:center;justify-content:center;padding:28px}
+    .card{width:100%;max-width:var(--maxw);background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.02));border-radius:var(--radius);padding:20px;box-shadow:0 6px 18px rgba(2,6,23,0.6)}
+    header.topbar{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+    .logo{height:48px;width:48px;border-radius:8px;background:linear-gradient(135deg,var(--accent),#5b21b6);display:flex;align-items:center;justify-content:center;font-weight:700}
+    h1{font-size:20px;margin:0}
+    p.lead{margin:6px 0 18px;color:var(--muted);font-size:13px}
+
+    form {display:grid;gap:12px}
+    .input-row{display:flex;gap:8px}
+    input[type="text"]{
+      flex:1;height:var(--input-h);padding:12px 14px;border-radius:10px;border:none;background:rgba(255,255,255,0.03);color:var(--text);font-size:16px;outline:none;
+    }
+    .btn{
+      height:var(--input-h);min-width:120px;padding:0 14px;border-radius:10px;border:none;background:var(--accent);color:white;font-weight:600;cursor:pointer;
+    }
+    .btn:disabled{opacity:0.5;cursor:default}
+    .hint{font-size:13px;color:var(--muted)}
+    .error{color:var(--danger);font-size:13px}
+    .preview{margin-top:12px;padding:12px;border-radius:10px;background:rgba(255,255,255,0.02);font-weight:600}
+    .small{font-size:12px;color:var(--muted)}
+    footer{margin-top:14px;font-size:12px;color:var(--muted)}
+    .ok{color:#34d399}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <main class="card" role="main" aria-labelledby="title">
-      <h2 id="title">닉네임 설정</h2>
-      <p class="muted">한글/영문/숫자/[-_.] 2~20자. 업로드에 표시됩니다.</p>
+    <div class="card" role="region" aria-label="닉네임 생성">
+      <header class="topbar">
+        <div class="logo" aria-hidden="true">AT</div>
+        <div>
+          <h1>닉네임 만들기</h1>
+          <p class="lead">한 번만 등록되는 닉네임입니다. 다른 사용자와 중복되지 않도록 안전하게 처리합니다.</p>
+        </div>
+      </header>
 
-      <label>닉네임
-        <input id="nickInput" type="text" maxlength="20" placeholder="예: 믿음의씨앗" autocomplete="nickname">
-      </label>
+      <form id="nick-form" autocomplete="off" novalidate>
+        <label for="nick">원하시는 닉네임</label>
+        <div class="input-row">
+          <input id="nick" name="nick" type="text" placeholder="예: 하나의_이름 or 홍길동" maxlength="20" autofocus />
+          <button id="create-btn" class="btn" type="submit">등록하기</button>
+        </div>
 
-      <div class="row">
-        <button id="nickSave" class="btn btn-primary" type="button">저장</button>
-        <a class="btn" href="index.html">나중에</a>
-      </div>
+        <div id="meta" class="small hint">허용 문자: 한글, 영문, 숫자, 공백, -, _ (2~20자)</div>
+        <div id="error" role="alert" class="error" style="display:none"></div>
 
-      <div id="msg" class="msg" role="status" aria-live="polite"></div>
-    </main>
+        <div id="preview" class="preview" style="display:none">
+          미리보기: <span id="preview-nick"></span>
+          <div class="small" style="margin-top:6px">안전하게 출력됩니다. (HTML 주입 방지)</div>
+        </div>
+
+        <div id="status" class="small" style="display:none;margin-top:8px"></div>
+
+        <footer>
+          <div class="small">참고: 닉네임 중복 검사는 서버(파이어스토어) 트랜잭션을 사용합니다. 문제가 발생하면 관리팀에 문의하세요.</div>
+        </footer>
+      </form>
+    </div>
   </div>
 
-  <script type="module" src="./js/nick.js?v=1.2"></script>
+  <!-- 기존 프로젝트의 firebase-init.js 와 auth.js 경로에 맞춰 불러옵니다 -->
+  <script type="module" src="./js/nick.js"></script>
 </body>
 </html>
