@@ -1,41 +1,62 @@
-<!-- signin.html (arktube v1) -->
-<!doctype html>
-<html lang="ko">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>로그인 | arktube</title>
-  <meta name="color-scheme" content="dark light" />
-  <style>
-    :root{--bg:#000;--panel:#111;--text:#fafafa;--muted:#bdbdbd;--accent:#7dd3fc;--accent2:#38bdf8;--btn-h:56px;--maxw:560px;}
-    html,body{height:100%;margin:0;font-family:system-ui,Segoe UI,Roboto,"Noto Sans KR","Malgun Gothic",sans-serif;background:var(--bg);color:var(--text)}
-    .wrap{min-height:100%;display:grid;place-items:center;padding:24px 14px}
-    .card{width:100%;max-width:var(--maxw);background:#121212;border:1px solid #1d1d1d;border-radius:16px;padding:22px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
-    h1{margin:0 0 6px;font-size:clamp(22px,5vw,28px)}
-    .sub{color:var(--muted);font-size:clamp(13px,2.8vw,14px);margin:0 0 16px}
-    .btn{width:100%;height:var(--btn-h);border:0;border-radius:14px;font-size:clamp(16px,3.5vw,18px);font-weight:700;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
-    .btn-google{background:linear-gradient(180deg,var(--accent),var(--accent2));color:#05131a;text-shadow:0 1px 0 rgba(255,255,255,.15)}
-    .msg{margin-top:10px;padding:10px 12px;border-radius:12px;font-size:14px;display:none}
-    .msg.show{display:block}
-    .msg.ok{background:#072f16;color:#b7ffcf;border:1px solid #0e5830}
-    .msg.err{background:#2a0e10;color:#ffc9c9;border:1px solid #5d1f25}
-    .help{margin-top:12px;color:var(--muted);text-align:center;font-size:14px}
-  </style>
-  <link rel="icon" type="image/png" sizes="32x32" href="image/arktube_icon_32b.png">
-</head>
-<body>
-  <div class="wrap">
-    <main class="card" role="main" aria-labelledby="title">
-      <h1 id="title">Google로 로그인</h1>
-      <p class="sub">로그인만 하면 바로 영상 보기 가능합니다.</p>
+<!-- js/signin.js (v0.1.1) -->
+<script type="module">
+import { db } from './firebase-init.js';
+import { signInWithGoogle, onAuthStateChanged } from './auth.js';
+import { doc, getDoc } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
 
-      <button id="btnGoogle" class="btn btn-google" type="button" aria-label="구글로 로그인">Google로 로그인</button>
-      <div id="msg" class="msg" role="status" aria-live="polite"></div>
+const btnGoogle = document.getElementById('btnGoogle');
+const msg = document.getElementById('msg');
 
-      <p class="help">처음이신가요? <a href="signup.html">회원가입</a></p>
-    </main>
-  </div>
+function show(text, ok=false){
+  msg.textContent = text;
+  msg.className = 'msg show ' + (ok ? 'ok' : 'err');
+}
 
-  <script type="module" src="./js/signin.js?v=1"></script>
-</body>
-</html>
+// 여러 저장 키를 허용: nick / nickShown / nickname (+ displayName 보완)
+const NICK_KEYS = ['nick', 'nickShown', 'nickname'];
+function pickNick(data, user){
+  for (const k of NICK_KEYS){
+    const v = data && typeof data[k] === 'string' ? data[k].trim() : '';
+    if (v.length >= 2) return v;
+  }
+  const dn = typeof user?.displayName === 'string' ? user.displayName.trim() : '';
+  return dn.length >= 2 ? dn : '';
+}
+
+let navigated = false;
+function go(url){
+  if (navigated) return;
+  navigated = true;
+  location.replace(url);
+}
+
+// 로그인 상태면 닉 유무 확인 → 분기
+onAuthStateChanged(async (user)=>{
+  if(!user) return;
+  try{
+    const snap = await getDoc(doc(db, 'users', user.uid));
+    const data = snap.exists() ? snap.data() : null;
+    const nick = pickNick(data, user);
+    const hasNick = !!nick;
+
+    // 닉 있으면 index, 없으면 nick 설정
+    go(hasNick ? 'index.html' : 'nick.html');
+  }catch(e){
+    // 권한/네트워크 문제 등으로 읽기 실패해도
+    // "무조건 닉 페이지"로 보내지 않고, 우선 index로 보냄
+    console.error('[signin] failed to read user profile:', e);
+    go('index.html');
+  }
+});
+
+btnGoogle?.addEventListener('click', async ()=>{
+  try{
+    await signInWithGoogle();
+    show('로그인 성공! 잠시만요…', true);
+    // 라우팅은 onAuthStateChanged에서 처리
+  }catch(e){
+    show('구글 로그인에 실패했어요. 잠시 후 다시 시도해 주세요.');
+    console.error(e);
+  }
+});
+</script>
