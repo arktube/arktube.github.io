@@ -1,45 +1,48 @@
-<!-- signup.html (arktube v1) -->
-<!doctype html>
-<html lang="ko">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>회원가입 | arktube</title>
-  <meta name="color-scheme" content="dark light" />
-  <style>
-    :root{--bg:#000;--panel:#111;--text:#fafafa;--muted:#bdbdbd;--accent:#a78bfa;--accent2:#8b5cf6;--btn-h:56px;--maxw:560px;}
-    html,body{height:100%;margin:0;font-family:system-ui,Segoe UI,Roboto,"Noto Sans KR","Malgun Gothic",sans-serif;background:var(--bg);color:var(--text)}
-    .wrap{min-height:100%;display:grid;place-items:center;padding:24px 14px}
-    .card{width:100%;max-width:var(--maxw);background:#121212;border:1px solid #1d1d1d;border-radius:16px;padding:22px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
-    h1{margin:0 0 6px;font-size:clamp(22px,5vw,28px)}
-    .sub{color:var(--muted);font-size:14px;margin:0 0 16px}
-    .btn{width:100%;height:var(--btn-h);border:0;border-radius:14px;font-size:clamp(16px,3.5vw,18px);font-weight:700;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
-    .btn-google{background:linear-gradient(180deg,var(--accent),var(--accent2));color:#160b2a;text-shadow:0 1px 0 rgba(255,255,255,.12)}
-    .msg{margin-top:10px;padding:10px 12px;border-radius:12px;font-size:14px;display:none}
-    .msg.show{display:block}
-    .msg.ok{background:#0f1a08;color:#caffb5;border:1px solid #224a1b}
-    .msg.err{background:#2a0e10;color:#ffc9c9;border:1px solid #5d1f25}
-    .help{text-align:center;color:var(--muted);font-size:14px;margin-top:12px}
-  </style>
-  <link rel="icon" type="image/png" sizes="32x32" href="image/arktube_icon_32b.png">
-</head>
-<body>
-  <div class="wrap">
-    <main class="card" role="main" aria-labelledby="title">
-      <h1 id="title">Google 계정으로 시작</h1>
-      <p class="sub">회원가입 후 닉네임을 설정합니다. (영상 보기 자체는 로그인 없이 가능)</p>
+// js/signup.js (v0.1.3 — route fix)
+import { auth, db, onAuthStateChanged, signInWithGoogle, ensureUserDoc } from "./auth.js";
+import { doc, getDoc } from "./auth.js";
 
-      <button id="btnGoogle" class="btn btn-google" type="button" aria-label="구글로 시작">Google로 시작</button>
-      <div id="msg" class="msg" role="status" aria-live="polite"></div>
+const $ = (id) => document.getElementById(id);
+const btnGoogle = $("btnGoogle");
+const msg = $("msg");
 
-      <p class="help">이미 계정이 있으세요? <a href="signin.html">로그인</a></p>
-    </main>
-      <div class="note">
-        ArkTube는 무료 도메인을 사용중이라<br/>
-        구글 회원가입 시 <strong>theark-3c896.firebaseapp.com</strong> 서비스로 표시됩니다.
-      </div>
-  </div>
+function show(text, ok = false) {
+  if (!msg) return;
+  msg.textContent = text;
+  msg.className = "msg show " + (ok ? "ok" : "err");
+}
 
-  <script type="module" src="./js/signup.js?v=1"></script>
-</body>
-</html>
+// ✅ 닉네임 유무는 Firestore의 users/{uid}.nick만 본다 (displayName 사용 X)
+async function routeAfterLogin(user) {
+  if (!user) return;
+  try {
+    // 사용자 문서가 없으면 보강(첫 로그인 대비)
+    await ensureUserDoc(user.uid, user.displayName || "회원");
+
+    const snap = await getDoc(doc(db, "users", user.uid));
+    const data = snap.exists() ? snap.data() : {};
+    const hasNick = !!data?.nick;   // ← 오직 nick 필드만 체크
+
+    location.replace(hasNick ? "index.html" : "nick.html");
+  } catch (e) {
+    // 문제가 있어도 닉 설정 페이지로 보냄
+    location.replace("nick.html");
+  }
+}
+
+// 로그인 상태 감지 → 항상 routeAfterLogin 사용
+onAuthStateChanged(async (user) => {
+  if (user) routeAfterLogin(user);
+});
+
+// [Google로 시작]
+btnGoogle?.addEventListener("click", async () => {
+  try {
+    await signInWithGoogle();    // 팝업 로그인
+    show("로그인 성공! 닉네임을 정하러 가요…", true);
+    // onAuthStateChanged에서 routeAfterLogin 처리
+  } catch (e) {
+    console.error(e);
+    show("구글 인증에 실패했어요. 잠시 후 다시 시도해 주세요.");
+  }
+});
