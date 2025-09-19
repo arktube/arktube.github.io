@@ -1,62 +1,55 @@
-<!-- js/signin.js (v0.1.1) -->
-<script type="module">
-import { db } from './firebase-init.js';
-import { signInWithGoogle, onAuthStateChanged } from './auth.js';
-import { doc, getDoc } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
+<!-- ---------- signin.html (v0.1.0) ---------- -->
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>로그인 | KidsAni</title>
+  <meta name="color-scheme" content="dark light" />
+  <style>
+    :root{
+      --bg:#000; --panel:#111; --text:#fafafa; --muted:#bdbdbd;
+      --accent:#7dd3fc; --accent-strong:#38bdf8;
+      --radius:16px; --pad:22px; --gap:14px;
+      --font-big: clamp(22px, 5vw, 28px);
+      --font-mid: clamp(16px, 3.5vw, 18px);
+      --font-small: clamp(13px, 2.8vw, 14px);
+      --btn-h: 56px; --maxw: 560px;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;font-family:system-ui,Segoe UI,Roboto,"Noto Sans KR","Malgun Gothic",sans-serif;background:var(--bg);color:var(--text)}
+    .wrap{min-height:100%;display:grid;place-items:center;padding:24px 14px}
+    .card{width:100%;max-width:var(--maxw);background:linear-gradient(180deg,#121212,#0d0d0d);border:1px solid #1d1d1d;border-radius:var(--radius);padding:var(--pad);box-shadow:0 10px 30px rgba(0,0,0,.35)}
+    .brand{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+    .logo{width:44px;height:44px;border-radius:12px;background:radial-gradient(circle at 35% 35%,#fff 0 25%,#e2e2e2 26% 40%,#111 41% 100%);box-shadow:inset 0 0 18px rgba(255,255,255,.15),0 4px 10px rgba(0,0,0,.4)}
+    h1{font-size:var(--font-big);margin:0}
+    .sub{color:var(--muted);font-size:var(--font-small);margin:6px 0 16px}
+    .btn{width:100%;height:var(--btn-h);border:0;border-radius:14px;font-size:var(--font-mid);font-weight:700;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+    .btn-google{background:linear-gradient(180deg,var(--accent),var(--accent-strong));color:#05131a;text-shadow:0 1px 0 rgba(255,255,255,.15)}
+    .msg{margin-top:10px;padding:10px 12px;border-radius:12px;font-size:var(--font-small);display:none}
+    .msg.show{display:block}
+    .msg.ok{background:#072f16;color:#b7ffcf;border:1px solid #0e5830}
+    .msg.err{background:#2a0e10;color:#ffc9c9;border:1px solid #5d1f25}
+    .help{margin-top:12px;color:var(--muted);text-align:center;font-size:var(--font-small)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <main class="card" role="main" aria-labelledby="title">
+      <div class="brand" aria-hidden="true">
+        <div class="logo" role="img" aria-label="KidsAni 로고"></div>
+        <h1 id="title">구글로 로그인하고 시작해요</h1>
+      </div>
+      <p class="sub">아이들도 쉽게 쓸 수 있도록 큰 버튼과 간단한 문장으로 안내해 드려요 😊</p>
 
-const btnGoogle = document.getElementById('btnGoogle');
-const msg = document.getElementById('msg');
+      <button id="btnGoogle" class="btn btn-google" type="button" aria-label="구글로 로그인">Google로 로그인</button>
+      <div id="msg" class="msg" role="status" aria-live="polite"></div>
 
-function show(text, ok=false){
-  msg.textContent = text;
-  msg.className = 'msg show ' + (ok ? 'ok' : 'err');
-}
+      <p class="help">처음이신가요? <a href="signup.html">회원가입 안내 보기</a></p>
+    </main>
+  </div>
 
-// 여러 저장 키를 허용: nick / nickShown / nickname (+ displayName 보완)
-const NICK_KEYS = ['nick', 'nickShown', 'nickname'];
-function pickNick(data, user){
-  for (const k of NICK_KEYS){
-    const v = data && typeof data[k] === 'string' ? data[k].trim() : '';
-    if (v.length >= 2) return v;
-  }
-  const dn = typeof user?.displayName === 'string' ? user.displayName.trim() : '';
-  return dn.length >= 2 ? dn : '';
-}
-
-let navigated = false;
-function go(url){
-  if (navigated) return;
-  navigated = true;
-  location.replace(url);
-}
-
-// 로그인 상태면 닉 유무 확인 → 분기
-onAuthStateChanged(async (user)=>{
-  if(!user) return;
-  try{
-    const snap = await getDoc(doc(db, 'users', user.uid));
-    const data = snap.exists() ? snap.data() : null;
-    const nick = pickNick(data, user);
-    const hasNick = !!nick;
-
-    // 닉 있으면 index, 없으면 nick 설정
-    go(hasNick ? 'index.html' : 'nick.html');
-  }catch(e){
-    // 권한/네트워크 문제 등으로 읽기 실패해도
-    // "무조건 닉 페이지"로 보내지 않고, 우선 index로 보냄
-    console.error('[signin] failed to read user profile:', e);
-    go('index.html');
-  }
-});
-
-btnGoogle?.addEventListener('click', async ()=>{
-  try{
-    await signInWithGoogle();
-    show('로그인 성공! 잠시만요…', true);
-    // 라우팅은 onAuthStateChanged에서 처리
-  }catch(e){
-    show('구글 로그인에 실패했어요. 잠시 후 다시 시도해 주세요.');
-    console.error(e);
-  }
-});
-</script>
+  <script type="module" src="./js/signin.js?v=0.1.0"></script>
+</body>
+</html>
+<!-- ---------- end of signin.html ---------- -->
