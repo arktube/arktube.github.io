@@ -1,55 +1,108 @@
-<!-- ---------- signin.html (v0.1.0) ---------- -->
 <!doctype html>
 <html lang="ko">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>로그인 | KidsAni</title>
-  <meta name="color-scheme" content="dark light" />
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>로그인 | ArkTube</title>
+  <meta name="color-scheme" content="dark light"/>
+
+  <!-- 공통 CSP -->
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    connect-src 'self'
+      https://www.googleapis.com
+      https://firestore.googleapis.com
+      https://securetoken.googleapis.com
+      https://identitytoolkit.googleapis.com
+      https://firebaseinstallations.googleapis.com
+      https://www.gstatic.com
+      https://www.youtube.com
+      https://i.ytimg.com;
+    img-src 'self' data: https://i.ytimg.com;
+    frame-src https://www.youtube.com https://www.youtube-nocookie.com;
+    script-src 'self' https://www.gstatic.com 'unsafe-inline';
+    style-src 'self' 'unsafe-inline';
+    object-src 'none';
+    base-uri 'self';
+  ">
+
+  <!-- PWA / Icons -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" href="/favicon.ico">
+
   <style>
     :root{
-      --bg:#000; --panel:#111; --text:#fafafa; --muted:#bdbdbd;
-      --accent:#7dd3fc; --accent-strong:#38bdf8;
-      --radius:16px; --pad:22px; --gap:14px;
-      --font-big: clamp(22px, 5vw, 28px);
-      --font-mid: clamp(16px, 3.5vw, 18px);
-      --font-small: clamp(13px, 2.8vw, 14px);
-      --btn-h: 56px; --maxw: 560px;
+      --bg:#0b0b0b; --panel:#121212; --panel-2:#151515; --text:#fafafa; --muted:#bdbdbd;
+      --accent:#a78bfa; --accent-2:#8b5cf6; --radius:16px; --btn-h:56px; --maxw:720px;
     }
     *{box-sizing:border-box}
-    html,body{height:100%;margin:0;font-family:system-ui,Segoe UI,Roboto,"Noto Sans KR","Malgun Gothic",sans-serif;background:var(--bg);color:var(--text)}
-    .wrap{min-height:100%;display:grid;place-items:center;padding:24px 14px}
-    .card{width:100%;max-width:var(--maxw);background:linear-gradient(180deg,#121212,#0d0d0d);border:1px solid #1d1d1d;border-radius:var(--radius);padding:var(--pad);box-shadow:0 10px 30px rgba(0,0,0,.35)}
-    .brand{display:flex;align-items:center;gap:12px;margin-bottom:10px}
-    .logo{width:44px;height:44px;border-radius:12px;background:radial-gradient(circle at 35% 35%,#fff 0 25%,#e2e2e2 26% 40%,#111 41% 100%);box-shadow:inset 0 0 18px rgba(255,255,255,.15),0 4px 10px rgba(0,0,0,.4)}
-    h1{font-size:var(--font-big);margin:0}
-    .sub{color:var(--muted);font-size:var(--font-small);margin:6px 0 16px}
-    .btn{width:100%;height:var(--btn-h);border:0;border-radius:14px;font-size:var(--font-mid);font-weight:700;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
-    .btn-google{background:linear-gradient(180deg,var(--accent),var(--accent-strong));color:#05131a;text-shadow:0 1px 0 rgba(255,255,255,.15)}
-    .msg{margin-top:10px;padding:10px 12px;border-radius:12px;font-size:var(--font-small);display:none}
-    .msg.show{display:block}
-    .msg.ok{background:#072f16;color:#b7ffcf;border:1px solid #0e5830}
-    .msg.err{background:#2a0e10;color:#ffc9c9;border:1px solid #5d1f25}
-    .help{margin-top:12px;color:var(--muted);text-align:center;font-size:var(--font-small)}
+    html,body{height:100%;margin:0;background:var(--bg);color:var(--text);
+      font-family:system-ui,Segoe UI,Roboto,'Noto Sans KR','Malgun Gothic',sans-serif}
+    a{color:inherit;text-decoration:none}
+    .wrap{min-height:100%;display:grid;grid-template-rows:auto 1fr;gap:0}
+
+    header{position:sticky;top:0;z-index:10;background:rgba(0,0,0,.6);backdrop-filter:blur(8px);border-bottom:1px solid #111}
+    .nav{max-width:var(--maxw);margin:0 auto;padding:8px 14px;display:flex;align-items:center;gap:12px}
+    .brand{display:flex;align-items:center;gap:8px}
+    .brand-logo{height:48px}
+    @media (max-width:420px){ .brand-logo{height:40px} }
+    .spacer{flex:1}
+    .nav-btn{padding:8px 12px;border-radius:12px;background:#121212;border:1px solid #222;color:#aaa;font-size:14px}
+
+    main{display:grid;place-items:center;padding:24px 14px}
+    .card{width:100%;max-width:520px;background:linear-gradient(180deg,var(--panel),var(--panel-2));
+      border:1px solid #1e1e1e;border-radius:var(--radius);padding:24px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+    .title{font-size:24px;margin:4px 0 12px 0;font-weight:700}
+    .sub{color:var(--muted);font-size:14px;margin-bottom:18px;line-height:1.5}
+
+    .btn{width:100%;height:var(--btn-h);border-radius:14px;border:0;cursor:pointer;
+      background:linear-gradient(135deg,var(--accent),var(--accent-2));color:#fff;font-size:16px;font-weight:700;
+      display:flex;align-items:center;justify-content:center;gap:10px;transition:transform .04s ease,opacity .2s}
+    .btn:active{transform:scale(.99)}
+    .btn[disabled]{opacity:.6;cursor:progress}
+    .g-ico{width:20px;height:20px;display:inline-block}
+
+    .err{margin-top:12px;color:#ef4444;font-size:13px}
+    .alt{margin-top:12px;text-align:center;color:#bdbdbd;font-size:13px}
+    footer{max-width:var(--maxw);margin:24px auto 8px auto;padding:0 14px;color:#6e6e6e;font-size:12px;text-align:center}
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <main class="card" role="main" aria-labelledby="title">
-      <div class="brand" aria-hidden="true">
-        <div class="logo" role="img" aria-label="KidsAni 로고"></div>
-        <h1 id="title">구글로 로그인하고 시작해요</h1>
-      </div>
-      <p class="sub">아이들도 쉽게 쓸 수 있도록 큰 버튼과 간단한 문장으로 안내해 드려요 😊</p>
+<div class="wrap">
+  <header>
+    <div class="nav">
+      <a class="brand" href="/index.html" aria-label="ArkTube 홈">
+        <img class="brand-logo" src="/image/arktube_side.png" alt="ArkTube"/>
+      </a>
+      <div class="spacer"></div>
+      <a class="nav-btn" href="/signup.html">회원가입</a>
+    </div>
+  </header>
 
-      <button id="btnGoogle" class="btn btn-google" type="button" aria-label="구글로 로그인">Google로 로그인</button>
-      <div id="msg" class="msg" role="status" aria-live="polite"></div>
+  <main>
+    <div class="card" role="region" aria-labelledby="title">
+      <div id="title" class="title">ArkTube 로그인</div>
+      <div class="sub">구글 계정으로 로그인하세요. 로그인에 성공하면 영상 목록으로 이동합니다.</div>
 
-      <p class="help">처음이신가요? <a href="signup.html">회원가입 안내 보기</a></p>
-    </main>
-  </div>
+      <button id="btn-google" class="btn" type="button" aria-label="Google로 로그인">
+        <svg class="g-ico" viewBox="0 0 48 48" aria-hidden="true">
+          <path fill="#FFC107" d="M43.6 20.5H42v-.1H24v7.2h11.3C33.6 31 29.2 34 24 34c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3l5.1-5.1C33.3 4.2 28.9 2 24 2 12.3 2 2.9 11.4 2.9 23.1S12.3 44.2 24 44.2c11 0 20.1-8 20.1-20.1 0-1.3-.1-2.4-.5-3.6z"/>
+          <path fill="#FF3D00" d="M6.3 14.7l5.9 4.3C14 15.6 18.6 12 24 12c3.1 0 5.9 1.2 8 3l5.1-5.1C33.3 4.2 28.9 2 24 2 16 2 9 6.5 6.3 14.7z"/>
+          <path fill="#4CAF50" d="M24 44.2c5.1 0 9.7-1.7 13.3-4.7l-6.2-5.1c-2 1.4-4.7 2.3-7.1 2.3-5.2 0-9.6-3-11.4-7.3l-6.1 4.7C9 41.7 16 44.2 24 44.2z"/>
+          <path fill="#1976D2" d="M43.6 20.5H42v-.1H24v7.2h11.3c-1.4 4.1-5.6 6.4-9.3 6.4-2.3 0-4.3-.6-6.1-1.8l-6.1 4.7c3.3 3.1 7.5 4.9 12.2 4.9 7.1 0 14.1-4.6 14.1-14.1 0-1.3-.1-2.4-.5-3.6z"/>
+        </svg>
+        Google로 로그인
+      </button>
 
-  <script type="module" src="./js/signin.js?v=0.1.0"></script>
+      <div id="err" class="err" hidden></div>
+      <div class="alt">처음이신가요? <a href="/signup.html">회원가입</a></div>
+    </div>
+  </main>
+
+  <footer>© ArkTube</footer>
+</div>
+
+<script type="module" src="/signin.js"></script>
 </body>
 </html>
-<!-- ---------- end of signin.html ---------- -->
