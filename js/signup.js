@@ -1,66 +1,48 @@
-import { db } from './firebase-init.js?v=1.5.1';
-import { onAuthStateChanged, signInWithGoogle, handleRedirectResult } from './auth.js?v=1.5.2';
-import {
-  doc, getDoc, setDoc, serverTimestamp
-} from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
+// js/signup.js (v0.1.3 — route fix)
+import { auth, db, onAuthStateChanged, signInWithGoogle, ensureUserDoc } from "./auth.js";
+import { doc, getDoc } from "./auth.js";
 
-const btn = document.getElementById('btnGoogle');
-const msg = document.getElementById('msg');
+const $ = (id) => document.getElementById(id);
+const btnGoogle = $("btnGoogle");
+const msg = $("msg");
 
-function show(text, ok=false){
+function show(text, ok = false) {
   if (!msg) return;
   msg.textContent = text;
-  msg.className = 'msg show ' + (ok ? 'ok' : 'err');
+  msg.className = "msg show " + (ok ? "ok" : "err");
 }
 
-async function ensureProfile(user){
+// ✅ 닉네임 유무는 Firestore의 users/{uid}.nick만 본다 (displayName 사용 X)
+async function routeAfterLogin(user) {
   if (!user) return;
-  const ref = doc(db, 'users', user.uid);
-  const snap = await getDoc(ref);
-  if (!snap.exists()) {
-    await setDoc(ref, {
-      displayName: user.displayName || '',
-      photoURL: user.photoURL || '',
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    });
-  } else {
-    await setDoc(ref, { updatedAt: serverTimestamp() }, { merge: true });
+  try {
+    // 사용자 문서가 없으면 보강(첫 로그인 대비)
+    await ensureUserDoc(user.uid, user.displayName || "회원");
+
+    const snap = await getDoc(doc(db, "users", user.uid));
+    const data = snap.exists() ? snap.data() : {};
+    const hasNick = !!data?.nick;   // ← 오직 nick 필드만 체크
+
+    location.replace(hasNick ? "index.html" : "nick.html");
+  } catch (e) {
+    // 문제가 있어도 닉 설정 페이지로 보냄
+    location.replace("nick.html");
   }
 }
 
-async function routeAfterLogin(user){
-  if (!user) return;
-  try{
-    await ensureProfile(user);
-    // 닉 검사 제거 — 항상 인덱스로 이동
-    location.replace('index.html');
-  }catch(e){
-    console.error('[signup] profile read err:', e);
-    // 문제가 있어도 인덱스로 이동하도록 처리 (닉 페이지 사용 안함)
-    location.replace('index.html');
-  }
-}
+// 로그인 상태 감지 → 항상 routeAfterLogin 사용
+onAuthStateChanged(async (user) => {
+  if (user) routeAfterLogin(user);
+});
 
-// ① 리다이렉트 복귀 처리
-handleRedirectResult()
-  .then(res => { if (res?.user) routeAfterLogin(res.user); })
-  .catch(() => { /* no-op */ });
-
-// ② 이미 로그인 상태면 자동 분기
-onAuthStateChanged((user)=>{ if (user) routeAfterLogin(user); });
-
-// ③ 버튼 클릭 → Google 로그인
-btn?.addEventListener('click', async ()=>{
-  try{
-    btn.disabled = true;
-    show('인증 중입니다…', true);
-    const user = await signInWithGoogle();
-    if (user) await routeAfterLogin(user);
-  }catch(e){
+// [Google로 시작]
+btnGoogle?.addEventListener("click", async () => {
+  try {
+    await signInWithGoogle();    // 팝업 로그인
+    show("로그인 성공! 닉네임을 정하러 가요…", true);
+    // onAuthStateChanged에서 routeAfterLogin 처리
+  } catch (e) {
     console.error(e);
-    show('구글 인증에 실패했습니다. 잠시 후 다시 시도해 주세요.');
-  }finally{
-    btn.disabled = false;
+    show("구글 인증에 실패했어요. 잠시 후 다시 시도해 주세요.");
   }
 });
