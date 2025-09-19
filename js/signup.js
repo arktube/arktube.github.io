@@ -1,8 +1,3 @@
-// js/signup.js (ArkTube — Google only, kidsani 스타일)
-// - 팝업 → 리다이렉트 폴백 지원
-// - 리다이렉트 복귀 처리(handleRedirectResult)
-// - 최초 로그인 시 users/{uid} 최소 문서 생성
-
 import { db } from './firebase-init.js?v=1.5.1';
 import { onAuthStateChanged, signInWithGoogle, handleRedirectResult } from './auth.js?v=1.5.2';
 import {
@@ -38,14 +33,12 @@ async function routeAfterLogin(user){
   if (!user) return;
   try{
     await ensureProfile(user);
-    const snap = await getDoc(doc(db, 'users', user.uid));
-    const data = snap.exists() ? snap.data() : {};
-    const hasNick = !!(data && typeof data.nickname === 'string' && data.nickname.trim());
-    location.replace(hasNick ? 'index.html' : 'nick.html');
+    // 닉 검사 제거 — 항상 인덱스로 이동
+    location.replace('index.html');
   }catch(e){
     console.error('[signup] profile read err:', e);
-    // 문제가 있어도 닉 설정 페이지로 보내 복구 가능하게
-    location.replace('nick.html');
+    // 문제가 있어도 인덱스로 이동하도록 처리 (닉 페이지 사용 안함)
+    location.replace('index.html');
   }
 }
 
