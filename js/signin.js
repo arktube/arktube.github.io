@@ -1,5 +1,5 @@
-import { db } from './firebase-init.js?v=1.5.1';
-import { onAuthStateChanged, signInWithGoogle, handleRedirectResult } from './auth.js?v=1.5.2';
+import { db } from './firebase-init.js';
+import { onAuthStateChanged, signInWithGoogle, handleRedirectResult } from './auth.js';
 import {
   doc, getDoc, setDoc, serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
