@@ -1,57 +1,119 @@
 <!doctype html>
 <html lang="ko">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>회원가입 | KidsAni</title>
-  <meta name="color-scheme" content="dark light" />
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>회원가입 | ArkTube</title>
+  <meta name="color-scheme" content="dark light"/>
+
+  <!-- 공통 CSP (프로젝트 전역과 동일) -->
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    connect-src 'self'
+      https://www.googleapis.com
+      https://firestore.googleapis.com
+      https://securetoken.googleapis.com
+      https://identitytoolkit.googleapis.com
+      https://firebaseinstallations.googleapis.com
+      https://www.gstatic.com
+      https://www.youtube.com
+      https://i.ytimg.com;
+    img-src 'self' data: https://i.ytimg.com;
+    frame-src https://www.youtube.com https://www.youtube-nocookie.com;
+    script-src 'self' https://www.gstatic.com 'unsafe-inline';
+    style-src 'self' 'unsafe-inline';
+    object-src 'none';
+    base-uri 'self';
+  ">
+
+  <!-- PWA / Icons -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" href="/favicon.ico">
+  <!-- 자산 경로(기억): /image/arktube_side.png 상단바 로고, /image/arktube_icon_32b.png 탭 아이콘 -->
   <style>
     :root{
-      --bg:#000; --panel:#111; --text:#fafafa; --muted:#bdbdbd;
-      --accent:#a78bfa; --accent-strong:#8b5cf6;
-      --radius:16px; --pad:22px; --btn-h:56px; --maxw:560px;
-      --font-big:clamp(22px,5vw,28px); --font-mid:clamp(16px,3.5vw,18px); --font-small:clamp(13px,2.8vw,14px);
+      --bg:#0b0b0b; --panel:#121212; --panel-2:#151515; --text:#fafafa; --muted:#bdbdbd;
+      --accent:#a78bfa; --accent-2:#8b5cf6; --ok:#22c55e; --err:#ef4444;
+      --radius:16px; --btn-h:56px; --maxw:720px;
     }
     *{box-sizing:border-box}
-    html,body{height:100%;margin:0;font-family:system-ui,Segoe UI,Roboto,"Noto Sans KR","Malgun Gothic",sans-serif;background:var(--bg);color:var(--text)}
-    .wrap{min-height:100%;display:grid;place-items:center;padding:24px 14px}
-    .card{width:100%;max-width:var(--maxw);background:linear-gradient(180deg,#121212,#0d0d0d);border:1px solid #1d1d1d;border-radius:var(--radius);padding:var(--pad);box-shadow:0 10px 30px rgba(0,0,0,.35)}
-    .brand{display:flex;align-items:center;gap:12px;margin-bottom:10px}
-    .logo{width:44px;height:44px;border-radius:12px;background:radial-gradient(circle at 35% 35%,#fff 0 25%,#e2e2e2 26% 40%,#111 41% 100%);box-shadow:inset 0 0 18px rgba(255,255,255,.15),0 4px 10px rgba(0,0,0,.4)}
-    h1{font-size:var(--font-big);margin:0}
-    .sub{color:var(--muted);font-size:var(--font-small);margin:6px 0 16px}
-    ul{margin:0 0 14px 18px;color:#d8d8d8;font-size:var(--font-small)}
-    .btn{width:100%;height:var(--btn-h);border:0;border-radius:14px;font-size:var(--font-mid);font-weight:700;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
-    .btn-google{background:linear-gradient(180deg,var(--accent),var(--accent-strong));color:#160b2a;text-shadow:0 1px 0 rgba(255,255,255,.12)}
-    .msg{margin-top:10px;padding:10px 12px;border-radius:12px;font-size:var(--font-small);display:none}
-    .msg.show{display:block}
-    .msg.ok{background:#0f1a08;color:#caffb5;border:1px solid #224a1b}
-    .msg.err{background:#2a0e10;color:#ffc9c9;border:1px solid #5d1f25}
-    .help{text-align:center;color:var(--muted);font-size:var(--font-small);margin-top:12px}
+    html,body{height:100%;margin:0;background:var(--bg);color:var(--text);
+      font-family:system-ui,Segoe UI,Roboto,'Noto Sans KR','Malgun Gothic',sans-serif}
+    a{color:inherit;text-decoration:none}
+    .wrap{min-height:100%;display:grid;grid-template-rows:auto 1fr;gap:0}
+
+    /* 상단바 (원본 스타일 존중: 심플, 컴팩트) */
+    header{position:sticky;top:0;z-index:10;background:rgba(0,0,0,.6);backdrop-filter:blur(8px);border-bottom:1px solid #111}
+    .nav{max-width:var(--maxw);margin:0 auto;padding:8px 14px;display:flex;align-items:center;gap:12px}
+    .brand{display:flex;align-items:center;gap:8px}
+    .brand-logo{height:48px}
+    @media (max-width:420px){ .brand-logo{height:40px} }
+    .spacer{flex:1}
+    .nav-btn{padding:8px 12px;border-radius:12px;background:var(--panel);border:1px solid #222;color:var(--muted);font-size:14px}
+
+    /* 본문 카드 */
+    main{display:grid;place-items:center;padding:24px 14px}
+    .card{width:100%;max-width:520px;background:linear-gradient(180deg,var(--panel),var(--panel-2));
+      border:1px solid #1e1e1e;border-radius:var(--radius);padding:24px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+    .title{font-size:24px;margin:4px 0 12px 0;font-weight:700}
+    .sub{color:var(--muted);font-size:14px;margin-bottom:18px;line-height:1.5}
+
+    .notice{background:#0f1020;border:1px solid #26284b;color:#c9c9ff;border-radius:12px;padding:12px 14px;font-size:14px;line-height:1.6}
+    .notice strong{color:#fff}
+
+    .btn{width:100%;height:var(--btn-h);border-radius:14px;border:0;cursor:pointer;
+      background:linear-gradient(135deg,var(--accent),var(--accent-2));color:#fff;font-size:16px;font-weight:700;
+      display:flex;align-items:center;justify-content:center;gap:10px;transition:transform .04s ease,opacity .2s}
+    .btn:active{transform:scale(.99)}
+    .btn[disabled]{opacity:.6;cursor:progress}
+    .g-ico{width:20px;height:20px;display:inline-block}
+    .alt{margin-top:12px;text-align:center;color:var(--muted);font-size:13px}
+
+    .err{margin-top:12px;color:var(--err);font-size:13px}
+    footer{max-width:var(--maxw);margin:24px auto 8px auto;padding:0 14px;color:#6e6e6e;font-size:12px;text-align:center}
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <main class="card" role="main" aria-labelledby="title">
-      <div class="brand" aria-hidden="true">
-        <div class="logo" role="img" aria-label="KidsAni 로고"></div>
-        <h1 id="title">구글 계정으로 시작해요</h1>
-      </div>
-      <p class="sub">아래 버튼을 누르면 구글 계정으로 인증하고, 닉네임을 설정해요.</p>
-      <ul>
-        <li>큰 글자·큰 버튼</li>
-        <li>개인정보 최소 사용</li>
-        <li>닉네임은 등록 영상에 표시</li>
-      </ul>
+<div class="wrap">
+  <header>
+    <div class="nav">
+      <a class="brand" href="/index.html" aria-label="ArkTube 홈">
+        <img class="brand-logo" src="/image/arktube_side.png" alt="ArkTube"/>
+      </a>
+      <div class="spacer"></div>
+      <a class="nav-btn" href="/signin.html">로그인</a>
+    </div>
+  </header>
 
-      <button id="btnGoogle" class="btn btn-google" type="button" aria-label="구글로 시작">Google로 시작</button>
-      <div id="msg" class="msg" role="status" aria-live="polite"></div>
+  <main>
+    <div class="card" role="region" aria-labelledby="title">
+      <div id="title" class="title">ArkTube 회원가입</div>
+      <div class="sub">구글 계정으로 간편하게 시작하세요. 닉네임은 사용하지 않습니다.</div>
 
-      <p class="help">이미 계정이 있나요? <a href="signin.html">로그인하기</a></p>
-    </main>
-  </div>
+      <p class="notice">
+        ArkTube는 무료 도메인을 사용중이라<br/>
+        구글 회원가입 시 <strong>theark-3c896.firebaseapp.com</strong> 서비스로 표시됩니다.
+      </p>
 
-  <!-- 인라인 스크립트 없이 외부 모듈만 -->
-  <script type="module" src="./js/signup.js"></script>
+      <button id="btn-google" class="btn" type="button" aria-label="Google로 회원가입">
+        <svg class="g-ico" viewBox="0 0 48 48" aria-hidden="true">
+          <path fill="#FFC107" d="M43.6 20.5H42v-.1H24v7.2h11.3C33.6 31 29.2 34 24 34c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3l5.1-5.1C33.3 4.2 28.9 2 24 2 12.3 2 2.9 11.4 2.9 23.1S12.3 44.2 24 44.2c11 0 20.1-8 20.1-20.1 0-1.3-.1-2.4-.5-3.6z"/>
+          <path fill="#FF3D00" d="M6.3 14.7l5.9 4.3C14 15.6 18.6 12 24 12c3.1 0 5.9 1.2 8 3l5.1-5.1C33.3 4.2 28.9 2 24 2 16 2 9 6.5 6.3 14.7z"/>
+          <path fill="#4CAF50" d="M24 44.2c5.1 0 9.7-1.7 13.3-4.7l-6.2-5.1c-2 1.4-4.7 2.3-7.1 2.3-5.2 0-9.6-3-11.4-7.3l-6.1 4.7C9 41.7 16 44.2 24 44.2z"/>
+          <path fill="#1976D2" d="M43.6 20.5H42v-.1H24v7.2h11.3c-1.4 4.1-5.6 6.4-9.3 6.4-2.3 0-4.3-.6-6.1-1.8l-6.1 4.7c3.3 3.1 7.5 4.9 12.2 4.9 7.1 0 14.1-4.6 14.1-14.1 0-1.3-.1-2.4-.5-3.6z"/>
+        </svg>
+        Google로 회원가입
+      </button>
+
+      <div id="err" class="err" hidden></div>
+      <div class="alt">이미 계정이 있으신가요? <a href="/signin.html">로그인</a></div>
+    </div>
+  </main>
+
+  <footer>© ArkTube</footer>
+</div>
+
+<script type="module" src="/signup.js"></script>
 </body>
 </html>
