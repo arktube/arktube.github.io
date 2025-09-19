@@ -1,60 +1,30 @@
-// js/firebase-init.js  (arktube safe init, 12.1.0)
-// - 여러 번 include 되어도 중복 초기화 방지
-// - 퍼시스턴스: indexedDB → local → session → memory 순 폴백
-// - GitHub Pages(https://arktube.github.io) + Firebase Hosting 모두 호환
-
-import {
-  initializeApp,
-  getApps,
-  getApp,
-} from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
-import {
-  getAuth,
-  setPersistence,
-  indexedDBLocalPersistence,
-  browserLocalPersistence,
-  browserSessionPersistence,
-  inMemoryPersistence,
-} from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
+// js/firebase-init.js  (ArkTube v0.1)
+import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
+import { getAuth, setPersistence, browserLocalPersistence, GoogleAuthProvider } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
 import { getFirestore } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
 
-// ─────────────────────────────────────
-// 운영 시 window.__FIREBASE_CONFIG 주입 가능(예: 환경별 스위칭)
-// 없으면 아래 arktube(theark-3c896) 고정값 사용
-const fallback = {
+// --- 프로젝트 설정 (제공값 그대로) ---
+const firebaseConfig = {
   apiKey: "AIzaSyBYIENuzNGaI_v2yGq-_6opbchsLV1PxSw",
   authDomain: "theark-3c896.firebaseapp.com",
   projectId: "theark-3c896",
-  storageBucket: "theark-3c896.appspot.com",
-  // messagingSenderId / appId 는 필수 아님 (필요 시 콘솔에서 추가 복사)
+  // 아래 항목은 콘솔에서 필요 시 채워 넣으세요.
+  // storageBucket: "theark-3c896.appspot.com",
+  // messagingSenderId: "XXXXXXXXXXXX",
+  // appId: "1:XXXXXXXXXXXX:web:YYYYYYYYYYYYYYYYYYYYYY"
 };
 
-const cfg =
-  (globalThis.__FIREBASE_CONFIG && typeof globalThis.__FIREBASE_CONFIG === "object")
-    ? globalThis.__FIREBASE_CONFIG
-    : fallback;
+// --- Initialize (중복 초기화 방지) ---
+const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db   = getFirestore(app);
 
-// 중복 초기화 방지
-const app = getApps().length ? getApp() : initializeApp(cfg);
+// 지속 로그인(브라우저 로컬)
+await setPersistence(auth, browserLocalPersistence);
 
-// 기본 모듈
-export const auth = getAuth(app);
-export const db   = getFirestore(app);
+// Google Provider (팝업/리다이렉트에서 재사용)
+const googleProvider = new GoogleAuthProvider();
+// 최소 범위: 기본 프로필/이메일
+googleProvider.setCustomParameters({ prompt: 'select_account' });
 
-// 퍼시스턴스 단계적 설정 (실패 시 폴백)
-try {
-  await setPersistence(auth, indexedDBLocalPersistence);
-} catch {
-  try {
-    await setPersistence(auth, browserLocalPersistence);
-  } catch {
-    try {
-      await setPersistence(auth, browserSessionPersistence);
-    } catch {
-      await setPersistence(auth, inMemoryPersistence);
-    }
-  }
-}
-
-// 선택: 설정 확인 로그(필요 시 주석 해제)
-// console.log("[firebase-init] projectId =", cfg.projectId, "authDomain =", cfg.authDomain);
+export { app, auth, db, googleProvider };
