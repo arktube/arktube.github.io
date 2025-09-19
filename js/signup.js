@@ -1,6 +1,6 @@
 // signup.js
-import { auth } from './js/firebase-init.js';
-import { signInWithGoogle, onAuthStateChanged } from './js/auth.js';
+import { auth } from './firebase-init.js';
+import { signInWithGoogle, onAuthStateChanged } from './auth.js';
 
 const $ = (s)=>document.querySelector(s);
 const btn = $('#btn-google');
