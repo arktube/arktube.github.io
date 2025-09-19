@@ -8,23 +8,41 @@
 
   <!-- 공통 CSP -->
   <meta http-equiv="Content-Security-Policy" content="
-    default-src 'self';
-    connect-src 'self'
-      https://www.googleapis.com
-      https://firestore.googleapis.com
-      https://securetoken.googleapis.com
-      https://identitytoolkit.googleapis.com
-      https://firebaseinstallations.googleapis.com
-      https://www.gstatic.com
-      https://www.youtube.com
-      https://i.ytimg.com;
-    img-src 'self' data: https://i.ytimg.com;
-    frame-src https://www.youtube.com https://www.youtube-nocookie.com;
-    script-src 'self' https://www.gstatic.com 'unsafe-inline';
-    style-src 'self' 'unsafe-inline';
-    object-src 'none';
-    base-uri 'self';
-  ">
+  default-src 'self';
+
+  connect-src 'self'
+    https://www.googleapis.com
+    https://firestore.googleapis.com
+    https://securetoken.googleapis.com
+    https://identitytoolkit.googleapis.com
+    https://firebaseinstallations.googleapis.com
+    https://firebase.googleapis.com
+    https://www.gstatic.com
+    https://www.google-analytics.com
+    https://www.youtube.com
+    https://i.ytimg.com;
+
+  img-src 'self' data:
+    https://i.ytimg.com
+    https://www.google-analytics.com;
+
+  frame-src
+    https://www.youtube.com
+    https://www.youtube-nocookie.com
+    https://accounts.google.com
+    https://www.google.com;
+
+  script-src 'self'
+    https://www.gstatic.com
+    https://apis.google.com
+    https://www.googletagmanager.com
+    'unsafe-inline';
+
+  style-src 'self' 'unsafe-inline';
+  object-src 'none';
+  base-uri 'self';
+">
+
 
   <!-- PWA / Icons -->
   <link rel="manifest" href="/manifest.webmanifest">
