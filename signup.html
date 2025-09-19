@@ -1,48 +1,57 @@
-// js/signup.js (v0.1.3 — route fix)
-import { auth, db, onAuthStateChanged, signInWithGoogle, ensureUserDoc } from "./auth.js";
-import { doc, getDoc } from "./auth.js";
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>회원가입 | KidsAni</title>
+  <meta name="color-scheme" content="dark light" />
+  <style>
+    :root{
+      --bg:#000; --panel:#111; --text:#fafafa; --muted:#bdbdbd;
+      --accent:#a78bfa; --accent-strong:#8b5cf6;
+      --radius:16px; --pad:22px; --btn-h:56px; --maxw:560px;
+      --font-big:clamp(22px,5vw,28px); --font-mid:clamp(16px,3.5vw,18px); --font-small:clamp(13px,2.8vw,14px);
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;font-family:system-ui,Segoe UI,Roboto,"Noto Sans KR","Malgun Gothic",sans-serif;background:var(--bg);color:var(--text)}
+    .wrap{min-height:100%;display:grid;place-items:center;padding:24px 14px}
+    .card{width:100%;max-width:var(--maxw);background:linear-gradient(180deg,#121212,#0d0d0d);border:1px solid #1d1d1d;border-radius:var(--radius);padding:var(--pad);box-shadow:0 10px 30px rgba(0,0,0,.35)}
+    .brand{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+    .logo{width:44px;height:44px;border-radius:12px;background:radial-gradient(circle at 35% 35%,#fff 0 25%,#e2e2e2 26% 40%,#111 41% 100%);box-shadow:inset 0 0 18px rgba(255,255,255,.15),0 4px 10px rgba(0,0,0,.4)}
+    h1{font-size:var(--font-big);margin:0}
+    .sub{color:var(--muted);font-size:var(--font-small);margin:6px 0 16px}
+    ul{margin:0 0 14px 18px;color:#d8d8d8;font-size:var(--font-small)}
+    .btn{width:100%;height:var(--btn-h);border:0;border-radius:14px;font-size:var(--font-mid);font-weight:700;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+    .btn-google{background:linear-gradient(180deg,var(--accent),var(--accent-strong));color:#160b2a;text-shadow:0 1px 0 rgba(255,255,255,.12)}
+    .msg{margin-top:10px;padding:10px 12px;border-radius:12px;font-size:var(--font-small);display:none}
+    .msg.show{display:block}
+    .msg.ok{background:#0f1a08;color:#caffb5;border:1px solid #224a1b}
+    .msg.err{background:#2a0e10;color:#ffc9c9;border:1px solid #5d1f25}
+    .help{text-align:center;color:var(--muted);font-size:var(--font-small);margin-top:12px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <main class="card" role="main" aria-labelledby="title">
+      <div class="brand" aria-hidden="true">
+        <div class="logo" role="img" aria-label="KidsAni 로고"></div>
+        <h1 id="title">구글 계정으로 시작해요</h1>
+      </div>
+      <p class="sub">아래 버튼을 누르면 구글 계정으로 인증하고, 닉네임을 설정해요.</p>
+      <ul>
+        <li>큰 글자·큰 버튼</li>
+        <li>개인정보 최소 사용</li>
+        <li>닉네임은 등록 영상에 표시</li>
+      </ul>
 
-const $ = (id) => document.getElementById(id);
-const btnGoogle = $("btnGoogle");
-const msg = $("msg");
+      <button id="btnGoogle" class="btn btn-google" type="button" aria-label="구글로 시작">Google로 시작</button>
+      <div id="msg" class="msg" role="status" aria-live="polite"></div>
 
-function show(text, ok = false) {
-  if (!msg) return;
-  msg.textContent = text;
-  msg.className = "msg show " + (ok ? "ok" : "err");
-}
+      <p class="help">이미 계정이 있나요? <a href="signin.html">로그인하기</a></p>
+    </main>
+  </div>
 
-// ✅ 닉네임 유무는 Firestore의 users/{uid}.nick만 본다 (displayName 사용 X)
-async function routeAfterLogin(user) {
-  if (!user) return;
-  try {
-    // 사용자 문서가 없으면 보강(첫 로그인 대비)
-    await ensureUserDoc(user.uid, user.displayName || "회원");
-
-    const snap = await getDoc(doc(db, "users", user.uid));
-    const data = snap.exists() ? snap.data() : {};
-    const hasNick = !!data?.nick;   // ← 오직 nick 필드만 체크
-
-    location.replace(hasNick ? "index.html" : "nick.html");
-  } catch (e) {
-    // 문제가 있어도 닉 설정 페이지로 보냄
-    location.replace("nick.html");
-  }
-}
-
-// 로그인 상태 감지 → 항상 routeAfterLogin 사용
-onAuthStateChanged(async (user) => {
-  if (user) routeAfterLogin(user);
-});
-
-// [Google로 시작]
-btnGoogle?.addEventListener("click", async () => {
-  try {
-    await signInWithGoogle();    // 팝업 로그인
-    show("로그인 성공! 닉네임을 정하러 가요…", true);
-    // onAuthStateChanged에서 routeAfterLogin 처리
-  } catch (e) {
-    console.error(e);
-    show("구글 인증에 실패했어요. 잠시 후 다시 시도해 주세요.");
-  }
-});
+  <!-- 인라인 스크립트 없이 외부 모듈만 -->
+  <script type="module" src="./js/signup.js"></script>
+</body>
+</html>
