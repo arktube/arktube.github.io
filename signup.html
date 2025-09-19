@@ -6,7 +6,7 @@
   <title>회원가입 | ArkTube</title>
   <meta name="color-scheme" content="dark light"/>
 
-  <!-- 공통 CSP (프로젝트 전역과 동일) -->
+  <!-- 공통 CSP -->
   <meta http-equiv="Content-Security-Policy" content="
     default-src 'self';
     connect-src 'self'
@@ -30,7 +30,7 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="theme-color" content="#000000">
   <link rel="icon" href="/favicon.ico">
-  <!-- 자산 경로(기억): /image/arktube_side.png 상단바 로고, /image/arktube_icon_32b.png 탭 아이콘 -->
+
   <style>
     :root{
       --bg:#0b0b0b; --panel:#121212; --panel-2:#151515; --text:#fafafa; --muted:#bdbdbd;
@@ -41,36 +41,39 @@
     html,body{height:100%;margin:0;background:var(--bg);color:var(--text);
       font-family:system-ui,Segoe UI,Roboto,'Noto Sans KR','Malgun Gothic',sans-serif}
     a{color:inherit;text-decoration:none}
-    .wrap{min-height:100%;display:grid;grid-template-rows:auto 1fr;gap:0}
+    .wrap{min-height:100%;display:grid;grid-template-rows:auto 1fr}
 
-    /* 상단바 (원본 스타일 존중: 심플, 컴팩트) */
+    /* 상단바 */
     header{position:sticky;top:0;z-index:10;background:rgba(0,0,0,.6);backdrop-filter:blur(8px);border-bottom:1px solid #111}
     .nav{max-width:var(--maxw);margin:0 auto;padding:8px 14px;display:flex;align-items:center;gap:12px}
     .brand{display:flex;align-items:center;gap:8px}
     .brand-logo{height:48px}
     @media (max-width:420px){ .brand-logo{height:40px} }
     .spacer{flex:1}
-    .nav-btn{padding:8px 12px;border-radius:12px;background:var(--panel);border:1px solid #222;color:var(--muted);font-size:14px}
+    .nav-btn{padding:8px 12px;border-radius:12px;background:#121212;border:1px solid #222;color:#aaa;font-size:14px}
 
-    /* 본문 카드 */
     main{display:grid;place-items:center;padding:24px 14px}
-    .card{width:100%;max-width:520px;background:linear-gradient(180deg,var(--panel),var(--panel-2));
+    .card{width:100%;max-width:560px;background:linear-gradient(180deg,var(--panel),var(--panel-2));
       border:1px solid #1e1e1e;border-radius:var(--radius);padding:24px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
-    .title{font-size:24px;margin:4px 0 12px 0;font-weight:700}
-    .sub{color:var(--muted);font-size:14px;margin-bottom:18px;line-height:1.5}
 
-    .notice{background:#0f1020;border:1px solid #26284b;color:#c9c9ff;border-radius:12px;padding:12px 14px;font-size:14px;line-height:1.6}
+    .hero{display:flex;align-items:center;gap:14px;margin-bottom:12px}
+    .hero-icon{width:64px;height:64px;border-radius:14px;background:#0e0e0e;display:grid;place-items:center;overflow:hidden}
+    .hero-icon img{width:100%;height:100%;object-fit:cover}
+    .title{font-size:24px;font-weight:800;margin:0}
+    .sub{color:var(--muted);font-size:14px;margin-top:4px;line-height:1.5}
+
+    .notice{background:#0f1020;border:1px solid #26284b;color:#c9c9ff;border-radius:12px;padding:12px 14px;font-size:14px;line-height:1.6;margin-top:14px}
     .notice strong{color:#fff}
 
     .btn{width:100%;height:var(--btn-h);border-radius:14px;border:0;cursor:pointer;
       background:linear-gradient(135deg,var(--accent),var(--accent-2));color:#fff;font-size:16px;font-weight:700;
-      display:flex;align-items:center;justify-content:center;gap:10px;transition:transform .04s ease,opacity .2s}
+      display:flex;align-items:center;justify-content:center;gap:10px;transition:transform .04s ease,opacity .2s;margin-top:18px}
     .btn:active{transform:scale(.99)}
     .btn[disabled]{opacity:.6;cursor:progress}
     .g-ico{width:20px;height:20px;display:inline-block}
+    .err{margin-top:12px;color:var(--err);font-size:13px}
     .alt{margin-top:12px;text-align:center;color:var(--muted);font-size:13px}
 
-    .err{margin-top:12px;color:var(--err);font-size:13px}
     footer{max-width:var(--maxw);margin:24px auto 8px auto;padding:0 14px;color:#6e6e6e;font-size:12px;text-align:center}
   </style>
 </head>
@@ -88,11 +91,21 @@
 
   <main>
     <div class="card" role="region" aria-labelledby="title">
-      <div id="title" class="title">ArkTube 회원가입</div>
-      <div class="sub">구글 계정으로 간편하게 시작하세요. 닉네임은 사용하지 않습니다.</div>
+      <div class="hero">
+        <div class="hero-icon">
+          <!-- 요청: 왼쪽 이미지 /image/arktube_192.png 사용 -->
+        <img src="/image/arktube_192.png" alt="ArkTube"/>
+        </div>
+        <div>
+          <h1 id="title" class="title">Google 계정으로 시작해요</h1>
+          <p class="sub">
+            로그인 후 상단바에는 Google 계정의 이름이 표시됩니다.<br/>
+            <small>크롬 우측 상단 프로필 이미지 → <b>Google 계정 관리</b> → <b>개인정보</b> → <b>이름</b>에 설정된 이름이 표시돼요.</small>
+          </p>
+        </div>
+      </div>
 
       <p class="notice">
-        ArkTube는 무료 도메인을 사용중이라<br/>
         구글 회원가입 시 <strong>theark-3c896.firebaseapp.com</strong> 서비스로 표시됩니다.
       </p>
 
