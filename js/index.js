@@ -1,26 +1,121 @@
-// js/index.js (v1.7.4) — 원본 기능 100% 보존 + 누락 복구
-// - CATEGORY_GROUPS 기반 그룹 렌더(개인라벨 적용)
-// - 전체선택(트라이스테이트) 정확 동기화 복구
-// - 다중 탭 동기화(selectedCats) 복구
-// - [영상보기] 버튼: 선택 0개 시 비활성화 복구
-// - personal 선택: 단독 모드(혼합 불가), 사양대로 personal1~4
-// - 연속재생(autonext) 저장/동기화
-// - 카테고리 정렬(로컬 저장) 반영
-// - 단순형 스와이프 + 고급형(끌림) 스와이프 유지, 중앙 데드존
-// - auth 래퍼(onAuthStateChanged(cb)/(auth,cb) 겸용) + fbSignOut 별칭 호환
-
+// /js/index.js  (ArkTube v0.1 — CATEGORY MODEL, series_ 규칙, 15% 데드존)
 import { CATEGORY_GROUPS } from './categories.js';
 import { auth } from './firebase-init.js';
-import { onAuthStateChanged, fbSignOut } from './auth.js';
+import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
 
-const GROUP_ORDER_KEY = 'groupOrderV1';
-// 사양 일치: personal1~personal4
-const isPersonalVal = (v)=> /^personal[1-4]$/.test(v);
+/* ========= 유틸 ========= */
+const isPersonalVal = (v)=> v && v.startsWith('personal');
+const isSeriesGroup = (key)=> typeof key === 'string' && key.startsWith('series_');
 
-// 전역 내비게이션 가드(단순형/고급형 중복 방지)
-window.__swipeNavigating = window.__swipeNavigating || false;
+const GROUP_ORDER_KEY = 'groupOrderV1';              // 카테고리 순서
+const SELECTED_CATS_KEY = 'selectedCats';            // 선택 저장 (ALL | string[])
+const AUTONEXT_KEY = 'autonext';                     // 연속재생 on/off
+const VIEW_TYPE_KEY = 'arktube:view:type';           // all | shorts | video
+const LIST_SNAPSHOT_KEY = 'arktube:list:snapshot';   // list 상태 복원용 (index는 저장만)
 
-/* ---------- group order ---------- */
+/* ========= 상단바 ========= */
+const signupLink   = document.getElementById('signupLink');
+const signinLink   = document.getElementById('signinLink');
+const welcome      = document.getElementById('welcome');
+const menuBtn      = document.getElementById('menuBtn');
+const dropdown     = document.getElementById('dropdownMenu');
+const btnSignOut   = document.getElementById('btnSignOut');
+const btnGoUpload  = document.getElementById('btnGoUpload');
+const btnMyUploads = document.getElementById('btnMyUploads');
+const btnAbout     = document.getElementById('btnAbout');
+const btnOrder     = document.getElementById('btnOrder');
+const btnList      = document.getElementById('btnList');
+const brandHome    = document.getElementById('brandHome');
+
+let isMenuOpen=false;
+function openDropdown(){ isMenuOpen=true; dropdown.classList.remove('hidden'); requestAnimationFrame(()=> dropdown.classList.add('show')); }
+function closeDropdown(){ isMenuOpen=false; dropdown.classList.remove('show'); setTimeout(()=> dropdown.classList.add('hidden'),180); }
+
+onAuthStateChanged(auth,(user)=>{
+  const loggedIn = !!user;
+  signupLink?.classList.toggle('hidden', loggedIn);
+  signinLink?.classList.toggle('hidden', loggedIn);
+  welcome.textContent = loggedIn ? `Welcome! ${user.displayName || '회원'}` : '';
+  closeDropdown();
+});
+
+menuBtn?.addEventListener('click',(e)=>{ e.stopPropagation(); dropdown.classList.contains('hidden') ? openDropdown() : closeDropdown(); });
+document.addEventListener('pointerdown',(e)=>{ if(dropdown.classList.contains('hidden')) return; if(!e.target.closest('#dropdownMenu, #menuBtn')) closeDropdown(); }, true);
+document.addEventListener('keydown',(e)=>{ if(e.key==='Escape') closeDropdown(); });
+dropdown?.addEventListener('click',(e)=> e.stopPropagation());
+
+btnMyUploads ?.addEventListener('click', ()=>{ location.href = '/manage-uploads.html'; closeDropdown(); });
+btnGoUpload  ?.addEventListener('click', ()=>{ location.href = '/upload.html'; closeDropdown(); });
+btnAbout     ?.addEventListener('click', ()=>{ location.href = '/about.html'; closeDropdown(); });
+btnOrder     ?.addEventListener('click', ()=>{ location.href = '/category-order.html'; closeDropdown(); });
+btnSignOut   ?.addEventListener('click', async ()=>{ if(!auth.currentUser){ location.href='/signin.html'; return; } await fbSignOut(auth); closeDropdown(); });
+btnList      ?.addEventListener('click', ()=>{ location.href = '/list.html'; closeDropdown(); });
+brandHome    ?.addEventListener('click',(e)=>{ e.preventDefault(); window.scrollTo({top:0,behavior:'smooth'}); });
+
+/* ========= 도움말 플로팅 ========= */
+const helpBtn = document.getElementById('btnHelp');
+const helpOverlay = document.getElementById('helpOverlay');
+helpBtn?.addEventListener('click', ()=>{
+  helpOverlay?.classList.add('show');
+  helpOverlay?.setAttribute('aria-hidden','false');
+});
+helpOverlay?.addEventListener('click',(e)=>{
+  if (e.target === helpOverlay){ // 바깥 클릭
+    helpOverlay.classList.remove('show');
+    helpOverlay.setAttribute('aria-hidden','true');
+  }
+});
+document.addEventListener('keydown',(e)=>{
+  if (e.key === 'Escape' && helpOverlay?.classList.contains('show')){
+    helpOverlay.classList.remove('show');
+    helpOverlay.setAttribute('aria-hidden','true');
+  }
+});
+
+/* ========= 연속재생 on/off (공통 포맷) ========= */
+const cbAutoNext = document.getElementById('cbAutoNext');
+(function initAutoNext(){
+  if (!cbAutoNext) return;
+  const read = () => {
+    const v = (localStorage.getItem(AUTONEXT_KEY) || '').toLowerCase();
+    return v==='1' || v==='true' || v==='on';
+  };
+  const write = (on) => localStorage.setItem(AUTONEXT_KEY, on ? '1' : '0');
+  const hasSaved = localStorage.getItem(AUTONEXT_KEY) != null;
+  if (hasSaved) cbAutoNext.checked = read(); else write(cbAutoNext.checked);
+  cbAutoNext.addEventListener('change', ()=> write(cbAutoNext.checked));
+  window.addEventListener('storage', (e)=>{ if (e.key===AUTONEXT_KEY) cbAutoNext.checked = read(); });
+})();
+
+/* ========= 형식 토글(all/shorts/video) ========= */
+const typeWrap = document.getElementById('typeToggle');
+(function initViewType(){
+  if (!typeWrap) return;
+  const saved = localStorage.getItem(VIEW_TYPE_KEY) || 'all';
+  const input = typeWrap.querySelector(`input[value="${saved}"]`) || typeWrap.querySelector('input[value="all"]');
+  if (input) input.checked = true;
+
+  typeWrap.addEventListener('change', (e)=>{
+    const t = e.target?.value;
+    if (!t) return;
+    localStorage.setItem(VIEW_TYPE_KEY, t);
+  });
+
+  // 다른 탭 동기화
+  window.addEventListener('storage', (e)=>{
+    if (e.key !== VIEW_TYPE_KEY) return;
+    const v = e.newValue || 'all';
+    const r = typeWrap.querySelector(`input[value="${v}"]`);
+    if (r){ r.checked = true; }
+  });
+})();
+
+/* ========= 카테고리 렌더 ========= */
+const catsBox      = document.getElementById('cats');
+const cbToggleAll  = document.getElementById('cbToggleAll');
+const btnWatch     = document.getElementById('btnWatch');
+const btnOpenOrder = document.getElementById('btnOpenOrder');
+
 function applyGroupOrder(groups){
   let saved = null;
   try{ saved = JSON.parse(localStorage.getItem(GROUP_ORDER_KEY) || 'null'); }catch{}
@@ -29,101 +124,9 @@ function applyGroupOrder(groups){
   return groups.slice().sort((a,b)=>(idx.get(a.key)??999) - (idx.get(b.key)??999));
 }
 
-/* ---------- personal labels (local) ---------- */
 function getPersonalLabels(){
   try { return JSON.parse(localStorage.getItem('personalLabels') || '{}'); }
   catch { return {}; }
-}
-
-/* ---------- topbar ---------- */
-const signupLink   = document.getElementById("signupLink");
-const signinLink   = document.getElementById("signinLink");
-const welcome      = document.getElementById("welcome");
-const menuBtn      = document.getElementById("menuBtn");
-const dropdown     = document.getElementById("dropdownMenu");
-const btnSignOut   = document.getElementById("btnSignOut");
-const btnGoUpload  = document.getElementById("btnGoUpload");
-const btnMyUploads = document.getElementById("btnMyUploads");
-const btnAbout     = document.getElementById("btnAbout");
-const btnOrder     = document.getElementById("btnOrder");
-const btnList      = document.getElementById("btnList");
-const brandHome    = document.getElementById("brandHome");
-
-let isMenuOpen=false;
-function openDropdown(){ isMenuOpen=true; dropdown?.classList.remove("hidden"); requestAnimationFrame(()=> dropdown?.classList.add("show")); }
-function closeDropdown(){ isMenuOpen=false; dropdown?.classList.remove("show"); setTimeout(()=> dropdown?.classList.add("hidden"),180); }
-
-let __authUnsub = null;
-function initAuthUI(){
-  // 단일 콜백 시그니처 사용 (래퍼가 두 형태 모두 지원)
-  __authUnsub = onAuthStateChanged((user)=>{
-    const loggedIn = !!user;
-    signupLink?.classList.toggle("hidden", loggedIn);
-    signinLink?.classList.toggle("hidden", loggedIn);
-    if (welcome) welcome.textContent = loggedIn ? `Welcome! ${user.displayName || '회원'}` : "";
-    closeDropdown();
-  });
-  // 페이지 이탈 시 정리
-  window.addEventListener('pagehide', ()=>{ try{ __authUnsub?.(); }catch{} __authUnsub=null; }, { once:true });
-}
-initAuthUI();
-
-menuBtn?.addEventListener("click",(e)=>{ e.stopPropagation(); dropdown?.classList.contains("hidden") ? openDropdown() : closeDropdown(); });
-document.addEventListener('pointerdown',(e)=>{ if(!dropdown || dropdown.classList.contains('hidden')) return; if(!e.target.closest('#dropdownMenu, #menuBtn')) closeDropdown(); }, true);
-document.addEventListener('keydown',(e)=>{ if(e.key==='Escape') closeDropdown(); });
-dropdown?.addEventListener("click",(e)=> e.stopPropagation());
-btnMyUploads ?.addEventListener("click", ()=>{ location.href = "manage-uploads.html"; closeDropdown(); });
-btnGoUpload  ?.addEventListener("click", ()=>{ location.href = "upload.html"; closeDropdown(); });
-btnAbout     ?.addEventListener("click", ()=>{ location.href = "about.html"; closeDropdown(); });
-btnOrder     ?.addEventListener("click", ()=>{ location.href = "category-order.html"; closeDropdown(); });
-btnSignOut   ?.addEventListener("click", async ()=>{
-  if(!auth.currentUser){ location.href='signin.html'; return; }
-  await fbSignOut();
-  closeDropdown();
-});
-btnList      ?.addEventListener("click", ()=>{ location.href = "list.html"; closeDropdown(); });
-brandHome    ?.addEventListener("click",(e)=>{ e.preventDefault(); window.scrollTo({top:0,behavior:"smooth"}); });
-
-/* === 연속재생(autonext) 표준 관리: index 전용 === */
-(function setupAutoNext(){
-  const KEY = 'autonext';
-  const $auto = document.getElementById('cbAutoNext');
-  if (!$auto) return;
-
-  const read = () => {
-    const v = (localStorage.getItem(KEY) || '').toLowerCase();
-    return v === '1' || v === 'true' || v === 'on';
-  };
-  const write = (on) => { localStorage.setItem(KEY, on ? '1' : '0'); };
-
-  const hasSaved = localStorage.getItem(KEY) != null;
-  if (hasSaved) $auto.checked = read();
-  else write($auto.checked);
-
-  $auto.addEventListener('change', () => write($auto.checked));
-  window.addEventListener('storage', (e)=>{ if (e.key === KEY) $auto.checked = read(); });
-})();
-
-/* ---------- cats ---------- */
-const catsBox      = document.getElementById("cats");
-const btnWatch     = document.getElementById("btnWatch");
-const cbAutoNext   = document.getElementById("cbAutoNext");
-const cbToggleAll  = document.getElementById("cbToggleAll");
-const catTitleBtn  = document.getElementById("btnOpenOrder");
-
-/* ---------- 유틸: 전체선택 트라이스테이트/버튼 활성화 ---------- */
-function refreshToggleAll(){
-  if (!cbToggleAll || !catsBox) return;
-  const all = Array.from(catsBox.querySelectorAll('.group:not([data-key="personal"]):not([data-key="series"]) input.cat'));
-  const total = all.length;
-  const checked = all.filter(c=>c.checked).length;
-  cbToggleAll.indeterminate = checked>0 && checked<total;
-  cbToggleAll.checked = (checked===total && total>0);
-}
-function updateWatchBtn(){
-  if (!btnWatch || !catsBox) return;
-  const anyChecked = !!catsBox.querySelector('.cat:checked');
-  btnWatch.disabled = !anyChecked;
 }
 
 function renderGroups(){
@@ -132,16 +135,27 @@ function renderGroups(){
 
   const html = groups.map(g=>{
     const isPersonalGroup = g.key==='personal';
+    const isSeries = isSeriesGroup(g.key);
 
+    // children (개인자료 라벨 덮어쓰기 + 시리즈 '이어보기' 미니버튼)
     const kids = g.children.map(c=>{
       const labelText = isPersonalGroup && personalLabels[c.value]
-        ? personalLabels[c.value]
-        : c.label;
-      return `<label><input type="checkbox" class="cat" value="${c.value}"> ${labelText}</label>`;
+        ? personalLabels[c.value] : c.label;
+
+      // 시리즈면 오른쪽에 '이어보기' 작은 버튼 추가
+      const resumeBtn = isSeries
+        ? `<button class="resume-mini" data-series-key="${c.value}" title="이 시리즈 이어보기">이어보기</button>`
+        : '';
+
+      return `<label>
+                <input type="checkbox" class="cat" value="${c.value}"> 
+                <span>${labelText}</span>
+                ${resumeBtn}
+              </label>`;
     }).join('');
 
     const legendHTML = isPersonalGroup
-      ? `<legend><span style="font-weight:800;">${g.label}</span> <span class="muted">(로컬저장소)</span></legend>`
+      ? `<legend><span style="font-weight:800;">${g.label}</span> <span class="subnote">(로컬저장소)</span></legend>`
       : `<legend>
            <label class="group-toggle">
              <input type="checkbox" class="group-check" data-group="${g.key}" />
@@ -150,7 +164,7 @@ function renderGroups(){
          </legend>`;
 
     const noteHTML = isPersonalGroup
-      ? `<div class="muted" style="margin:6px 4px 2px;">개인자료는 <b>단독 재생만</b> 가능합니다.</div>`
+      ? `<div class="subnote" style="margin:6px 4px 2px;">개인자료는 <b>단독 재생</b>만 가능합니다.</div>`
       : '';
 
     return `
@@ -164,13 +178,14 @@ function renderGroups(){
 
   catsBox.innerHTML = html;
   bindGroupInteractions();
+  bindResumeButtons();
 }
 renderGroups();
 
-/* ---------- parent/child sync ---------- */
+/* ========= parent/child 동기화 ========= */
 function setParentStateByChildren(groupEl){
   const parent   = groupEl.querySelector('.group-check');
-  if (!parent) return; // personal: no parent toggle
+  if (!parent) return;
   const children = Array.from(groupEl.querySelectorAll('input.cat'));
   const total = children.length;
   const checked = children.filter(c => c.checked).length;
@@ -178,21 +193,20 @@ function setParentStateByChildren(groupEl){
   else if (checked===total){ parent.checked=true; parent.indeterminate=false; }
   else { parent.checked=false; parent.indeterminate=true; }
 }
-function setChildrenByParent(groupEl,on){
-  groupEl.querySelectorAll('input.cat').forEach(c=> c.checked = !!on);
-}
-function refreshAllParentStates(){
-  catsBox.querySelectorAll('.group').forEach(setParentStateByChildren);
-}
+function setChildrenByParent(groupEl,on){ groupEl.querySelectorAll('input.cat').forEach(c=> c.checked = !!on); }
+function refreshAllParentStates(){ catsBox.querySelectorAll('.group').forEach(setParentStateByChildren); }
+
 function computeAllSelected(){
-  // 전체선택 비교는 personal/series 제외
-  const real = Array.from(catsBox.querySelectorAll('.group:not([data-key="personal"]):not([data-key="series"]) input.cat'));
+  // '전체선택'은 개인자료 + 모든 시리즈 그룹 제외
+  const real = Array.from(catsBox.querySelectorAll('.group:not([data-key="personal"]) input.cat'))
+    .filter(el => !isSeriesGroup(el.closest('.group')?.dataset?.key));
   return real.length>0 && real.every(c=>c.checked);
 }
+
 let allSelected=false;
 
 function bindGroupInteractions(){
-  // parent toggles (not for personal)
+  // 전체 그룹 체크박스 → 자식 on/off (개인자료는 부모 없음)
   catsBox.querySelectorAll('.group-check').forEach(parent=>{
     const groupKey = parent.getAttribute('data-group');
     if (groupKey === 'personal') return;
@@ -200,32 +214,27 @@ function bindGroupInteractions(){
       const groupEl = parent.closest('.group');
       setChildrenByParent(groupEl, parent.checked);
       setParentStateByChildren(groupEl);
-
       allSelected = computeAllSelected();
       if (cbToggleAll) cbToggleAll.checked = allSelected;
 
-      // deselect personals if any were on
+      // 개인자료는 단독 재생: 다른 체크 해제
       catsBox.querySelectorAll('.group[data-key="personal"] input.cat:checked').forEach(c=> c.checked=false);
-
-      // 누락 복구: 트라이스테이트 / 버튼 갱신
-      refreshToggleAll();
-      updateWatchBtn();
     });
   });
 
-  // child toggles
+  // 각 자식 체크
   catsBox.querySelectorAll('input.cat').forEach(child=>{
     child.addEventListener('change', ()=>{
       const v = child.value;
       const isPersonal = isPersonalVal(v);
 
       if (isPersonal && child.checked){
-        // personal = single-mode: clear others
+        // personal 단독 모드
         catsBox.querySelectorAll('.group[data-key="personal"] input.cat').forEach(c=>{ if(c!==child) c.checked=false; });
         catsBox.querySelectorAll('.group:not([data-key="personal"]) input.cat:checked').forEach(c=> c.checked=false);
       }
       if (!isPersonal && child.checked){
-        // selecting normal → clear personals
+        // 일반/시리즈 선택 → personal 해제
         catsBox.querySelectorAll('.group[data-key="personal"] input.cat:checked').forEach(c=> c.checked=false);
       }
 
@@ -235,42 +244,51 @@ function bindGroupInteractions(){
 
       allSelected = computeAllSelected();
       if (cbToggleAll) cbToggleAll.checked = allSelected;
-
-      // 누락 복구: 트라이스테이트 / 버튼 갱신
-      refreshToggleAll();
-      updateWatchBtn();
     });
   });
 }
 
-/* ---------- select all & load saved ---------- */
+/* ========= '이어보기' 미니버튼 (시리즈) ========= */
+function bindResumeButtons(){
+  catsBox.querySelectorAll('.resume-mini').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const seriesKey = btn.getAttribute('data-series-key'); // child value 사용(요청사항)
+      if (!seriesKey) return;
+
+      // watch로 이동. index에서 진입 → src 없음(뒤로가기=인덱스)
+      // 이어보기 의도 표시는 sessionStorage로 전달 (watch에서 처리)
+      sessionStorage.setItem('resumeSeriesKey', seriesKey);
+      sessionStorage.removeItem('playQueue');
+      sessionStorage.removeItem('playIndex');
+      location.href = '/watch.html';
+    });
+  });
+}
+
+/* ========= '전체선택' & 기존 선택 복원 ========= */
 function selectAll(on){
-  // 일반 카테고리 전체 on/off (personal/series 제외)
-  catsBox
-    .querySelectorAll('.group:not([data-key="personal"]):not([data-key="series"]) input.cat')
-    .forEach(b => { b.checked = !!on; });
-
-  // 전체선택 시 personal/series는 항상 해제
-  catsBox.querySelectorAll('.group[data-key="personal"] input.cat:checked, .group[data-key="series"] input.cat:checked')
-    .forEach(c => { c.checked = false; });
-
+  // 개인자료 + 모든 시리즈 그룹 제외, 일반만 전체선택
+  catsBox.querySelectorAll('.group input.cat').forEach(b=>{
+    const groupKey = b.closest('.group')?.dataset?.key || '';
+    const isPersonal = groupKey === 'personal';
+    const isSeries = isSeriesGroup(groupKey);
+    if (!isPersonal && !isSeries){ b.checked = !!on; } else { b.checked = false; }
+  });
   refreshAllParentStates();
   allSelected = !!on;
   if (cbToggleAll) cbToggleAll.checked = allSelected;
-
-  // 누락 복구: 트라이스테이트 / 버튼 갱신
-  refreshToggleAll();
-  updateWatchBtn();
 }
+
 function applySavedSelection(){
   let saved = null;
-  try{ saved = JSON.parse(localStorage.getItem('selectedCats')||'null'); }catch{}
-  if (!saved || saved==="ALL"){ selectAll(true); }
+  try{ saved = JSON.parse(localStorage.getItem(SELECTED_CATS_KEY)||'null'); }catch{}
+  if (!saved || saved === 'ALL'){ selectAll(true); }
   else{
     selectAll(false);
     const set = new Set(saved);
     catsBox.querySelectorAll('.cat').forEach(ch=>{ if (set.has(ch.value)) ch.checked=true; });
-    // guard: personal single-mode
+
+    // personal 단독성 유지
     const personals = Array.from(catsBox.querySelectorAll('.group[data-key="personal"] input.cat:checked'));
     const normals   = Array.from(catsBox.querySelectorAll('.group:not([data-key="personal"]) input.cat:checked'));
     if (personals.length >= 1 && normals.length >= 1){
@@ -280,99 +298,84 @@ function applySavedSelection(){
     }
     refreshAllParentStates();
   }
-  // 연속재생 초기 표시(여러 포맷 허용)
-  const vv = (localStorage.getItem('autonext') || '').toLowerCase();
-  if (cbAutoNext) cbAutoNext.checked = (vv==='1' || vv==='true' || vv==='on');
 
-  // 누락 복구: 트라이스테이트 / 버튼 갱신
-  refreshToggleAll();
-  updateWatchBtn();
+  // 형식 토글 기본값 복원
+  const typeWrap = document.getElementById('typeToggle');
+  if (typeWrap){
+    const savedType = localStorage.getItem(VIEW_TYPE_KEY) || 'all';
+    const r = typeWrap.querySelector(`input[value="${savedType}"]`) || typeWrap.querySelector('input[value="all"]');
+    if (r) r.checked = true;
+  }
+
+  // 연속재생 복원
+  const vv = (localStorage.getItem(AUTONEXT_KEY) || '').toLowerCase();
+  if (cbAutoNext) cbAutoNext.checked = (vv==='1' || vv==='true' || vv==='on');
 }
 applySavedSelection();
 
 cbToggleAll?.addEventListener('change', ()=> selectAll(!!cbToggleAll.checked));
 
-/* ---------- go watch ---------- */
+/* ========= index → watch ========= */
 btnWatch?.addEventListener('click', ()=>{
-  // list→watch 잔여 큐 무시: index→watch는 항상 최신부터 시작
-  sessionStorage.removeItem('playQueue'); sessionStorage.removeItem('playIndex');
+  // index→watch: 항상 최신 규칙으로 시작, 잔여 큐 초기화
+  sessionStorage.removeItem('playQueue');
+  sessionStorage.removeItem('playIndex');
+  sessionStorage.removeItem('resumeSeriesKey');
 
   const selected = Array.from(document.querySelectorAll('.cat:checked')).map(c=>c.value);
   const personals = selected.filter(isPersonalVal);
   const normals   = selected.filter(v=> !isPersonalVal(v));
 
-  // personal-only
+  // personal-only 선택
   if (personals.length === 1 && normals.length === 0){
-    localStorage.setItem('selectedCats', JSON.stringify(personals));
-    localStorage.setItem('autonext', cbAutoNext?.checked ? '1' : '0'); // 통일
-    location.href = `watch.html?cats=${encodeURIComponent(personals[0])}`;
+    localStorage.setItem(SELECTED_CATS_KEY, JSON.stringify(personals));
+    localStorage.setItem(AUTONEXT_KEY, cbAutoNext?.checked ? '1' : '0');
+    // personal은 단독 재생 페이지 로직으로 watch가 처리
+    location.href = `/watch.html?cats=${encodeURIComponent(personals[0])}`;
     return;
   }
 
-  // normal only (no personals mixed)
-  const isAll = computeAllSelected(); // personal/series 제외 기준으로 판정
-  const valueToSave = (normals.length===0 || isAll) ? "ALL" : normals;
-  localStorage.setItem('selectedCats', JSON.stringify(valueToSave));
-  localStorage.setItem('autonext', cbAutoNext?.checked ? '1' : '0'); // 통일
-  location.href = 'watch.html';
+  // 일반/시리즈 혼합 가능: 'ALL' 또는 배열
+  const isAll = computeAllSelected();
+  const valueToSave = (normals.length===0 || isAll) ? 'ALL' : normals;
+  localStorage.setItem(SELECTED_CATS_KEY, JSON.stringify(valueToSave));
+  localStorage.setItem(AUTONEXT_KEY, cbAutoNext?.checked ? '1' : '0');
+
+  // 형식 토글 저장 (혼합에서도 일반처럼 적용)
+  const vt = document.querySelector('#typeToggle input:checked')?.value || 'all';
+  localStorage.setItem(VIEW_TYPE_KEY, vt);
+
+  // index에서 watch로 → src 없음(뒤로가기=인덱스)
+  location.href = '/watch.html';
 });
 
-catTitleBtn?.addEventListener('click', ()=> location.href='category-order.html');
-
-/* ---------- storage listener: other-tab updates ---------- */
-window.addEventListener('storage', (e)=>{
-  if (e.key === 'personalLabels' || e.key === 'groupOrderV1') {
-    renderGroups();
-    applySavedSelection();
-    updateWatchBtn();
-  } else if (e.key === 'selectedCats') {
-    // 누락 복구: 다른 탭에서 선택 바꾼 것 즉시 반영
-    applySavedSelection();
-    updateWatchBtn();
-  }
-});
-
-/* ===================== */
-/* Slide-out CSS (단순형에서도 사용) */
-/* ===================== */
-(function injectSlideCSS(){
-  if (document.getElementById('slide-css-152')) return;
-  const style = document.createElement('style');
-  style.id = 'slide-css-152';
-  style.textContent = `
-@keyframes pageSlideLeft { from { transform: translateX(0); opacity:1; } to { transform: translateX(-22%); opacity:.92; } }
-@keyframes pageSlideRight{ from { transform: translateX(0); opacity:1; } to { transform: translateX(22%);  opacity:.92; } }
-:root.slide-out-left  body { animation: pageSlideLeft 0.26s ease forwards; }
-:root.slide-out-right body { animation: pageSlideRight 0.26s ease forwards; }
-@media (prefers-reduced-motion: reduce){
-  :root.slide-out-left  body,
-  :root.slide-out-right body { animation:none; }
-}`;
-  document.head.appendChild(style);
-})();
-
-/* ---------- 선택 저장: index→list 직전 ---------- */
+/* ========= index → list 직전: 선택 상태 저장 ========= */
 function persistSelectedCatsForList(){
   const selected = Array.from(document.querySelectorAll('.cat:checked')).map(c=>c.value);
   const personals = selected.filter(isPersonalVal);
   const normals   = selected.filter(v=> !isPersonalVal(v));
 
-  // 개인자료 단독 선택이면 그대로 저장
   if (personals.length === 1 && normals.length === 0) {
-    localStorage.setItem('selectedCats', JSON.stringify(personals));
+    localStorage.setItem(SELECTED_CATS_KEY, JSON.stringify(personals));
     return;
   }
-
-  // 일반 카테고리: ALL or 배열
-  const isAll = computeAllSelected() === true;
-  const valueToSave = (normals.length===0 || isAll) ? "ALL" : normals;
-  localStorage.setItem('selectedCats', JSON.stringify(valueToSave));
+  const isAll = computeAllSelected();
+  const valueToSave = (normals.length===0 || isAll) ? 'ALL' : normals;
+  localStorage.setItem(SELECTED_CATS_KEY, JSON.stringify(valueToSave));
 }
 
-/* ===================== */
-/* 단순형 스와이프(중앙 데드존) */
-/* ===================== */
-function initSwipeNav({ goLeftHref=null, goRightHref=null, animateMs=260, deadZoneCenterRatio=0.30 } = {}){
+/* ========= 스토리지 변화에 따른 재렌더 ========= */
+window.addEventListener('storage', (e)=>{
+  if (e.key === 'personalLabels' || e.key === GROUP_ORDER_KEY) {
+    renderGroups();
+    applySavedSelection();
+  }
+});
+
+/* ========= 스와이프 내비 (중앙 15% 데드존) ========= */
+window.__swipeNavigating = window.__swipeNavigating || false;
+
+function initSwipeNav({ goLeftHref=null, goRightHref=null, animateMs=260, deadZoneCenterRatio=0.15 } = {}){
   let sx=0, sy=0, t0=0, tracking=false;
   const THRESH_X = 70;
   const MAX_OFF_Y = 80;
@@ -380,14 +383,12 @@ function initSwipeNav({ goLeftHref=null, goRightHref=null, animateMs=260, deadZo
   const getPoint = (e) => e.touches?.[0] || e.changedTouches?.[0] || e;
 
   function onStart(e){
-    const p = getPoint(e);
-    if(!p) return;
-
+    const p = getPoint(e); if(!p) return;
     const vw = Math.max(document.documentElement.clientWidth, window.innerWidth || 0);
     const dz = Math.max(0, Math.min(0.9, deadZoneCenterRatio));
     const L  = vw * (0.5 - dz/2);
     const R  = vw * (0.5 + dz/2);
-    if (p.clientX >= L && p.clientX <= R) { tracking = false; return; }
+    if (p.clientX >= L && p.clientX <= R) { tracking = false; return; } // 중앙 데드존 15%
 
     sx = p.clientX; sy = p.clientY; t0 = Date.now(); tracking = true;
   }
@@ -407,7 +408,7 @@ function initSwipeNav({ goLeftHref=null, goRightHref=null, animateMs=260, deadZo
       setTimeout(()=> location.href = goLeftHref, animateMs);
     } else if (dx >= THRESH_X && goRightHref){
       window.__swipeNavigating = true;
-      persistSelectedCatsForList();
+      persistSelectedCatsForList(); // list 가기 전 선택 저장
       document.documentElement.classList.add('slide-out-right');
       setTimeout(()=> location.href = goRightHref, animateMs);
     }
@@ -417,110 +418,22 @@ function initSwipeNav({ goLeftHref=null, goRightHref=null, animateMs=260, deadZo
   document.addEventListener('pointerdown',onStart, { passive:true });
   document.addEventListener('pointerup',  onEnd,   { passive:true });
 }
-// index: 우→좌 = upload, 좌→우 = list
-initSwipeNav({ goLeftHref: 'upload.html', goRightHref: 'list.html', deadZoneCenterRatio: 0.30 });
 
-/* ===================== */
-/* 고급형 스와이프(끌리는 모션, 중앙 데드존) */
-/* ===================== */
-(function(){
-  function initDragSwipe({ goLeftHref=null, goRightHref=null, threshold=60, slop=45, timeMax=700, feel=1.0, deadZoneCenterRatio=0.15 }={}){
-    const page = document.querySelector('main') || document.body;
-    if(!page) return;
-
-    // 드래그 성능 향상 힌트
-    if(!page.style.willChange || !page.style.willChange.includes('transform')){
-      page.style.willChange = (page.style.willChange ? page.style.willChange + ', transform' : 'transform');
-    }
-
-    let x0=0, y0=0, t0=0, active=false, canceled=false;
-    const isInteractive = (el)=> !!(el && (el.closest('input,textarea,select,button,a,[role="button"],[contenteditable="true"]')));
-
-    function reset(anim=true){
-      if(anim) page.style.transition = 'transform 180ms ease';
-      requestAnimationFrame(()=>{ page.style.transform = 'translateX(0px)'; });
-      setTimeout(()=>{ if(anim) page.style.transition = ''; }, 200);
-    }
-
-    function start(e){
-      if (window.__swipeNavigating) return;
-
-      const t = (e.touches && e.touches[0]) || (e.pointerType ? e : null);
-      if(!t) return;
-      if(isInteractive(e.target)) return; // 폼 요소 위에서 시작하면 무시
-
-      // 중앙 데드존
-      const vw = Math.max(document.documentElement.clientWidth, window.innerWidth || 0);
-      const dz = Math.max(0, Math.min(0.9, deadZoneCenterRatio));
-      const L  = vw * (0.5 - dz/2);
-      const R  = vw * (0.5 + dz/2);
-      if (t.clientX >= L && t.clientX <= R) return;
-
-      x0 = t.clientX; y0 = t.clientY; t0 = Date.now();
-      active = true; canceled = false;
-      page.style.transition = 'none';
-    }
-
-    function move(e){
-      if(!active) return;
-      const t = (e.touches && e.touches[0]) || (e.pointerType ? e : null);
-      if(!t) return;
-      const dx = t.clientX - x0;
-      const dy = t.clientY - y0;
-      if(Math.abs(dy) > slop){
-        canceled = true; active = false;
-        reset(true);
-        return;
-      }
-      // 손가락에 따라 화면을 좌/우로 끌기
-      e.preventDefault();
-      page.style.transform = 'translateX(' + (dx * feel) + 'px)';
-    }
-
-    function end(e){
-      if(!active) return; active = false;
-      const t = (e.changedTouches && e.changedTouches[0]) || (e.pointerType ? e : null);
-      if(!t) return;
-      const dx = t.clientX - x0;
-      const dy = t.clientY - y0;
-      const dt = Date.now() - t0;
-
-      if(canceled || Math.abs(dy) > slop || dt > timeMax){
-        reset(true);
-        return;
-      }
-
-      if(dx >= threshold && goRightHref){
-        // 오른쪽 스와이프 → list.html
-        window.__swipeNavigating = true;
-        // index→list: 현재 선택 저장
-        persistSelectedCatsForList();
-        page.style.transition = 'transform 160ms ease';
-        page.style.transform  = 'translateX(100vw)';
-        setTimeout(()=>{ location.href = goRightHref; }, 150);
-      } else if(dx <= -threshold && goLeftHref){
-        // 왼쪽 스와이프 → upload.html
-        window.__swipeNavigating = true;
-        page.style.transition = 'transform 160ms ease';
-        page.style.transform  = 'translateX(-100vw)';
-        setTimeout(()=>{ location.href = goLeftHref; }, 150);
-      } else {
-        reset(true);
-      }
-    }
-
-    // 터치 & 포인터: end/up은 capture:true로 등록해 단순형보다 먼저 실행
-    document.addEventListener('touchstart',  start, { passive:true });
-    document.addEventListener('touchmove',   move,  { passive:false });
-    document.addEventListener('touchend',    end,   { passive:true, capture:true });
-
-    document.addEventListener('pointerdown', start, { passive:true });
-    document.addEventListener('pointermove', move,  { passive:false });
-    document.addEventListener('pointerup',   end,   { passive:true, capture:true });
-  }
-
-  // index: 좌→우 = list, 우→좌 = upload (고급형 + 중앙 데드존)
-  initDragSwipe({ goLeftHref: 'upload.html', goRightHref: 'list.html', threshold:60, slop:45, timeMax:700, feel:1.0, deadZoneCenterRatio: 0.15 });
+(function injectSlideCSS(){
+  if (document.getElementById('slide-css-arktube')) return;
+  const style = document.createElement('style');
+  style.id = 'slide-css-arktube';
+  style.textContent = `
+@keyframes pageSlideLeft { from { transform: translateX(0); opacity:1; } to { transform: translateX(-22%); opacity:.92; } }
+@keyframes pageSlideRight{ from { transform: translateX(0); opacity:1; } to { transform: translateX(22%);  opacity:.92; } }
+:root.slide-out-left  body { animation: pageSlideLeft 0.26s ease forwards; }
+:root.slide-out-right body { animation: pageSlideRight 0.26s ease forwards; }
+@media (prefers-reduced-motion: reduce){
+  :root.slide-out-left  body,
+  :root.slide-out-right body { animation:none; }
+}`;
+  document.head.appendChild(style);
 })();
 
-// End of js/index.js (v1.7.4)
+// index: 좌→우 = list, 우→좌 = upload
+initSwipeNav({ goLeftHref: '/upload.html', goRightHref: '/list.html', deadZoneCenterRatio: 0.15 });
