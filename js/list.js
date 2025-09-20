@@ -201,22 +201,6 @@ async function hydrateTitleIfNeeded(titleEl, url, existing){
   if(t) titleEl.textContent = t;
 }
 
-/* ========== 등록자 displayName 프리로드 ========== */
-const NameCache = { map:new Map(), get(uid){ return this.map.get(uid)||''; }, set(uid,name){ if(uid) this.map.set(uid, String(name||'')); } };
-function ownerUidOf(d={}){ return d?.ownerUid || d?.uid || d?.userUid || null; }
-async function preloadDisplayNames(docs){
-  const uids = new Set();
-  docs.forEach(x=>{ const uid = ownerUidOf(x.data); if(uid && !NameCache.map.has(uid)) uids.add(uid); });
-  if(!uids.size) return;
-  await Promise.all([...uids].map(async(uid)=>{
-    try{
-      const snap = await getDoc(doc(db,'users',uid));
-      const prof = snap.exists() ? snap.data() : null;
-      const name = prof?.displayName || '';
-      NameCache.set(uid, name);
-    }catch{ NameCache.set(uid,''); }
-  }));
-}
 
 /* ========== 파생 필터(턴 단위) ========== */
 function deriveFilters(){
@@ -502,8 +486,7 @@ function renderFrom(list){
     const url   = d.url || '';
     const catsV = Array.isArray(d.categories) ? d.categories : [];
     const thumb = d.thumbnail || toThumb(url);
-    const uid   = ownerUidOf(d);
-    const name  = NameCache.get(uid) || '회원';
+    const name  = d.ownerName || '회원';
 
     const chips = catsV.map(v=> `<span class="chip" title="${esc(CATIDX.labelOf(v))}">${esc(CATIDX.labelOf(v))}</span>`).join('');
 
