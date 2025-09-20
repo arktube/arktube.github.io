@@ -486,7 +486,7 @@ function renderFrom(list){
     const url   = d.url || '';
     const catsV = Array.isArray(d.categories) ? d.categories : [];
     const thumb = d.thumbnail || toThumb(url);
-    const name  = d?.ownerName || '로컬저장';
+    const name  = d?.ownerName || '회원';
 
     const chips = catsV.map(v=> `<span class="chip" title="${esc(CATIDX.labelOf(v))}">${esc(CATIDX.labelOf(v))}</span>`).join('');
 
