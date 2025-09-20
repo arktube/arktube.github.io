@@ -1,11 +1,11 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ko">
 <head>
   <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>ArkTube - 시청</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>ArkTube - 영상 보기</title>
 
-  <!-- CSP (요청하신 그대로) -->
+  <!-- CSP (요청하신 버전 그대로) -->
   <meta http-equiv="Content-Security-Policy" content="
   default-src 'self';
 
@@ -44,70 +44,86 @@
   base-uri 'self';
 ">
 
+  <!-- PWA / Icons -->
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="theme-color" content="#000000">
-  <link rel="icon" href="/favicon.ico">
+  <link rel="icon" href="/image/arktube_icon_32b.png">
+  <link rel="apple-touch-icon" href="/image/arktube_icon_192b.png">
 
+  <!-- 최소 스타일 (공통 CSS 재사용 전제) -->
   <style>
-    :root{
-      --bg:#000; --bg-2:#111; --bg-3:#1b1b1b; --fg:#fff;
-      --muted:#9aa0a6; --accent:#4ea1ff; --border:#333;
-    }
-    *{box-sizing:border-box}
-    html,body{height:100%}
-    body{margin:0; font-family:system-ui,Segoe UI,Apple SD Gothic Neo,Arial,sans-serif; background:var(--bg); color:var(--fg);}
-
-    /* 상단바 (뒤로가기 + 제목) */
-    #topbar{
-      position: fixed; top: 0; left: 0; right: 0; z-index: 20;
-      display:flex; align-items:center; justify-content:space-between;
-      height:52px; padding:0 12px; background:var(--bg-2); border-bottom:1px solid var(--border);
-    }
-    .brand{ display:flex; align-items:center; gap:10px; }
-    .brand-logo{ height:40px; }
-    .icon{ background:none; border:0; color:var(--fg); font-size:20px; cursor:pointer; padding:6px 8px; border-radius:6px; }
-    .icon:hover{ background:var(--bg-3); }
-    .title{ font-size:16px; font-weight:800; margin:0; }
-
-    /* 세로 피드 */
+    :root{ --app-vh: 100vh; }
     #videoContainer{
-      position: fixed; top:52px; left:0; right:0; bottom:0;
+      height: var(--app-vh);
+      overflow-y: scroll;
       scroll-snap-type: y mandatory;
       overscroll-behavior-y: contain;
-      overflow-y: auto; background:#000;
+      background:#000;
     }
-    .video{ height: calc(100vh - 52px); scroll-snap-align:start; display:flex; align-items:center; justify-content:center; background:#000; position:relative; }
+    @supports (height: 100svh){ #videoContainer{ height: 100svh; } }
+    .video{
+      height: var(--app-vh);
+      scroll-snap-align: start;
+      scroll-snap-stop: always;
+      position:relative; display:flex; align-items:center; justify-content:center; background:#000;
+    }
+    @supports (height: 100svh){ .video{ height: 100svh; } }
+    .thumb{ width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:#000; }
+    .thumb img{ max-width:100%; max-height:100%; object-fit:contain; border:0; }
+    .playhint{ position:absolute; bottom:16px; left:50%; transform:translateX(-50%); padding:6px 10px; background:rgba(0,0,0,.45); border-radius:6px; font-size:13px; color:#fff; text-align:center; }
+    .mute-tip{ position:absolute; top:12px; left:50%; transform:translateX(-50%); padding:6px 10px; background:rgba(0,0,0,.45); border-radius:6px; color:#fff; font-size:12px; }
     .video iframe{ width:100%; height:100%; border:0; }
+    .gesture-capture{ position:absolute; inset:0; z-index:20; display:flex; align-items:center; justify-content:center; background:transparent; cursor:pointer; }
+    .gesture-capture.hidden{ display:none; }
 
-    .meta{
-      position:absolute; left:0; right:0; bottom:0;
-      padding:8px 10px 10px; background: linear-gradient(transparent, rgba(0,0,0,.6));
-      font-size:12px; color:#d8d8d8;
-    }
-    .meta .t{ font-size:14px; font-weight:800; color:#fff; margin-bottom:2px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+    /* Topbar (공통) */
+    #topbar{ position:fixed; top:0; left:0; right:0; z-index:1000; display:flex; align-items:center; justify-content:space-between; height:52px; padding:0 16px; background:#111; border-bottom:1px solid #333; transition:transform .25s ease; }
+    #topbar.hide{ transform:translateY(-100%); }
+    .brand a{ color:#fff; text-decoration:none; font-weight:700; font-size:16px; display:inline-flex; align-items:center; gap:8px; }
+    .brand-logo{ height:48px; width:auto; object-fit:contain; display:block; }
+    @media (max-width:420px){ .brand-logo{ height:40px; } }
+    .right{ display:flex; align-items:center; gap:12px; }
+    .link{ color:#4ea1ff; text-decoration:none; font-size:14px; }
+    .welcome{ font-size:14px; color:#9aa0a6; }
+    .icon{ background:none; border:0; color:#fff; font-size:20px; cursor:pointer; padding:4px 6px; border-radius:6px; }
+    .icon:hover{ background:#1b1b1b; }
+    .hidden{ display:none !important; }
 
-    .hint{ position:fixed; left:0; right:0; top:52px; padding:8px 12px; background:#0f0f0f; border-bottom:1px solid #1f1f1f; color:#d0d0d0; font-size:13px; display:none; }
-    .hint.show{ display:block; }
+    .dropdown{ position:absolute; right:0; top:100%; background:#111; border:1px solid #333; border-radius:8px; display:flex; flex-direction:column; min-width:200px; padding:6px 0; opacity:0; transform:translateY(-8px); pointer-events:none; transition:opacity .18s ease, transform .18s ease; }
+    .dropdown.show{ opacity:1; transform:translateY(0); pointer-events:auto; }
+    .dropdown button{ background:none; border:0; color:#fff; text-align:left; padding:10px 16px; cursor:pointer; font-size:14px; line-height:1.25; }
+    .dropdown button:hover{ background:#1b1b1b; }
+    .dropdown .menu-strong{ font-size:16px; font-weight:700; }
   </style>
 </head>
 <body>
   <header id="topbar">
     <div class="brand">
-      <button id="btnBack" class="icon" aria-label="뒤로가기">←</button>
-      <img class="brand-logo" src="/image/arktube_side.png" alt="ArkTube"/>
+      <a id="brandHome" href="#" aria-label="ArkTube 홈으로">
+        <img class="brand-logo" src="/image/arktube_side.png" alt="ArkTube"/>
+      </a>
     </div>
-    <h1 class="title" id="headTitle">시청</h1>
-    <div style="width:28px"></div>
+    <div class="right" style="position:relative;">
+      <a id="signupLink" class="link" href="/signup.html">Sign up</a>
+      <a id="signinLink" class="link" href="/signin.html">Sign in</a>
+      <span id="welcome" class="welcome"></span>
+      <button id="menuBtn" class="icon" aria-label="menu">三</button>
+      <div id="dropdownMenu" class="dropdown hidden" role="menu" aria-hidden="true">
+        <button id="btnAbout"       class="menu-strong" type="button">ArkTube는…</button>
+        <button id="btnMyUploads"   type="button">내영상관리</button>
+        <button id="btnSignOut"     type="button">Sign out</button>
+        <button id="btnList"        type="button">영상목록</button>
+        <button id="btnGoUpload"    class="menu-strong" type="button">추천영상등록</button>
+      </div>
+    </div>
   </header>
 
-  <div id="hint" class="hint">목록을 불러오는 중…</div>
+  <main id="videoContainer" aria-label="영상 목록"></main>
 
-  <main id="videoContainer" aria-live="polite"></main>
-
-  <!-- 스크립트 -->
   <script type="module" src="/js/firebase-init.js"></script>
-  <script type="module" src="/js/categories.js"></script>
+  <script type="module" src="/js/auth.js"></script>
   <script type="module" src="/js/resume.js"></script>
+  <script type="module" src="/js/categories.js"></script>
   <script type="module" src="/js/watch.js"></script>
 </body>
 </html>
