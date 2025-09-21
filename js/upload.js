@@ -241,11 +241,16 @@ function saveToPersonal(slot, entries){
 }
 
 /* ---------------- YouTube PublishedAt (옵션) ---------------- */
-const YT_DATA_API_KEY = window?.YT_DATA_API_KEY || null; // 있으면 발행일 저장
+// 표준 패턴: 이 전역만 사용
 async function fetchPublishedAt(videoId){
-  if(!YT_DATA_API_KEY) return null;
+  const API_KEY = (typeof window !== 'undefined' ? window.YT_DATA_API_KEY : null);
+  if(!API_KEY) return null;
+
   try{
-    const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${encodeURIComponent(videoId)}&key=${encodeURIComponent(YT_DATA_API_KEY)}`;
+    const url =
+      `https://www.googleapis.com/youtube/v3/videos` +
+      `?part=snippet&id=${encodeURIComponent(videoId)}` +
+      `&key=${encodeURIComponent(API_KEY)}`;
     const res = await fetch(url);
     if(!res.ok) return null;
     const data = await res.json();
