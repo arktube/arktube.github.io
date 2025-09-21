@@ -88,7 +88,7 @@
 
   /* CTA/토글 */
   :root{ --cta-width:168px; }
-  .cta-row{ display:grid; grid-template-columns:1fr var(--cta-width) auto auto 1fr; align-items:center; column-gap:10px; margin:6px 0 10px; }
+  .cta-row{ display:grid; grid-template-columns:1fr var(--cta-width) auto auto 1fr; align-items:center; column-gap:10px; margin:2px 0 4px; }
   .btn-primary{ grid-column:2; padding:10px 14px; border:0; border-radius:10px; background:#4ea1ff; color:#fff; font-weight:800; cursor:pointer; font-size:18px; width:var(--cta-width); text-align:center; }
   .inline-check{ display:inline-flex; align-items:center; gap:8px; font-size:13px; color:#ddd; user-select:none; line-height:1; }
   .inline-check input{ width:16px; height:16px; margin:0; accent-color:#4ea1ff; }
@@ -119,6 +119,28 @@
   .help-panel h2{ margin:0 0 8px; }
   .help-panel p{ color:#d0d0d0; line-height:1.6; font-size:14px; }
   .help-panel .small{ font-size:12px; color:#9aa0a6; }
+  /* 토글버튼 */
+    .type-toggle {
+      display:inline-flex;
+      gap:0;
+      align-items:center;
+      background:#151515;
+      border:1px solid #2a2a2a;
+      padding:0;
+      border-radius:999px;
+    }
+    .type-toggle input{ display:none; }
+    .type-toggle label{
+      padding:0px 4px;
+      border-radius:999px;
+      font-size:13px;
+      cursor:pointer;
+      color:#d0d0d0;
+    }
+    .type-toggle input:checked + label{
+      background:#0f0f0f;
+      border:1px solid #2a2a2a;
+      color:#fff;
   </style>
 </head>
 <body>
@@ -155,6 +177,7 @@
         <label class="inline-check" id="autoNextWrap" title="영상 종료 시 자동으로 다음 영상으로 이동">
           <input type="checkbox" id="cbAutoNext"/> 연속재생
         </label>
+      </div>
 
         <!-- 형식 토글: all / shorts / video -->
         <div class="type-toggle" id="typeToggle" title="재생 형식 선택">
@@ -165,7 +188,7 @@
           <input type="radio" id="type_video" name="vtype" value="video">
           <label for="type_video">일반만</label>
         </div>
-      </div>
+      
 
       <div class="cat-head">
         <button type="button" class="cat-title" id="btnOpenOrder" aria-label="카테고리 순서 설정 열기">카테고리</button>
