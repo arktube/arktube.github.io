@@ -96,12 +96,12 @@ body{
 }
 .group legend{
   padding:0 4px; font-weight:800; font-size:15px; color:#eee;
-  margin-bottom:2px; line-height:1.05; display:inline-flex; gap:6px; align-items:center;
+  margin-bottom:0; line-height:1.05; display:inline-flex; gap:6px; align-items:center;
 }
 .group .subnote{ font-size:12px; color:#9aa0a6; margin-left:6px; }
 
 .child-grid{
-  margin-top:2px; display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:4px;
+  margin-top:0; display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:4px;
 }
 @media (min-width:900px){ .child-grid{ grid-template-columns:repeat(4, minmax(0,1fr)); } }
 .child-grid label{
