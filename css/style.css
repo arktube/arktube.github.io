@@ -91,7 +91,7 @@ body{
 /* 그룹형: 인덱스/업로드 공용 */
 .group{
   border:1px solid var(--border); border-radius:12px; background:var(--bg-3);
-  padding:8px 8px 10px; margin:6px 0;
+  padding:6px 6px 8px; margin:4px 0;
   text-align:left; max-width:900px; margin-left:auto; margin-right:auto;
 }
 .group legend{
@@ -101,13 +101,13 @@ body{
 .group .subnote{ font-size:12px; color:#9aa0a6; margin-left:6px; }
 
 .child-grid{
-  margin-top:0; display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:4px;
+  margin-top:0; display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:2px;
 }
 @media (min-width:900px){ .child-grid{ grid-template-columns:repeat(4, minmax(0,1fr)); } }
 .child-grid label{
   background:#0f0f0f; border:1px solid #2a2a2a; border-radius:8px;
-  padding:6px 8px; font-size:14px; line-height:1.2;
-  display:flex; gap:6px; align-items:center; justify-content:flex-start;
+  padding:4px 6px; font-size:13px; line-height:1.1;
+  display:flex; gap:4px; align-items:center; justify-content:flex-start;
 }
 
 /* ===== 업로드 페이지 전용(더 컴팩트 + 컨트롤 줄정렬) ===== */
