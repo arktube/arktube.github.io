@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>추천영상 등록 - ArkTube</title>
+  <title>ArkTube - 추천 영상 등록</title>
 
-  <!-- CSP: 요청하신 정책 그대로 -->
+  <!-- CSP (요청 정책 그대로) -->
   <meta http-equiv="Content-Security-Policy" content="
   default-src 'self';
 
@@ -48,47 +48,29 @@
 
   <style>
     body{ padding-top:52px; }
-    main.intro{ align-items:flex-start; padding-top:48px; }
-    .controls-grid{
-      display:grid;
-      grid-template-columns:minmax(160px,40%) 1fr 1fr;
-      grid-template-rows:auto auto;
-      gap:10px; align-items:stretch; margin:10px 0 8px;
-    }
-    .order-col{ display:grid; grid-template-rows:1fr 1fr; gap:10px; }
-    .pill-radio{
-      display:flex; align-items:center; gap:10px;
-      padding:12px 14px; border-radius:10px;
-      background:#121212; border:1px solid #2a2a2a; color:#e5e7eb; font-weight:700;
-    }
-    .pill-radio input{ accent-color:#4ea1ff; transform:scale(1.1); }
-    .btn-clip,.btn-submit{
-      grid-row:span 2; display:flex; align-items:center; justify-content:center; text-align:center;
-      border:0; border-radius:12px; cursor:pointer; font-weight:800; line-height:1.2;
-      padding:0 12px; min-height:96px;
-    }
-    @media (min-width:900px){ .btn-clip,.btn-submit{ min-height:110px; } }
-    .btn-clip{ background:#22c55e; color:#000; font-size:16px; }
-    .btn-submit{ background:#4ea1ff; color:#fff; font-size:16px; }
-    .msg{ margin-top:10px; font-size:13px; color:#ccc; white-space:pre-line; min-height:1.2em; }
+    main{ max-width:1000px; margin:0 auto; padding:10px 16px 40px; }
+    .toolbar{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .btn{ padding:8px 12px; border-radius:10px; border:1px solid #2a2a2a; background:#151515; color:#fff; cursor:pointer; }
+    .btn:hover{ background:#1a1a1a; }
+    .btn-clipboard{ min-width:150px; padding:8px 12px; border-radius:10px; background:#22c55e; color:#000; font-weight:800; border:0; cursor:pointer; }
+    .btn-submit{ min-width:120px; padding:10px 14px; border-radius:10px; background:#4ea1ff; color:#fff; font-weight:800; border:0; cursor:pointer; }
+    textarea#urls{ width:100%; min-height:180px; border:1px solid var(--border); border-radius:10px; background:#0f0f0f; color:#fff; padding:10px; }
+    input[type="text"], input[type="search"]{ border:1px solid var(--border); background:#0f0f0f; color:#fff; border-radius:10px; padding:8px 10px; width:100%; }
+    .row{ display:grid; grid-template-columns: 1fr auto; gap:10px; margin:8px 0; align-items:center; }
+    .row .right{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .hint{ color:#9aa0a6; font-size:13px; }
+    .danger{ color:#ff8484; }
+    .ok{ color:#60ffa3; }
+    .msg{ margin:6px 0 0; min-height:1.2em; font-size:13px; color:#cfcfcf; }
+    .grid-2{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    @media (max-width:720px){ .grid-2{ grid-template-columns:1fr; } }
 
-    /* urlfind 모달 */
-    .urlfind-dialog{ border:0; border-radius:14px; padding:0; background:transparent; }
-    .urlfind-dialog::backdrop{ background:rgba(0,0,0,.6); }
-    .urlfind-dialog .panel{
-      background:#0f0f0f; color:#e5e7eb; border:1px solid #2a2a2a; border-radius:14px;
-      padding:12px; width:min(680px, 92vw);
-    }
-    .urlfind-dialog header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
-    .urlfind-dialog .row{ display:flex; gap:8px; flex-wrap:wrap; margin:8px 0; }
-    .urlfind-dialog input[type="text"]{ width:100%; padding:8px 10px; border:1px solid #333; border-radius:8px; background:#000; color:#fff; }
-    .urlfind-dialog textarea{ width:100%; min-height:220px; padding:10px; border:1px solid #333; border-radius:8px; background:#000; color:#fff; }
-    .urlfind-dialog .btn-primary{ padding:8px 12px; border-radius:10px; border:0; background:#4ea1ff; color:#fff; font-weight:800; cursor:pointer; }
-    .urlfind-dialog .btn{ padding:8px 12px; border-radius:10px; border:1px solid #2a2a2a; background:#151515; color:#fff; cursor:pointer; }
-    .urlfind-dialog .icon.close{ border:1px solid #2a2a2a; background:#151515; color:#ddd; border-radius:8px; padding:4px 8px; cursor:pointer; }
-
-    /* 상단바 dropdown 강조 두 항목 */
-    #dropdownMenu .menu-strong{ font-weight:800; font-size:16px; }
+    /* 모달: urlfind */
+    .modal{ position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; z-index:50; }
+    .modal.show{ display:flex; }
+    .modal .sheet{ width:min(960px, 92vw); height:min(80vh, 720px); background:var(--bg-2); border:1px solid var(--border); border-radius:12px; padding:10px; display:flex; flex-direction:column; }
+    .modal .sheet header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+    .modal .sheet .body{ flex:1 1 auto; overflow:auto; background:#0f0f0f; border:1px solid #2a2a2a; border-radius:10px; padding:8px; }
   </style>
 
   <!-- PWA -->
@@ -101,8 +83,8 @@
   <!-- 상단바 -->
   <header id="topbar">
     <div class="brand">
-      <a id="brandHome" href="/index.html" aria-label="ArkTube 홈으로">
-        <img class="brand-logo" src="/image/arktube_side.png" alt="ArkTube"/>
+      <a href="/index.html" aria-label="ArkTube 홈으로">
+        <img class="brand-logo" src="/image/arktube_side.png" alt="ArkTube">
       </a>
     </div>
     <div class="right" style="position:relative;">
@@ -114,71 +96,68 @@
         <button id="btnAbout"     class="menu-strong" type="button">ArkTube는…</button>
         <button id="btnCatOrder"  type="button">카테고리순서</button>
         <button id="btnMyUploads" type="button">내영상관리</button>
-        <button id="btnSignOut"   type="button">Sign out</button>
         <button id="btnList"      type="button">영상목록</button>
-        <button id="btnGoUpload"  class="menu-strong" type="button">추천영상등록</button>
+        <button id="btnUrlFind"   type="button">Playlist URL 추출</button>
         <hr class="custom-separator"/>
-        <button id="menu-playlist-url" type="button" style="font-weight:bold;">Playlist URL 추출</button>
+        <button id="btnSignOut"   type="button">Sign out</button>
       </div>
     </div>
   </header>
 
-  <main class="intro">
-    <div style="max-width:900px; width:100%; text-align:left;">
-      <h2>추천영상 등록</h2>
-
-      <label style="display:block;margin-top:14px;">YouTube 공유 URL들 (여러 줄 가능)
-        <textarea id="urls" rows="3" placeholder="https://youtu.be/aaa...&#10;https://www.youtube.com/watch?v=bbb...&#10;..." style="width:100%;padding:12px;margin-top:6px;border-radius:8px;border:1px solid #333;background:#000;color:#fff;"></textarea>
-      </label>
-
-      <div class="controls-grid" id="controlsGrid">
-        <div class="order-col">
-          <label class="pill-radio"><input type="radio" name="order" value="bottom" checked> 아래부터 등록</label>
-          <label class="pill-radio"><input type="radio" name="order" value="top"> 위부터 등록</label>
+  <main class="uploader">
+    <section class="group">
+      <legend>추천 영상 등록</legend>
+      <div class="hint">여러 줄에 URL 붙여넣기 가능 · 순서 선택 가능 · 개인자료는 로그인 없이 로컬 저장</div>
+      <div class="row">
+        <textarea id="urls" placeholder="https://youtu.be/xxxxxx
+https://www.youtube.com/watch?v=yyyyyy"></textarea>
+        <div class="right">
+          <button id="btnPaste" class="btn-clipboard">클립보드 붙여넣기</button>
+          <div class="radio-stack">
+            <label><input type="radio" name="order" value="top" checked> 위부터 등록</label>
+            <label><input type="radio" name="order" value="bottom"> 아래부터 등록</label>
+          </div>
         </div>
-        <button id="btnPaste" class="btn-clip" type="button" title="클립보드에서 붙여넣기">클립보드<br/>붙여넣기</button>
-        <button id="btnSubmitTop" class="btn-submit" type="button">등록</button>
       </div>
 
-      <div id="msgTop" class="msg"></div>
-
-      <p style="margin:10px 0 6px;color:#bfc6ce;">카테고리는 <b>최대 3개</b>까지 선택 가능합니다. (개인자료는 단독 사용)</p>
-      <div id="cats"></div>
-
-      <button id="btnSubmitBottom" class="btn-submit" type="button" style="width:100%;margin-top:10px;min-height:56px;">등록</button>
-      <div id="msg" class="msg"></div>
-    </div>
-  </main>
-
-  <!-- Playlist URL 추출 모달 (urlfind.js가 초기화) -->
-  <dialog id="dlg-urlfind" class="urlfind-dialog">
-    <form method="dialog" class="panel">
-      <header>
-        <strong>Playlist URL 추출</strong>
-        <button type="submit" class="icon close" aria-label="닫기">✕</button>
-      </header>
-
-      <label class="block">
-        <span>재생목록 전체 URL</span>
-        <input type="text" id="uf_playlistUrl" placeholder="https://www.youtube.com/playlist?list=..." />
-      </label>
-
-      <label class="inline" style="display:flex;align-items:center;gap:8px;">
-        <input type="checkbox" id="uf_useShortUrl" />
-        <span>youtu.be 공유 URL 형식으로 출력</span>
-      </label>
+      <div class="grid-2">
+        <div>
+          <div class="controls-col">
+            <label for="title">제목(선택)</label>
+            <input id="title" type="text" maxlength="200" placeholder="입력하지 않으면 비워둡니다."/>
+          </div>
+          <div class="hint">제목은 선택 사항이며, 각 영상에 동일한 제목이 저장됩니다.</div>
+        </div>
+        <div>
+          <div class="controls-col">
+            <label>카테고리(최대 3개)</label>
+            <div id="catHost"></div>
+            <div class="hint">개인자료와 일반/시리즈를 함께 선택할 수 없습니다.</div>
+          </div>
+        </div>
+      </div>
 
       <div class="row">
-        <button type="button" id="uf_extractBtn" class="btn-primary">URL 추출 시작</button>
-        <button type="button" id="uf_copyBtn" class="btn">클립보드 복사</button>
-        <button type="button" id="uf_downloadBtn" class="btn">TXT 다운로드</button>
+        <div class="right">
+          <button id="btnSubmit" class="btn-submit">등록</button>
+        </div>
       </div>
+      <div id="msg" class="msg"></div>
+    </section>
+  </main>
 
-      <div id="uf_loading" class="muted hidden">추출 중입니다...</div>
-      <textarea id="uf_result" readonly placeholder="이곳에 동영상 URL 목록이 표시됩니다."></textarea>
-      <div class="muted" style="margin-top:6px;">Tip: 결과 상자를 더블클릭하면 업로드 입력칸(#urls)으로 자동 적용됩니다.</div>
-    </form>
-  </dialog>
+  <!-- urlfind 모달 -->
+  <div id="urlfindModal" class="modal" aria-hidden="true">
+    <div class="sheet">
+      <header>
+        <strong>Playlist URL 추출</strong>
+        <button id="urlfindClose" class="btn">닫기</button>
+      </header>
+      <div class="body" id="urlfindBody">
+        <!-- urlfind.js 가 여기에 UI를 구성하도록 가정 -->
+      </div>
+    </div>
+  </div>
 
   <!-- 모듈 -->
   <script type="module" src="/js/firebase-init.js"></script>
