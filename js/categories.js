@@ -1,5 +1,6 @@
-// /js/categories.js  (ArkTube v0.1 — CATEGORY MODEL)
+// /js/categories.js  (ArkTube v0.1 — CATEGORY MODEL & GROUPS)
 
+// ========== 기존 CATEGORY_GROUPS ==========
 export const CATEGORY_GROUPS = [
   {
     key: 'praise',
@@ -86,7 +87,7 @@ export const CATEGORY_GROUPS = [
     ],
   },
 
-  /* ===== 시리즈 3계열 (key가 series_로 시작하면 '시리즈'로 인식) ===== */
+  /* ===== 시리즈 (key가 series_로 시작) ===== */
   {
     key: 'series_music',
     label: '시리즈',
@@ -125,3 +126,26 @@ export const CATEGORY_GROUPS = [
     ],
   },
 ];
+
+// ========== CATEGORY_MODEL (ArkTube 표준 스펙) ==========
+// - types: 'shorts' | 'video' (업로드 시 필수 저장)
+// - groups: 주제 그룹 목록 (series_는 시리즈, personal은 로컬 전용)
+// - 호환성 위해 각 그룹에 key/label 외에 group, personal, isSeries도 포함
+const TYPES = [
+  { value: 'shorts', label: '쇼츠' },
+  { value: 'video',  label: '일반영상' },
+];
+
+const GROUPS_MODEL = CATEGORY_GROUPS.map(g => ({
+  key: g.key,
+  group: g.label,                // 일부 코드가 group 이름을 기대하는 경우 대비
+  label: g.label,
+  personal: !!g.personal,
+  isSeries: typeof g.key === 'string' && g.key.startsWith('series_'),
+  children: g.children.slice(),  // 동일 참조 방지용 얕은 복사
+}));
+
+export const CATEGORY_MODEL = {
+  types: TYPES,
+  groups: GROUPS_MODEL,
+};
