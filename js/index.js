@@ -35,7 +35,7 @@ onAuthStateChanged(auth,(user)=>{
   const loggedIn = !!user;
   signupLink?.classList.toggle('hidden', loggedIn);
   signinLink?.classList.toggle('hidden', loggedIn);
-  welcome?.textContent = loggedIn ? `Welcome! ${user.displayName || '회원'}` : '';
+  welcome?.textContent = loggedIn  ? `Welcome! ${user?.displayName || '회원'}` : '';
   closeDropdown();
 });
 
