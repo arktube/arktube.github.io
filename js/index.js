@@ -35,7 +35,7 @@ onAuthStateChanged(auth,(user)=>{
   const loggedIn = !!user;
   signupLink?.classList.toggle('hidden', loggedIn);
   signinLink?.classList.toggle('hidden', loggedIn);
-  welcome?.textContent = loggedIn  ? `Welcome! ${user?.displayName || '회원'}` : '';
+  welcome?.textContent = loggedIn? `Welcome! ${user?.displayName || '회원'}` : '';
   closeDropdown();
 });
 
@@ -44,13 +44,13 @@ document.addEventListener('pointerdown',(e)=>{ if(dropdown.classList.contains('h
 document.addEventListener('keydown',(e)=>{ if(e.key==='Escape') closeDropdown(); });
 dropdown?.addEventListener('click',(e)=> e.stopPropagation());
 
-btnMyUploads ?.addEventListener('click', ()=>{ location.href = '/manage-uploads.html'; closeDropdown(); });
-btnGoUpload  ?.addEventListener('click', ()=>{ location.href = '/upload.html'; closeDropdown(); });
-btnAbout     ?.addEventListener('click', ()=>{ location.href = '/about.html'; closeDropdown(); });
-btnOrder     ?.addEventListener('click', ()=>{ location.href = '/category-order.html'; closeDropdown(); });
-btnSignOut   ?.addEventListener('click', async ()=>{ if(!auth.currentUser){ location.href='/signin.html'; return; } await fbSignOut(auth); closeDropdown(); });
-btnList      ?.addEventListener('click', ()=>{ location.href = '/list.html'; closeDropdown(); });
-brandHome    ?.addEventListener('click',(e)=>{ e.preventDefault(); window.scrollTo({top:0,behavior:'smooth'}); });
+btnMyUploads?.addEventListener('click', ()=>{ location.href = '/manage-uploads.html'; closeDropdown(); });
+btnGoUpload?.addEventListener('click', ()=>{ location.href = '/upload.html'; closeDropdown(); });
+btnAbout?.addEventListener('click', ()=>{ location.href = '/about.html'; closeDropdown(); });
+btnOrder?.addEventListener('click', ()=>{ location.href = '/category-order.html'; closeDropdown(); });
+btnSignOut?.addEventListener('click', async ()=>{ if(!auth.currentUser){ location.href='/signin.html'; return; } await fbSignOut(auth); closeDropdown(); });
+btnList?.addEventListener('click', ()=>{ location.href = '/list.html'; closeDropdown(); });
+brandHome?.addEventListener('click',(e)=>{ e.preventDefault(); window.scrollTo({top:0,behavior:'smooth'}); });
 
 /* ========= 도움말 플로팅 ========= */
 const helpBtn = document.getElementById('btnHelp');
