@@ -1,5 +1,5 @@
 // /js/index.js  (ArkTube v0.1 — CATEGORY MODEL, series_ 규칙, 15% 데드존)
-import { CATEGORY_GROUPS, CATEGORY MODEL } from './categories.js';
+import { CATEGORY_GROUPS, CATEGORY_MODEL } from './categories.js';
 import { auth } from './firebase-init.js';
 import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
 
