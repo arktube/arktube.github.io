@@ -1,10 +1,11 @@
-// /js/upload.js — ArkTube v0.1 Upload (규칙 정합/중복 방지/개인자료/모달 포함)
-// - Firestore 문서 ID = YouTube videoId
-// - 규칙 필드: uid, url, cats, (title<=200), (ytid==id) 충족
-// - 추가 필드: type, ownerName, createdAt, (youtubePublishedAt)
-// - 개인자료(personal*) 선택 시 로컬 저장(로그인 불필요)
+// /js/upload.js — ArkTube Upload (CopyTube v1.5 톤, Ark 규칙 통합)
+// - Firestore 문서 ID = YouTube videoId (setDoc)
+// - 규칙 필드: uid, url, cats(<=3), (ytid==id) 충족
+// - 추가 필드: type('shorts'|'video'), ownerName, createdAt, (youtubePublishedAt)
+// - 개인자료(personal1..personal4) 선택 시 로컬 저장(로그인 불필요)
 // - 카테고리: CATEGORY_MODEL or CATEGORY_GROUPS 둘 다 지원
-// - 스와이프 데드존 18%
+// - 상/하단 등록 버튼 동기화, 진행 중 disabled 동기화
+// - urlfind 모달(ArkTube 방식) 유지
 
 import { auth, db } from './firebase-init.js';
 import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
@@ -15,22 +16,23 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
 
 /* ---------------- Topbar / Dropdown ---------------- */
-const signupLink  = document.getElementById('signupLink');
-const signinLink  = document.getElementById('signinLink');
-const welcome     = document.getElementById('welcome');
-const menuBtn     = document.getElementById('menuBtn');
-const dropdown    = document.getElementById('dropdownMenu');
+const $ = (s)=>document.querySelector(s);
 
-const btnAbout     = document.getElementById('btnAbout');
-const btnCatOrder  = document.getElementById('btnCatOrder');
-const btnMyUploads = document.getElementById('btnMyUploads');
-const btnSignOut   = document.getElementById('btnSignOut');
-const btnList      = document.getElementById('btnList');
-const btnUrlFind   = document.getElementById('btnUrlFind');
+const signupLink  = $('#signupLink');
+const signinLink  = $('#signinLink');
+const welcome     = $('#welcome');
+const menuBtn     = $('#menuBtn');
+const dropdown    = $('#dropdownMenu');
 
-let isMenuOpen = false;
-function openDropdown(){ if(!dropdown) return; isMenuOpen = true; dropdown.classList.remove('hidden'); requestAnimationFrame(()=> dropdown.classList.add('show')); }
-function closeDropdown(){ if(!dropdown) return; isMenuOpen = false; dropdown.classList.remove('show'); setTimeout(()=> dropdown.classList.add('hidden'), 180); }
+const btnAbout     = $('#btnAbout');
+const btnCatOrder  = $('#btnCatOrder');
+const btnMyUploads = $('#btnMyUploads');
+const btnSignOut   = $('#btnSignOut');
+const btnList      = $('#btnList');
+const btnUrlFind   = $('#btnUrlFind');
+
+function openDropdown(){ if(!dropdown) return; dropdown.classList.remove('hidden'); requestAnimationFrame(()=> dropdown.classList.add('show')); }
+function closeDropdown(){ if(!dropdown) return; dropdown.classList.remove('show'); setTimeout(()=> dropdown.classList.add('hidden'), 180); }
 
 onAuthStateChanged(auth, (user) => {
   const loggedIn = !!user;
@@ -52,15 +54,14 @@ btnSignOut  ?.addEventListener('click', async ()=>{ if(!auth.currentUser){ locat
 btnList     ?.addEventListener('click', ()=>{ location.href='/list.html'; closeDropdown(); });
 
 /* ---------------- urlfind 모달 ---------------- */
-const urlfindModal = document.getElementById('urlfindModal');
-const urlfindBody  = document.getElementById('urlfindBody');
-const urlfindClose = document.getElementById('urlfindClose');
+const urlfindModal = $('#urlfindModal');
+const urlfindBody  = $('#urlfindBody');
+const urlfindClose = $('#urlfindClose');
 
 function openUrlFindModal(){
   if(!urlfindModal){ location.href='/urlfind.html'; return; }
   urlfindModal.classList.add('show');
   urlfindModal.setAttribute('aria-hidden','false');
-  // urlfind.js가 전역 함수 제공 시 초기화 시도 (없으면 그냥 비어있는 시트)
   try{
     if(window.UrlFind && typeof window.UrlFind.mount === 'function'){
       window.UrlFind.mount(urlfindBody);
@@ -82,24 +83,15 @@ urlfindClose?.addEventListener('click', closeUrlFindModal);
 urlfindModal?.addEventListener('pointerdown', (e)=>{ if(e.target === urlfindModal) closeUrlFindModal(); }, true);
 
 /* ---------------- DOM ---------------- */
-const $urls   = document.getElementById('urls');
-const $title  = document.getElementById('title');
-const $btnPaste  = document.getElementById('btnPaste');
-const $btnSubmit = document.getElementById('btnSubmit');
-const $msg    = document.getElementById('msg');
-const $catHost= document.getElementById('catHost');
-const $btnSubmitTop = document.getElementById('btnSubmitTop');
-$btnSubmitTop?.addEventListener('click', () => document.getElementById('btnSubmit')?.click());
-function esc(s=''){
-  return String(s).replace(/[&<>"']/g, m => ({
-    '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
-  }[m]));
-}
-function setStatus(html){ if($msg) $msg.innerHTML = html || ''; }
-function getOrder(){
-  const el = document.querySelector('input[name="order"]:checked');
-  return el ? el.value : 'top';
-}
+const $urls         = $('#urls');
+const $btnPaste     = $('#btnPaste');
+const $btnSubmitTop = $('#btnSubmitTop');
+const $btnSubmit    = $('#btnSubmit');
+const $msg          = $('#msg');
+const $catHost      = $('#catHost');
+
+const setStatus = (html)=>{ if($msg) $msg.innerHTML = html || ''; };
+const esc = (s='')=> String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
 
 /* ---------------- 카테고리 렌더 & 선택 로직 ---------------- */
 const personalVals = ['personal1','personal2','personal3','personal4'];
@@ -146,18 +138,18 @@ function readPersonalLabel(slot){
 function writePersonalLabel(slot, label){
   try{
     const labels = JSON.parse(localStorage.getItem('personalLabels') || '{}');
-    labels[slot] = String(label||'').slice(0,30);
+    labels[slot] = String(label||'').slice(0,30).replace(/[<>"]/g,'');
     localStorage.setItem('personalLabels', JSON.stringify(labels));
   }catch{}
 }
 
 function renderCategories(){
   if(!$catHost) return;
-  $catHost.innerHTML = ''; // XSS-safe
+  $catHost.innerHTML = ''; // 초기화
   CATIDX.groups.forEach(g=>{
-    // group sheet
     const field = document.createElement('fieldset');
     field.className='group';
+
     const legend = document.createElement('legend');
     legend.textContent = g.label || g.key || '';
     field.appendChild(legend);
@@ -174,75 +166,73 @@ function renderCategories(){
       const id = `cat_${g.key}_${c.value}`;
       const wrap = document.createElement('label');
       wrap.setAttribute('for', id);
-      wrap.innerHTML = `
-        <input type="checkbox" id="${esc(id)}" value="${esc(c.value)}">
-        <span class="txt">${esc(g.isPersonal ? readPersonalLabel(c.value) : (c.label || c.value))}</span>
-        ${g.isPersonal ? '<button type="button" class="rename-inline">이름변경</button>' : ''}
-      `;
-      grid.appendChild(wrap);
+
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.id = id;
+      input.value = c.value;
+
+      const span = document.createElement('span');
+      span.className = 'txt';
+      span.textContent = g.isPersonal ? readPersonalLabel(c.value) : (c.label || c.value);
+
+      wrap.appendChild(input);
+      wrap.appendChild(span);
 
       if(g.isPersonal){
-        wrap.querySelector('.rename-inline')?.addEventListener('click', ()=>{
+        const rename = document.createElement('button');
+        rename.type='button';
+        rename.className='rename-inline';
+        rename.textContent='이름변경';
+        rename.addEventListener('click', ()=>{
           const now = readPersonalLabel(c.value);
           const nv = prompt('개인자료 이름', now);
           if(nv && nv.trim()){
             writePersonalLabel(c.value, nv.trim());
-            wrap.querySelector('.txt').textContent = nv.trim();
+            span.textContent = nv.trim();
           }
         });
+        wrap.appendChild(rename);
       }
+
+      grid.appendChild(wrap);
     });
 
     field.appendChild(grid);
     $catHost.appendChild(field);
   });
 
-  // change handler: 최대 3개, 개인자료 혼합 금지
+  // 제한: 최대 3개, 개인자료 혼합 금지
   $catHost.addEventListener('change', ()=>{
     const chosen = getChosenCats();
-    // 제한 3
     if(chosen.length > 3){
-      // 막 선택한 것 해제
+      // 마지막 체크를 되돌림
       const last = $catHost.querySelector('input[type="checkbox"]:checked:last-of-type');
       last && (last.checked=false);
       alert('카테고리는 최대 3개까지 선택할 수 있습니다.');
       return;
     }
-    // 개인자료 혼합 금지
     const hasPersonal = chosen.some(v=> CATIDX.isPersonalVal(v));
     const hasServer   = chosen.some(v=> !CATIDX.isPersonalVal(v));
     if(hasPersonal && hasServer){
       alert('개인자료와 일반/시리즈 카테고리를 함께 선택할 수 없습니다.');
-      // 방금 체크한 걸 되돌림
       const last = $catHost.querySelector('input[type="checkbox"]:checked:last-of-type');
       last && (last.checked=false);
     }
   }, { passive:true });
 }
-
 function getChosenCats(){
   const boxes = $catHost?.querySelectorAll('input[type="checkbox"]:checked');
   return boxes ? [...boxes].map(b=> b.value) : [];
 }
 
-/* ---------------- 개인자료 로컬 저장 ---------------- */
-function saveToPersonal(slot, entries){
-  const key = `personal_${slot}`;
-  let arr = [];
-  try{ arr = JSON.parse(localStorage.getItem(key) || '[]'); }catch{ arr=[]; }
-  const now = Date.now();
-  entries.forEach(en=>{
-    arr.push({
-      url: en.url,
-      title: en.title || '',
-      savedAt: now
-    });
-  });
-  try{ localStorage.setItem(key, JSON.stringify(arr)); }catch{}
+/* ---------------- 유틸 ---------------- */
+function getOrder(){
+  const el = document.querySelector('input[name="order"]:checked');
+  return el ? el.value : 'top';
 }
 
 /* ---------------- YouTube PublishedAt (옵션) ---------------- */
-// 표준 패턴: 이 전역만 사용
 async function fetchPublishedAt(videoId){
   const API_KEY = (typeof window !== 'undefined' ? window.YT_DATA_API_KEY : null);
   if(!API_KEY) return null;
@@ -261,18 +251,21 @@ async function fetchPublishedAt(videoId){
   }catch{ return null; }
 }
 
-/* ---------------- 업로드 실행 ---------------- */
-$btnPaste?.addEventListener('click', async ()=>{
+/* ---------------- 붙여넣기 ---------------- */
+$('#btnPaste')?.addEventListener('click', async ()=>{
   try{
     const t = await navigator.clipboard.readText();
     if(!$urls) return;
-    $urls.value = t;
+    if(!t){ setStatus('클립보드가 비어있습니다.'); return; }
+    $urls.value = ($urls.value.trim()? ($urls.value.replace(/\s*$/,'')+'\n') : '') + t.trim();
+    setStatus('붙여넣기 완료.');
   }catch{
     alert('클립보드에서 읽어오지 못했습니다. 브라우저 권한을 확인해주세요.');
   }
 });
 
-$btnSubmit?.addEventListener('click', async ()=>{
+/* ---------------- 업로드 실행 ---------------- */
+async function handleSubmit(){
   const raw = ($urls?.value || '').trim();
   if(!raw){ setStatus('<span class="danger">URL을 입력해주세요.</span>'); return; }
 
@@ -295,12 +288,7 @@ $btnSubmit?.addEventListener('click', async ()=>{
   const order = getOrder();
   if(order === 'bottom') lines = lines.reverse();
 
-  const titleCommonRaw = ($title?.value || '').trim();
-  const titleCommon = titleCommonRaw ? titleCommonRaw.slice(0, 200) : ''; // 200자 컷
-
   const entries = [];
-
-  // 1차 파싱/검증
   for(const line of lines){
     if(!isAllowedYouTube(line)){
       entries.push({ url: line, ok:false, reason:'유튜브 URL 아님' });
@@ -319,77 +307,90 @@ $btnSubmit?.addEventListener('click', async ()=>{
     });
   }
 
-  // 개인자료 모드 (로컬)
-  if(hasPersonal){
-    const slot = cats[0]; // 한 슬롯만 허용
-    const good = entries.filter(e=> e.ok).map(e=> ({
-      url: e.url,
-      title: titleCommon || ''
-    }));
-    if(!good.length){
-      setStatus('<span class="danger">저장할 유효한 URL이 없습니다.</span>');
+  // 버튼 lock
+  const lock = (v)=>{ $btnSubmitTop&&( $btnSubmitTop.disabled=v ); $btnSubmit&&( $btnSubmit.disabled=v ); };
+  lock(true);
+
+  try{
+    // 개인자료 모드 (로컬)
+    if(hasPersonal){
+      const slot = cats[0]; // 한 슬롯만 허용
+      const good = entries.filter(e=> e.ok).map(e=> ({
+        url: e.url,
+        title: '' // ArkTube 규칙: 제목 필드 사용 안 함
+      }));
+      if(!good.length){
+        setStatus('<span class="danger">저장할 유효한 URL이 없습니다.</span>');
+        return;
+      }
+      const key = `personal_${slot}`;
+      let arr = [];
+      try{ arr = JSON.parse(localStorage.getItem(key) || '[]'); }catch{ arr=[]; }
+      const now = Date.now();
+      good.forEach(en=> arr.push({ url: en.url, title: '', savedAt: now }));
+      try{ localStorage.setItem(key, JSON.stringify(arr)); }catch{}
+      setStatus(`<span class="ok">개인자료(${esc(readPersonalLabel(slot))})에 ${good.length}건 저장 완료</span>`);
+      $urls.value = '';
+      $catHost.querySelectorAll('input[type="checkbox"]:checked')?.forEach(c=> c.checked=false);
       return;
     }
-    saveToPersonal(slot, good);
-    setStatus(`<span class="ok">개인자료(${esc(readPersonalLabel(slot))})에 ${good.length}건 저장 완료</span>`);
-    return;
-  }
 
-  // 서버 모드 (일반/시리즈) — 로그인 필요
-  const user = auth.currentUser;
-  if(!user){ setStatus('<span class="danger">로그인이 필요합니다.</span>'); return; }
+    // 서버 모드 (일반/시리즈) — 로그인 필요
+    const user = auth.currentUser;
+    if(!user){ setStatus('<span class="danger">로그인이 필요합니다.</span>'); return; }
 
-  // 진행
-  let okCount=0, dupCount=0, badCount=0, failCount=0;
-  $btnSubmit.disabled = true;
+    // 진행
+    let okCount=0, dupCount=0, badCount=0, failCount=0;
+    for(const e of entries){
+      if(!e.ok){ badCount++; continue; }
 
-  for(const e of entries){
-    if(!e.ok){ badCount++; continue; }
+      const ref = doc(db, 'videos', e.id);
+      try{
+        const exists = await getDoc(ref);
+        if(exists.exists()){
+          const data = exists.data() || {};
+          const existedCats = Array.isArray(data.cats) ? data.cats : [];
+          const labels = existedCats.map(v=> esc(CATIDX.labelOf(v))).join(', ');
+          dupCount++;
+          setStatus(`이미 등록됨: <b>${esc(e.id)}</b> (카테고리: ${labels || '없음'})`);
+          continue;
+        }
 
-    const ref = doc(db, 'videos', e.id);
-    try{
-      const exists = await getDoc(ref);
-      if(exists.exists()){
-        // 이미 등록된 카테고리 안내
-        const data = exists.data() || {};
-        const existedCats = Array.isArray(data.cats) ? data.cats : [];
-        const labels = existedCats.map(v=> esc(CATIDX.labelOf(v))).join(', ');
-        dupCount++;
-        setStatus(`이미 등록됨: <b>${esc(e.id)}</b> (카테고리: ${labels || '없음'})`);
-        continue;
+        // optional publishedAt (키 있으면 조회)
+        const publishedAt = await fetchPublishedAt(e.id);
+
+        // 규칙 필수 필드 + 확장
+        const payload = {
+          uid: user.uid,                // 규칙: isSelf(data.uid)
+          url: e.url,                   // 규칙: validUrl
+          cats: cats.slice(),           // 규칙: validCats (최대 3)
+          ytid: e.id,                   // 규칙: ytid == doc id
+          type: e.type,                 // 'shorts'|'video'
+          ownerName: user.displayName || '',
+          createdAt: serverTimestamp(),
+          ...(publishedAt ? { youtubePublishedAt: publishedAt } : {})
+        };
+
+        await setDoc(ref, payload, { merge:false });
+        okCount++;
+        setStatus(`<span class="ok">${okCount}건 등록 성공</span> · 중복 ${dupCount} · 오류 ${badCount+failCount}`);
+      }catch(err){
+        console.error('[upload] save fail:', err);
+        failCount++;
+        setStatus(`<span class="danger">일부 실패: 성공 ${okCount}, 중복 ${dupCount}, 실패 ${failCount}, 무시 ${badCount}</span>`);
       }
-
-      // optional publishedAt
-      const publishedAt = await fetchPublishedAt(e.id);
-
-      // 규칙 필수 필드
-      const payload = {
-        uid: user.uid,                // 규칙: isSelf(data.uid)
-        url: e.url,                   // 규칙: validUrl
-        cats: cats.slice(),           // 규칙: validCats (최대 3)
-        // optional 규칙 필드
-        ...(titleCommon ? { title: titleCommon } : {}),
-        ytid: e.id,                   // 규칙: ytid == doc id
-        // 추가 필드(규칙에 위배되지 않음)
-        type: e.type,                 // 'shorts'|'video'
-        ownerName: user.displayName || '',
-        createdAt: serverTimestamp(),
-        ...(publishedAt ? { youtubePublishedAt: publishedAt } : {})
-      };
-
-      await setDoc(ref, payload, { merge:false });
-      okCount++;
-      setStatus(`<span class="ok">${okCount}건 등록 성공</span> · 중복 ${dupCount} · 오류 ${badCount+failCount}`);
-    }catch(err){
-      console.error('[upload] save fail:', err);
-      failCount++;
-      setStatus(`<span class="danger">일부 실패: 성공 ${okCount}, 중복 ${dupCount}, 실패 ${failCount}, 무시 ${badCount}</span>`);
     }
-  }
 
-  $btnSubmit.disabled = false;
-  setStatus(`<span class="ok">완료</span> · 성공 ${okCount} · 중복 ${dupCount} · 실패 ${failCount} · 무시(비유튜브/파싱실패) ${badCount}`);
-});
+    setStatus(`<span class="ok">완료</span> · 성공 ${okCount} · 중복 ${dupCount} · 실패 ${failCount} · 무시(비유튜브/파싱실패) ${badCount}`);
+    if(okCount){ $urls.value=''; $catHost.querySelectorAll('input[type="checkbox"]:checked')?.forEach(c=> c.checked=false); }
+  }finally{
+    lock(false);
+  }
+}
+
+// 버튼 이벤트 (상/하 동일 로직 공유)
+$btnSubmitTop?.addEventListener('click', handleSubmit);
+$btnSubmit    ?.addEventListener('click', handleSubmit);
 
 /* ---------------- 스와이프 네비 (데드존 18%) ---------------- */
 (function initSwipe(){
