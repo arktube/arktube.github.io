@@ -400,7 +400,7 @@ $('#btnSubmitBottom')?.addEventListener('click', submitAll);
     if(!tracking) return; tracking=false;
     const p=point(e); const dx=p.clientX-sx, dy=p.clientY-sy, dt=Date.now()-t0;
     if(Math.abs(dy)>MAX_OFF_Y || dt>MAX_T) return;
-    if(dx>=-TH && goRightHref){ document.documentElement.classList.add('slide-out-right'); setTimeout(()=> location.href=goRightHref, 260); }
+    if(dx>=TH && goRightHref){ document.documentElement.classList.add('slide-out-right'); setTimeout(()=> location.href=goRightHref, 260); }
   }
   document.addEventListener('touchstart', onStart, {passive:true});
   document.addEventListener('touchend',   onEnd,   {passive:true});
