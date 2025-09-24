@@ -342,61 +342,69 @@ async function submitAll(){
   enableButtons(false);
   setStatusHTML('등록 시작...');
 
-  for(const e of entries){
-    if(!e.ok){ bad++; continue; }
-    const ref = doc(db,'videos', e.id);
-    try{
-      const exists = await getDoc(ref);
-      if(exists.exists()){
-        const data = exists.data()||{};
-        const existedCats = Array.isArray(data.cats)? data.cats : [];
-        const labels = existedCats.map(v=> esc(CATIDX.labelOf(v))).join(', ');
-        dup++;
-        setStatusHTML(`이미 등록됨: <b>${esc(e.id)}</b> (카테고리: ${labels||'없음'})  ·  <span class="ok">성공 ${ok}</span> / <span class="danger">중복 ${dup}</span> / 실패 ${fail} / 무시 ${bad}`);
-        continue;
-      }
+ for (const e of entries) {
+  if (!e.ok) { bad++; continue; }
+  const ref = doc(db,'videos', e.id);
 
-      const publishedAt = await fetchPublishedAt(e.id);
-      const payload = {
-        uid: user.uid,
-        url: e.url,
-        cats: cats.slice(),
-        ytid: e.id,
-        type: e.type,
-        ownerName: user.displayName || '',
-        createdAt: serverTimestamp(),
-        ...(publishedAt ? { youtubePublishedAt: publishedAt } : {})
-      };
+  // <-- catch에서도 보이도록 밖에 선언
+  let payload; 
+  let publishedAt = null;
 
-     // ===== 디버그: 실제 전송 내용/문서ID/사용자 상태를 콘솔에 보기 좋게 출력 =====
-     console.groupCollapsed('[upload] setDoc try', e.id);
-     console.log('docPath', 'videos/' + e.id);
-     console.log('user.uid', user.uid, 'displayName', user.displayName);
-     console.log('cats', cats);
-     console.log('type', e.type, 'url', e.url);
-     console.log('publishedAt', publishedAt);
-     console.log('payload', payload);
-     console.groupEnd();
-     // 전역에서도 마지막 페이로드 확인 가능
-     (window.__lastPayloads ||= []).push({ id:e.id, payload, ts:Date.now() });
-
-
-      
-      await setDoc(ref, payload, { merge:false });
-      ok++;
-      setStatusHTML(`<span class="ok">${ok}건 등록 성공</span> · 중복 ${dup} · 실패 ${fail} · 무시 ${bad}`);
-    }catch(err){
-      /*console.error('[upload] save fail:', err);*/
-      console.group('[upload] save fail');
-      console.error('error object', err);
-      console.error('code:', err?.code, 'message:', err?.message);
-      console.log('docId', e.id);
-      console.log('payload (last tried)', payload);
-      console.groupEnd();
-      fail++;
-      setStatusHTML(`<span class="danger">일부 실패</span>: 성공 ${ok}, 중복 ${dup}, 실패 ${fail}, 무시 ${bad}`);
+  try {
+    const exists = await getDoc(ref);
+    if (exists.exists()) {
+      const data = exists.data() || {};
+      const existedCats = Array.isArray(data.cats) ? data.cats : [];
+      const labels = existedCats.map(v => esc(CATIDX.labelOf(v))).join(', ');
+      dup++;
+      setStatusHTML(`이미 등록됨: <b>${esc(e.id)}</b> (카테고리: ${labels||'없음'})  ·  <span class="ok">성공 ${ok}</span> / <span class="danger">중복 ${dup}</span> / 실패 ${fail} / 무시 ${bad}`);
+      continue;
     }
+
+    publishedAt = await fetchPublishedAt(e.id);
+    payload = {
+      uid: user.uid,
+      url: e.url,
+      cats: cats.slice(),
+      ytid: e.id,
+      type: e.type,
+      ownerName: user.displayName || '',
+      createdAt: serverTimestamp(),
+      ...(publishedAt ? { youtubePublishedAt: publishedAt } : {})
+    };
+
+    // 보기 좋은 디버그
+    console.groupCollapsed('[upload] setDoc try', e.id);
+    console.log('docPath', 'videos/' + e.id);
+    console.log('user.uid', user.uid, 'displayName', user.displayName);
+    console.log('cats', cats);
+    console.log('type', e.type, 'url', e.url);
+    console.log('publishedAt', publishedAt);
+    console.log('payload', payload);
+    console.groupEnd();
+    (window.__lastPayloads ||= []).push({ id: e.id, payload, ts: Date.now() });
+
+    // 규칙 핵심 체크(콘솔 경고)
+    console.assert(payload.ytid === e.id, 'ytid != doc id');
+    console.assert(/^https:\/\//.test(payload.url), 'url invalid');
+    console.assert(Array.isArray(payload.cats) && payload.cats.length>=1 && payload.cats.length<=3, 'cats invalid length');
+    console.assert(payload.cats.every(c => /^[a-z0-9_]{1,32}$/.test(c)), 'cats value not matched');
+
+    await setDoc(ref, payload, { merge:false });
+    ok++;
+    setStatusHTML(`<span class="ok">${ok}건 등록 성공</span> · 중복 ${dup} · 실패 ${fail} · 무시 ${bad}`);
+  } catch (err) {
+    console.group('[upload] save fail');
+    console.error('error object', err);
+    console.error('code:', err?.code, 'message:', err?.message);
+    console.log('docId', e.id);
+    console.log('payload (last tried)', payload); // 이제 안전
+    console.groupEnd();
+    fail++;
+    setStatusHTML(`<span class="danger">일부 실패</span>: 성공 ${ok}, 중복 ${dup}, 실패 ${fail}, 무시 ${bad}`);
   }
+}
+
 
   enableButtons(true);
   setStatusHTML(`<span class="ok">완료</span> · 성공 ${ok} · 중복 ${dup} · 실패 ${fail} · 무시(비유튜브/파싱실패) ${bad}`);
