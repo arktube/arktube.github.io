@@ -47,51 +47,38 @@
 
   <link rel="stylesheet" href="/css/style.css"/>
 
-  <!-- ===== CopyTube v1.5 톤으로 스타일 재정렬 (업로드 전용 포함) ===== -->
+  <!-- CopyTube v1.5 톤 (업로드 전용 포함) -->
   <style>
     :root{
       --bg:#000; --bg-2:#111; --bg-3:#1b1b1b; --fg:#fff;
       --muted:#9aa0a6; --accent:#4ea1ff; --border:#333;
       --app-vh:100vh;
     }
-
     *{ box-sizing:border-box }
     html,body{ height:100% }
     body{
-      margin:0;
-      font-family:system-ui,Segoe UI,Apple SD Gothic Neo,"Noto Sans KR",Arial,sans-serif;
+      margin:0; font-family:system-ui,Segoe UI,Apple SD Gothic Neo,"Noto Sans KR",Arial,sans-serif;
       background:var(--bg); color:var(--fg);
-      /* 고정 헤더 겹침 방지 */
-      padding-top:52px;
+      padding-top:52px; /* 고정 헤더 겹침 방지 */
     }
 
-    /* 헤더: fixed + 자동숨김 (v1.5 톤) */
+    /* 헤더 */
     #topbar{
-      position: fixed; top: 0; left: 0; right: 0; z-index: 20;
+      position:fixed; top:0; left:0; right:0; z-index:20;
       display:flex; align-items:center; justify-content:space-between;
       height:52px; padding:0 16px;
       background:var(--bg-2); border-bottom:1px solid var(--border);
     }
     #topbar.autohide{ transition: transform .25s ease, opacity .25s ease; }
     #topbar.hide{ transform: translateY(-100%); opacity:0; pointer-events:none; }
-
     #topbar .right{ display:flex; align-items:center; gap:12px; }
-    .brand a{
-      color:var(--fg); text-decoration:none; font-weight:700; font-size:16px;
-      display:inline-flex; align-items:center; gap:8px; line-height:1;
-    }
+    .brand a{ color:var(--fg); text-decoration:none; font-weight:700; font-size:16px; display:inline-flex; align-items:center; gap:8px; line-height:1; }
     .brand a:hover{ opacity:.9; cursor:pointer; }
-
-    /* 로고: 데스크톱 48px / 모바일 40px (사용자 선호 유지) */
     .brand-logo{ height:48px; width:auto; display:block; object-fit:contain; }
     @media (max-width:420px){ .brand-logo{ height:40px; } }
-
     .link{ color:var(--accent); text-decoration:none; font-size:14px; }
     .welcome{ font-size:14px; color:var(--muted); }
-    .icon{
-      background:none; border:0; color:var(--fg); font-size:20px; cursor:pointer;
-      padding:4px 6px; border-radius:6px;
-    }
+    .icon{ background:none; border:0; color:var(--fg); font-size:20px; cursor:pointer; padding:4px 6px; border-radius:6px; }
     .icon:hover{ background:var(--bg-3); }
     .hidden{ display:none !important; }
 
@@ -112,10 +99,10 @@
     .dropdown .menu-strong{ font-size:16px; font-weight:700; }
     .custom-separator{ border:none; border-top:1px solid #555; margin:8px 0; }
 
-    /* 메인 컨테이너 */
+    /* 메인 */
     main{ max-width:1000px; margin:0 auto; padding:10px 16px 40px; }
 
-    /* 그룹형(인덱스/업로드 공용) — 사용자 ‘컴팩트’ 선호 반영 */
+    /* 그룹형(컴팩트) */
     .group{
       border:1px solid var(--border); border-radius:12px; background:var(--bg-3);
       padding:6px 6px 8px; margin:3px 0;
@@ -141,7 +128,7 @@
     }
     .child-grid input[type="checkbox"]{ accent-color:#4ea1ff; transform:scale(1.05); }
 
-    /* ===== 업로드 페이지 전용(컴팩트 컨트롤) ===== */
+    /* 업로드 전용 컨트롤 */
     .uploader .lead{ margin-bottom:6px; }
     .uploader .hint{ color:#9aa0a6; font-size:13px; }
     .uploader .msg{ margin:6px 0 0; min-height:1.2em; font-size:13px; color:#cfcfcf; }
@@ -187,18 +174,16 @@
       .btn-clipboard{ max-width:180px; }
     }
 
-    /* 업로드 페이지 카테고리 밀도: 인덱스와 동일 값 */
     .uploader .group{ margin:6px 0; padding:8px 8px 10px; }
     .uploader .child-grid{ gap:4px; }
 
-    /* 개인자료 이름변경 버튼 */
     .rename-inline{
       margin-left:auto; font-size:12px; padding:4px 6px; border-radius:6px; border:1px solid #2a2a2a;
       background:#0f0f0f; color:#ddd; cursor:pointer;
     }
     .rename-inline:hover{ background:#141414; }
 
-    /* urlfind 모달 — 기능 유지 + 톤 통일 */
+    /* 모달 */
     .modal{ position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; z-index:50; }
     .modal.show{ display:flex; }
     .modal .sheet{
@@ -211,7 +196,7 @@
       flex:1 1 auto; overflow:auto; background:#0f0f0f; border:1px solid #2a2a2a; border-radius:10px; padding:8px;
     }
 
-    /* 페이지 슬라이드 트랜지션 (v1.5.2) */
+    /* 페이지 슬라이드 */
     @keyframes pageSlideLeft { from{ transform:translateX(0); opacity:1; } to{ transform:translateX(-22%); opacity:.92; } }
     @keyframes pageSlideRight{ from{ transform:translateX(0); opacity:1; } to{ transform:translateX(22%);  opacity:.92; } }
     :root.slide-out-left  body{ animation: pageSlideLeft 0.26s ease forwards; }
@@ -257,27 +242,22 @@
       <legend>추천 영상 등록</legend>
       <div class="hint">여러 줄에 URL 붙여넣기 가능 · 순서 선택 가능 · 개인자료는 로그인 없이 로컬 저장</div>
 
-      <!-- ✅ v1.5 톤 적용: controls-row 클래스 추가(기존 row 유지) -->
+      <!-- 상단 툴바: 붙여넣기 + 순서 + 등록(상단) -->
       <div class="row controls-row">
         <textarea id="urls" placeholder="https://youtu.be/xxxxxx
 https://www.youtube.com/watch?v=yyyyyy"></textarea>
-        <div class="right">
+        <div class="right" style="display:flex; gap:8px; align-items:stretch; flex-wrap:wrap;">
           <button id="btnPaste" class="btn-clipboard">클립보드 붙여넣기</button>
           <div class="radio-stack">
             <label><input type="radio" name="order" value="top" checked> 위부터 등록</label>
             <label><input type="radio" name="order" value="bottom"> 아래부터 등록</label>
           </div>
+          <!-- ✅ 상단 등록 버튼(신규) -->
+          <button id="btnSubmitTop" class="btn-submit">등록</button>
         </div>
       </div>
 
       <div class="grid-2">
-        <div>
-          <div class="controls-col">
-            <label for="title">제목(선택)</label>
-            <input id="title" type="text" maxlength="200" placeholder="입력하지 않으면 비워둡니다."/>
-          </div>
-          <div class="hint">제목은 선택 사항이며, 각 영상에 동일한 제목이 저장됩니다.</div>
-        </div>
         <div>
           <div class="controls-col">
             <label>카테고리(최대 3개)</label>
@@ -287,6 +267,7 @@ https://www.youtube.com/watch?v=yyyyyy"></textarea>
         </div>
       </div>
 
+      <!-- 하단 등록 버튼(기존 유지) -->
       <div class="controls-row" style="justify-content:flex-end;">
         <button id="btnSubmit" class="btn-submit">등록</button>
       </div>
@@ -306,7 +287,7 @@ https://www.youtube.com/watch?v=yyyyyy"></textarea>
     </div>
   </div>
 
-  <!-- 모듈 (기능 변경 없음) -->
+  <!-- 모듈 -->
   <script type="module" src="/js/firebase-init.js"></script>
   <script type="module" src="/js/auth.js"></script>
   <script type="module" src="/js/categories.js"></script>
