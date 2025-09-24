@@ -47,163 +47,152 @@
 
   <link rel="stylesheet" href="/css/style.css"/>
 
-  <!-- CopyTube v1.5 톤 (업로드 전용 포함) -->
+  <!-- ===== CopyTube v1.5 톤 (네가 준 스타일 그대로) ===== -->
   <style>
-    :root{
-      --bg:#000; --bg-2:#111; --bg-3:#1b1b1b; --fg:#fff;
-      --muted:#9aa0a6; --accent:#4ea1ff; --border:#333;
-      --app-vh:100vh;
-    }
-    *{ box-sizing:border-box }
-    html,body{ height:100% }
-    body{
-      margin:0; font-family:system-ui,Segoe UI,Apple SD Gothic Neo,"Noto Sans KR",Arial,sans-serif;
-      background:var(--bg); color:var(--fg);
-      padding-top:52px; /* 고정 헤더 겹침 방지 */
-    }
+  :root{
+    --bg:#000; --bg-2:#111; --bg-3:#1b1b1b; --fg:#fff;
+    --muted:#9aa0a6; --accent:#4ea1ff; --border:#333;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; font-family:system-ui,Segoe UI,Apple SD Gothic Neo,Arial,sans-serif;
+    background:var(--bg); color:var(--fg);
+    padding-top:52px;
+  }
 
-    /* 헤더 */
-    #topbar{
-      position:fixed; top:0; left:0; right:0; z-index:20;
-      display:flex; align-items:center; justify-content:space-between;
-      height:52px; padding:0 16px;
-      background:var(--bg-2); border-bottom:1px solid var(--border);
-    }
-    #topbar.autohide{ transition: transform .25s ease, opacity .25s ease; }
-    #topbar.hide{ transform: translateY(-100%); opacity:0; pointer-events:none; }
-    #topbar .right{ display:flex; align-items:center; gap:12px; }
-    .brand a{ color:var(--fg); text-decoration:none; font-weight:700; font-size:16px; display:inline-flex; align-items:center; gap:8px; line-height:1; }
-    .brand a:hover{ opacity:.9; cursor:pointer; }
-    .brand-logo{ height:48px; width:auto; display:block; object-fit:contain; }
-    @media (max-width:420px){ .brand-logo{ height:40px; } }
-    .link{ color:var(--accent); text-decoration:none; font-size:14px; }
-    .welcome{ font-size:14px; color:var(--muted); }
-    .icon{ background:none; border:0; color:var(--fg); font-size:20px; cursor:pointer; padding:4px 6px; border-radius:6px; }
-    .icon:hover{ background:var(--bg-3); }
-    .hidden{ display:none !important; }
+  /* 헤더: fixed + 자동숨김 */
+  #topbar{
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 20;
+    display:flex; align-items:center; justify-content:space-between;
+    height:52px; padding:0 16px;
+    background:var(--bg-2); border-bottom:1px solid var(--border);
+  }
+  #topbar.autohide{ transition: transform .25s ease, opacity .25s ease; }
+  #topbar.hide{ transform: translateY(-100%); opacity:0; pointer-events:none; }
 
-    /* 드롭다운 */
-    .dropdown{
-      position:absolute; right:0; top:100%;
-      background:var(--bg-2); border:1px solid var(--border); border-radius:8px;
-      display:flex; flex-direction:column; min-width:200px; padding:6px 0;
-      opacity:0; transform:translateY(-8px); pointer-events:none;
-      transition:opacity .18s ease, transform .18s ease;
-    }
-    .dropdown.show{ opacity:1; transform:translateY(0); pointer-events:auto; }
-    .dropdown button{
-      background:none; border:0; color:var(--fg); text-align:left;
-      padding:10px 16px; cursor:pointer; font-size:14px; line-height:1.25;
-    }
-    .dropdown button:hover{ background:var(--bg-3); }
-    .dropdown .menu-strong{ font-size:16px; font-weight:700; }
-    .custom-separator{ border:none; border-top:1px solid #555; margin:8px 0; }
+  #topbar .right{ display:flex; align-items:center; gap:12px; }
+  .brand a{
+    color:var(--fg); text-decoration:none; font-weight:700; font-size:16px;
+    display:inline-flex; align-items:center; gap:8px; line-height:1;
+  }
+  .brand a:hover{ opacity:.9; cursor:pointer; }
 
-    /* 메인 */
-    main{ max-width:1000px; margin:0 auto; padding:10px 16px 40px; }
+  /* 로고: 데스크톱 48px / 모바일 40px */
+  .brand-logo{ height:48px; width:auto; display:block; object-fit:contain; }
+  @media (max-width:420px){ .brand-logo{ height:40px; } }
 
-    /* 그룹형(컴팩트) */
-    .group{
-      border:1px solid var(--border); border-radius:12px; background:var(--bg-3);
-      padding:6px 6px 8px; margin:3px 0;
-      text-align:left; max-width:900px; margin-left:auto; margin-right:auto;
-    }
-    .group legend{
-      padding:0 2px; font-weight:800; font-size:15px; color:#eee;
-      margin-bottom:0; line-height:1.05; display:inline-flex; gap:6px; align-items:center;
-    }
-    .group .subnote{ font-size:12px; color:#9aa0a6; margin-left:6px; }
+  .link{ color:var(--accent); text-decoration:none; font-size:14px; }
+  .welcome{ font-size:14px; color:var(--muted); }
+  .icon{
+    background:none; border:0; color:var(--fg); font-size:20px; cursor:pointer;
+    padding:4px 6px; border-radius:6px;
+  }
+  .icon:hover{ background:var(--bg-3); }
+  .hidden{ display:none !important; }
 
-    .child-grid{
-      margin-top:0;
-      display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:2px;
-    }
-    @media (min-width:900px){
-      .child-grid{ grid-template-columns:repeat(4, minmax(0,1fr)); }
-    }
-    .child-grid label{
-      background:#0f0f0f; border:1px solid #2a2a2a; border-radius:8px;
-      padding:6px 8px; font-size:13px; line-height:1.1;
-      display:flex; gap:6px; align-items:center; justify-content:flex-start;
-    }
-    .child-grid input[type="checkbox"]{ accent-color:#4ea1ff; transform:scale(1.05); }
+  /* 드롭다운 */
+  .dropdown{
+    position:absolute; right:0; top:100%;
+    background:var(--bg-2); border:1px solid var(--border); border-radius:8px;
+    display:flex; flex-direction:column; min-width:200px; padding:6px 0;
+    opacity:0; transform:translateY(-8px); pointer-events:none;
+    transition:opacity .18s ease, transform .18s ease;
+  }
+  .dropdown.show{ opacity:1; transform:translateY(0); pointer-events:auto; }
+  .dropdown button{
+    background:none; border:0; color:var(--fg); text-align:left;
+    padding:10px 16px; cursor:pointer; font-size:14px; line-height:1.25;
+  }
+  .dropdown button:hover{ background:var(--bg-3); }
+  .dropdown .menu-strong{ font-size:16px; font-weight:700; }
+  .custom-separator { border:none; border-top:1px solid #555; margin:8px 0; }
 
-    /* 업로드 전용 컨트롤 */
-    .uploader .lead{ margin-bottom:6px; }
-    .uploader .hint{ color:#9aa0a6; font-size:13px; }
-    .uploader .msg{ margin:6px 0 0; min-height:1.2em; font-size:13px; color:#cfcfcf; }
+  /* 첫 화면(선택·업로드 공통 베이스) */
+  main{ max-width:1000px; margin:0 auto; padding:10px 16px 40px; }
 
-    .uploader .controls-row{
-      display:flex; gap:8px; align-items:stretch; flex-wrap:wrap; margin:6px 0 8px;
-    }
-    .uploader .controls-col{
-      display:flex; flex-direction:column; gap:4px; min-width:180px;
-    }
-    .uploader .radio-stack{
-      display:flex; flex-direction:column; gap:4px; width:140px;
-    }
-    .uploader .radio-stack label{
-      display:flex; align-items:center; gap:6px; white-space:nowrap;
-      padding:4px 8px; border:1px solid #2a2a2a; border-radius:8px; background:#0f0f0f;
-      font-size:13px;
-    }
+  /* 그룹형: 인덱스/업로드 공용 */
+  .group{
+    border:1px solid var(--border); border-radius:12px; background:var(--bg-3);
+    padding:8px 8px 10px; margin:6px 0;
+    text-align:left; max-width:900px; margin-left:auto; margin-right:auto;
+  }
+  .group legend{
+    padding:0 4px; font-weight:800; font-size:15px; color:#eee;
+    margin-bottom:2px; line-height:1.05; display:inline-flex; gap:6px; align-items:center;
+  }
+  .group .subnote{ font-size:12px; color:#9aa0a6; margin-left:6px; }
 
-    textarea#urls{
-      width:100%; min-height:180px;
-      border:1px solid var(--border); border-radius:10px; background:#0f0f0f; color:#fff; padding:10px;
-    }
-    input[type="text"], input[type="search"]{
-      border:1px solid var(--border); background:#0f0f0f; color:#fff; border-radius:10px; padding:8px 10px; width:100%;
-    }
+  .child-grid{
+    margin-top:2px; display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:4px;
+  }
+  @media (min-width:900px){ .child-grid{ grid-template-columns:repeat(4, minmax(0,1fr)); } }
+  .child-grid label{
+    background:#0f0f0f; border:1px solid #2a2a2a; border-radius:8px;
+    padding:6px 8px; font-size:14px; line-height:1.2;
+    display:flex; gap:6px; align-items:center; justify-content:flex-start;
+  }
+  .rename-inline{
+    margin-left:auto; font-size:12px; padding:4px 6px; border-radius:6px; border:1px solid #2a2a2a;
+    background:#0f0f0f; color:#ddd; cursor:pointer;
+  }
+  .rename-inline:hover{ background:#141414; }
 
-    .btn{
-      padding:8px 12px; border-radius:10px; border:1px solid #2a2a2a; background:#151515; color:#fff; cursor:pointer;
-    }
-    .btn:hover{ background:#1a1a1a; }
+  /* 업로드 페이지 전용(더 컴팩트 + 컨트롤 줄정렬) */
+  .uploader .lead{ margin-bottom:6px; }
+  .uploader .toolbar{ display:flex; gap:10px; align-items:center; justify-content:flex-start; margin:6px 0 10px; flex-wrap:wrap; }
 
-    .btn-clipboard{
-      min-width:150px; padding:6px 12px; border-radius:10px; background:#22c55e; color:#000; font-weight:800; border:0; cursor:pointer;
-      max-width:220px;
-    }
-    .btn-submit{
-      min-width:110px; padding:6px 12px; border-radius:10px; background:#4ea1ff; color:#fff; font-weight:800; border:0; cursor:pointer;
-    }
-    @media (max-width:420px){
-      .uploader .controls-row{ align-items:flex-start; }
-      .uploader .radio-stack{ width:130px; }
-      .btn-clipboard{ max-width:180px; }
-    }
+  .uploader .controls-row{
+    display:flex; gap:8px; align-items:stretch; flex-wrap:wrap; margin:6px 0 8px;
+  }
+  .uploader .controls-col{
+    display:flex; flex-direction:column; gap:4px; min-width:180px;
+  }
+  .uploader .radio-stack{
+    display:flex; flex-direction:column; gap:4px; width:140px;
+  }
+  .uploader .radio-stack label{
+    display:flex; align-items:center; gap:6px; white-space:nowrap;
+    padding:4px 8px; border:1px solid #2a2a2a; border-radius:8px; background:#0f0f0f;
+  }
+  textarea#urls{
+    width:100%; min-height:180px; border:1px solid var(--border); border-radius:10px; background:#0f0f0f; color:#fff; padding:10px;
+  }
+  .btn-clipboard{
+    min-width:150px; padding:6px 12px; border-radius:10px; background:#22c55e; color:#000; font-weight:800; border:0; cursor:pointer;
+    max-width:220px;
+  }
+  .btn-submit{
+    min-width:110px; padding:6px 12px; border-radius:10px; background:#4ea1ff; color:#fff; font-weight:800; border:0; cursor:pointer;
+  }
+  @media (max-width:420px){
+    .uploader .controls-row{ align-items:flex-start; }
+    .uploader .radio-stack{ width:130px; }
+    .uploader .btn-clipboard{ max-width:180px; }
+  }
 
-    .uploader .group{ margin:6px 0; padding:8px 8px 10px; }
-    .uploader .child-grid{ gap:4px; }
+  /* urlfind 모달 */
+  .modal{ position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; z-index:50; }
+  .modal.show{ display:flex; }
+  .modal .sheet{ width:min(960px, 92vw); height:min(80vh, 720px); background:var(--bg-2); border:1px solid var(--border); border-radius:12px; padding:10px; display:flex; flex-direction:column; }
+  .modal .sheet header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+  .modal .sheet .body{ flex:1 1 auto; overflow:auto; background:#0f0f0f; border:1px solid #2a2a2a; border-radius:10px; padding:8px; }
 
-    .rename-inline{
-      margin-left:auto; font-size:12px; padding:4px 6px; border-radius:6px; border:1px solid #2a2a2a;
-      background:#0f0f0f; color:#ddd; cursor:pointer;
-    }
-    .rename-inline:hover{ background:#141414; }
+  /* Page slide transition (v1.5.2) */
+  @keyframes pageSlideLeft { from { transform: translateX(0); opacity: 1; } to { transform: translateX(-22%); opacity: .92; } }
+  @keyframes pageSlideRight{ from { transform: translateX(0); opacity: 1; } to { transform: translateX(22%); opacity: .92; } }
+  :root.slide-out-left  body { animation: pageSlideLeft 0.26s ease forwards; }
+  :root.slide-out-right body { animation: pageSlideRight 0.26s ease forwards; }
+  @media (prefers-reduced-motion: reduce) {
+    :root.slide-out-left  body,
+    :root.slide-out-right body { animation: none; }
+  }
 
-    /* 모달 */
-    .modal{ position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; z-index:50; }
-    .modal.show{ display:flex; }
-    .modal .sheet{
-      width:min(960px, 92vw); height:min(80vh, 720px);
-      background:var(--bg-2); border:1px solid var(--border); border-radius:12px; padding:10px;
-      display:flex; flex-direction:column;
-    }
-    .modal .sheet header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
-    .modal .sheet .body{
-      flex:1 1 auto; overflow:auto; background:#0f0f0f; border:1px solid #2a2a2a; border-radius:10px; padding:8px;
-    }
-
-    /* 페이지 슬라이드 */
-    @keyframes pageSlideLeft { from{ transform:translateX(0); opacity:1; } to{ transform:translateX(-22%); opacity:.92; } }
-    @keyframes pageSlideRight{ from{ transform:translateX(0); opacity:1; } to{ transform:translateX(22%);  opacity:.92; } }
-    :root.slide-out-left  body{ animation: pageSlideLeft 0.26s ease forwards; }
-    :root.slide-out-right body{ animation: pageSlideRight 0.26s ease forwards; }
-    @media (prefers-reduced-motion:reduce){
-      :root.slide-out-left  body, :root.slide-out-right body{ animation:none; }
-    }
+  .msg{ margin-top:6px; font-size:13px; color:#ccc; min-height:1.2em; }
+  .danger{ color:#ff8484; }
+  .ok{ color:#60ffa3; }
   </style>
 
   <!-- PWA -->
@@ -242,34 +231,31 @@
       <legend>추천 영상 등록</legend>
       <div class="hint">여러 줄에 URL 붙여넣기 가능 · 순서 선택 가능 · 개인자료는 로그인 없이 로컬 저장</div>
 
-      <!-- 상단 툴바: 붙여넣기 + 순서 + 등록(상단) -->
-      <div class="row controls-row">
+      <!-- 상단 툴바 -->
+      <div class="uploader controls-row">
         <textarea id="urls" placeholder="https://youtu.be/xxxxxx
 https://www.youtube.com/watch?v=yyyyyy"></textarea>
         <div class="right" style="display:flex; gap:8px; align-items:stretch; flex-wrap:wrap;">
-          <button id="btnPaste" class="btn-clipboard">클립보드 붙여넣기</button>
+          <button id="btnPaste" class="btn-clipboard" type="button">클립보드 붙여넣기</button>
           <div class="radio-stack">
             <label><input type="radio" name="order" value="top" checked> 위부터 등록</label>
             <label><input type="radio" name="order" value="bottom"> 아래부터 등록</label>
           </div>
-          <!-- ✅ 상단 등록 버튼(신규) -->
-          <button id="btnSubmitTop" class="btn-submit">등록</button>
+          <!-- 상단 등록 버튼 -->
+          <button id="btnSubmitTop" class="btn-submit" type="button">등록</button>
         </div>
       </div>
 
-      <div class="grid-2">
-        <div>
-          <div class="controls-col">
-            <label>카테고리(최대 3개)</label>
-            <div id="catHost"></div>
-            <div class="hint">개인자료와 일반/시리즈를 함께 선택할 수 없습니다.</div>
-          </div>
-        </div>
+      <!-- 카테고리 -->
+      <div class="controls-col">
+        <label>카테고리(최대 3개)</label>
+        <div id="catHost"></div>
+        <div class="hint">개인자료와 일반/시리즈를 함께 선택할 수 없습니다.</div>
       </div>
 
-      <!-- 하단 등록 버튼(기존 유지) -->
-      <div class="controls-row" style="justify-content:flex-end;">
-        <button id="btnSubmit" class="btn-submit">등록</button>
+      <!-- 하단 등록 버튼 -->
+      <div class="uploader controls-row" style="justify-content:flex-end;">
+        <button id="btnSubmit" class="btn-submit" type="button">등록</button>
       </div>
 
       <div id="msg" class="msg"></div>
