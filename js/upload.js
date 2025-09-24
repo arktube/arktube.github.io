@@ -1,427 +1,365 @@
-// /js/upload.js — ArkTube Upload (CopyTube v1.5 톤, Ark 규칙 통합)
-// - Firestore 문서 ID = YouTube videoId (setDoc)
-// - 규칙 필드: uid, url, cats(<=3), (ytid==id) 충족
-// - 추가 필드: type('shorts'|'video'), ownerName, createdAt, (youtubePublishedAt)
-// - 개인자료(personal1..personal4) 선택 시 로컬 저장(로그인 불필요)
-// - 카테고리: CATEGORY_MODEL or CATEGORY_GROUPS 둘 다 지원
-// - 상/하단 등록 버튼 동기화, 진행 중 disabled 동기화
-// - urlfind 모달(ArkTube 방식) 유지
+// /js/upload.js — CopyTube v1.5 UI + ArkTube 기능 스펙
+// - 문서ID=videoId(setDoc), cats 스키마, ytid==id, type(video|shorts), ownerName, createdAt, youtubePublishedAt(API_KEY 합집합)
+// - 개인자료: personal1..4 로컬 저장 & 이름변경(최대 12자)
+// - CATIDX: series/personal 판정(키 prefix `series_` or g.isSeries===true / g.personal===true)
+// - 제약: 단일 change 이벤트로 집계 → 3개 초과/혼합 시 마지막 체크 해제(:checked:last-of-type)
+// - 상/하단 등록 버튼 동기화
+// - UrlFind 모달: mount/unmount 지원, 타이틀 "ThankU!"
+// - 스와이프: 단순 + 고급(데드존 18%)
 
 import { auth, db } from './firebase-init.js';
 import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
 import { CATEGORY_MODEL, CATEGORY_GROUPS } from './categories.js';
 import { isAllowedYouTube, parseYouTube } from './youtube-utils.js';
-import {
-  doc, getDoc, setDoc, serverTimestamp
-} from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
+import { doc, getDoc, setDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
 
-/* ---------------- Topbar / Dropdown ---------------- */
 const $ = (s)=>document.querySelector(s);
 
-const signupLink  = $('#signupLink');
-const signinLink  = $('#signinLink');
-const welcome     = $('#welcome');
-const menuBtn     = $('#menuBtn');
-const dropdown    = $('#dropdownMenu');
+/* ---------- Topbar/Dropdown ---------- */
+const signupLink = $('#signupLink');
+const signinLink = $('#signinLink');
+const welcome    = $('#welcome');
+const menuBtn    = $('#menuBtn');
+const dropdown   = $('#dropdownMenu');
 
 const btnAbout     = $('#btnAbout');
-const btnCatOrder  = $('#btnCatOrder');
 const btnMyUploads = $('#btnMyUploads');
 const btnSignOut   = $('#btnSignOut');
+const btnGoUpload  = $('#btnGoUpload');
 const btnList      = $('#btnList');
 const btnUrlFind   = $('#btnUrlFind');
 
-function openDropdown(){ if(!dropdown) return; dropdown.classList.remove('hidden'); requestAnimationFrame(()=> dropdown.classList.add('show')); }
-function closeDropdown(){ if(!dropdown) return; dropdown.classList.remove('show'); setTimeout(()=> dropdown.classList.add('hidden'), 180); }
+function openDropdown(){ dropdown?.classList.remove('hidden'); requestAnimationFrame(()=> dropdown?.classList.add('show')); }
+function closeDropdown(){ dropdown?.classList.remove('show'); setTimeout(()=> dropdown?.classList.add('hidden'), 180); }
 
-onAuthStateChanged(auth, (user) => {
+onAuthStateChanged(auth, (user)=>{
   const loggedIn = !!user;
   signupLink?.classList.toggle('hidden', loggedIn);
   signinLink?.classList.toggle('hidden', loggedIn);
-  if (welcome) welcome.textContent = loggedIn ? `Welcome! ${user?.displayName || '회원'}` : '';
+  if (welcome) welcome.textContent = loggedIn ? `ThankU ${user.displayName||'회원'}!!` : '';
   closeDropdown();
 });
 
-menuBtn?.addEventListener('click', (e)=>{ e.stopPropagation(); dropdown?.classList.contains('hidden') ? openDropdown() : closeDropdown(); });
-document.addEventListener('pointerdown', (e)=>{ if(!dropdown || dropdown.classList.contains('hidden')) return; if(!e.target.closest('#dropdownMenu,#menuBtn')) closeDropdown(); }, true);
-document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closeDropdown(); });
-dropdown?.addEventListener('click', (e)=> e.stopPropagation());
+menuBtn?.addEventListener('click',(e)=>{ e.stopPropagation(); dropdown?.classList.contains('hidden') ? openDropdown() : closeDropdown(); });
+document.addEventListener('pointerdown',(e)=>{ if(dropdown?.classList.contains('hidden')) return; if(!e.target.closest('#dropdownMenu,#menuBtn')) closeDropdown(); }, true);
+document.addEventListener('keydown',(e)=>{ if(e.key==='Escape') closeDropdown(); });
+dropdown?.addEventListener('click',(e)=> e.stopPropagation());
 
-btnAbout    ?.addEventListener('click', ()=>{ location.href = '/about.html'; closeDropdown(); });
-btnCatOrder ?.addEventListener('click', ()=>{ location.href = '/category-order.html'; closeDropdown(); });
-btnMyUploads?.addEventListener('click', ()=>{ auth.currentUser ? (location.href='/manage-uploads.html') : (location.href='/signin.html'); closeDropdown(); });
-btnSignOut  ?.addEventListener('click', async ()=>{ if(!auth.currentUser){ location.href='/signin.html'; return; } try{ await fbSignOut(auth); } finally{ closeDropdown(); } });
+btnAbout    ?.addEventListener('click', ()=>{ location.href='/about.html'; closeDropdown(); });
+btnMyUploads?.addEventListener('click', ()=>{ location.href='/manage-uploads.html'; closeDropdown(); });
+btnSignOut  ?.addEventListener('click', async ()=>{ await fbSignOut(auth); closeDropdown(); });
+btnGoUpload ?.addEventListener('click', ()=>{ location.href='/upload.html'; closeDropdown(); });
 btnList     ?.addEventListener('click', ()=>{ location.href='/list.html'; closeDropdown(); });
 
-/* ---------------- urlfind 모달 ---------------- */
+/* ---------- UrlFind 모달 (A=지원, mount/unmount, ThankU!) ---------- */
 const urlfindModal = $('#urlfindModal');
 const urlfindBody  = $('#urlfindBody');
 const urlfindClose = $('#urlfindClose');
 
-function openUrlFindModal(){
+function openUrlFind(){
   if(!urlfindModal){ location.href='/urlfind.html'; return; }
-  urlfindModal.classList.add('show');
-  urlfindModal.setAttribute('aria-hidden','false');
-  try{
-    if(window.UrlFind && typeof window.UrlFind.mount === 'function'){
-      window.UrlFind.mount(urlfindBody);
-    }
-  }catch(e){}
+  urlfindModal.style.display='flex';
+  urlfindModal.classList.remove('hidden');
+  try{ window.UrlFind?.mount?.(urlfindBody); }catch{}
 }
-function closeUrlFindModal(){
+function closeUrlFind(){
   if(!urlfindModal) return;
-  urlfindModal.classList.remove('show');
-  urlfindModal.setAttribute('aria-hidden','true');
-  try{
-    if(window.UrlFind && typeof window.UrlFind.unmount === 'function'){
-      window.UrlFind.unmount(urlfindBody);
-    }
-  }catch(e){}
+  try{ window.UrlFind?.unmount?.(urlfindBody); }catch{}
+  urlfindModal.classList.add('hidden');
+  urlfindModal.style.display='none';
 }
-btnUrlFind?.addEventListener('click', ()=>{ openUrlFindModal(); closeDropdown(); });
-urlfindClose?.addEventListener('click', closeUrlFindModal);
-urlfindModal?.addEventListener('pointerdown', (e)=>{ if(e.target === urlfindModal) closeUrlFindModal(); }, true);
+btnUrlFind  ?.addEventListener('click', ()=>{ openUrlFind(); closeDropdown(); });
+urlfindClose?.addEventListener('click', closeUrlFind);
+urlfindModal?.addEventListener('pointerdown', (e)=>{ if(e.target===urlfindModal) closeUrlFind(); }, true);
 
-/* ---------------- DOM ---------------- */
-const $urls         = $('#urls');
-const $btnPaste     = $('#btnPaste');
-const $btnSubmitTop = $('#btnSubmitTop');
-const $btnSubmit    = $('#btnSubmit');
-const $msg          = $('#msg');
-const $catHost      = $('#catHost');
+/* ---------- DOM ---------- */
+const urls         = $('#urls');
+const msgTop       = $('#msgTop');
+const msgBottom    = $('#msg');
+const btnPaste     = $('#btnPaste');
+const btnSubmitTop = $('#btnSubmitTop');
+const btnSubmitBot = $('#btnSubmitBottom');
+const catHost      = $('#catHost');
 
-const setStatus = (html)=>{ if($msg) $msg.innerHTML = html || ''; };
-const esc = (s='')=> String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
+function setMsg(t){
+  const s = t || '';
+  msgTop && (msgTop.textContent = s);
+  msgBottom && (msgBottom.textContent = s);
+}
 
-/* ---------------- 카테고리 렌더 & 선택 로직 ---------------- */
-const personalVals = ['personal1','personal2','personal3','personal4'];
+/* ---------- URL textarea 자동 높이 ---------- */
+function autoGrowTextarea(el){
+  if(!el) return;
+  el.style.height = 'auto';
+  const max = Math.min(window.innerHeight*0.6, 800);
+  el.style.height = Math.min(el.scrollHeight, max) + 'px';
+}
+urls?.addEventListener('input', ()=> autoGrowTextarea(urls));
+window.addEventListener('resize', ()=> autoGrowTextarea(urls));
+urls && autoGrowTextarea(urls);
 
+/* ---------- 카테고리 모델 인덱스(CATIDX) ---------- */
 function buildCategoryIndex(){
-  const idx = {
-    groups: [],
-    labelOf: (v)=>v,
-    isSeriesVal: (v)=>false,
-    isPersonalVal: (v)=> false
-  };
   const groups = CATEGORY_MODEL?.groups || CATEGORY_GROUPS || [];
-  const labelMap = {};
+  const labelOf = {};
   const seriesSet = new Set();
   const personalSet = new Set();
+  const out = [];
 
   groups.forEach(g=>{
-    const isSeries = (g?.isSeries===true) || String(g?.key||'').startsWith('series_');
+    const isSeries   = !!g?.isSeries || String(g?.key||'').startsWith('series_');
     const isPersonal = !!g?.personal || String(g?.key||'')==='personal';
-    const children = (g?.children||[]).map(c=>({ value:c.value, label:c.label }));
+    const children   = (g?.children||[]).map(c=>({ value:c.value, label:c.label }));
     children.forEach(c=>{
-      labelMap[c.value] = c.label || c.value;
-      if(isSeries)   seriesSet.add(c.value);
+      labelOf[c.value] = c.label || c.value;
+      if(isSeries) seriesSet.add(c.value);
       if(isPersonal) personalSet.add(c.value);
     });
-    idx.groups.push({ key:g.key, label:g.label, isSeries, isPersonal, children });
+    out.push({ key:g.key, label:g.label, isSeries, isPersonal, children });
   });
 
-  idx.labelOf = (v)=> labelMap[v] || v;
-  idx.isSeriesVal   = (v)=> seriesSet.has(v);
-  idx.isPersonalVal = (v)=> personalSet.has(v);
-  return idx;
+  return {
+    groups: out,
+    labelOf: (v)=> labelOf[v] || v,
+    isSeriesVal: (v)=> seriesSet.has(v),
+    isPersonalVal: (v)=> personalSet.has(v)
+  };
 }
 const CATIDX = buildCategoryIndex();
 
+/* ---------- 개인자료 라벨 저장(최대 12자) ---------- */
+function getPersonalLabels(){ try{ return JSON.parse(localStorage.getItem('personalLabels')||'{}'); }catch{ return {}; } }
+function setPersonalLabel(slot, label){
+  let s = String(label||'').trim().slice(0,12).replace(/[<>"]/g,'').replace(/[\u0000-\u001F]/g,'');
+  const map = getPersonalLabels(); map[slot]=s;
+  localStorage.setItem('personalLabels', JSON.stringify(map));
+}
 function readPersonalLabel(slot){
-  try{
-    const labels = JSON.parse(localStorage.getItem('personalLabels') || '{}');
-    if(labels && labels[slot]) return labels[slot];
-  }catch{}
-  const m = String(slot||'').match(/^personal(\d)$/);
-  return m ? `자료${m[1]}` : (slot || '개인자료');
-}
-function writePersonalLabel(slot, label){
-  try{
-    const labels = JSON.parse(localStorage.getItem('personalLabels') || '{}');
-    labels[slot] = String(label||'').slice(0,30).replace(/[<>"]/g,'');
-    localStorage.setItem('personalLabels', JSON.stringify(labels));
-  }catch{}
+  const m = getPersonalLabels(); if(m[slot]) return m[slot];
+  const m2 = String(slot||'').match(/^personal(\d)$/); return m2 ? `자료${m2[1]}` : (slot||'개인자료');
 }
 
-function renderCategories(){
-  if(!$catHost) return;
-  $catHost.innerHTML = ''; // 초기화
-  CATIDX.groups.forEach(g=>{
-    const field = document.createElement('fieldset');
-    field.className='group';
+/* ---------- 카테고리 렌더링 (innerHTML 없이 생성) ---------- */
+function renderCats(){
+  if(!catHost) return;
+  catHost.replaceChildren();
 
-    const legend = document.createElement('legend');
-    legend.textContent = g.label || g.key || '';
-    field.appendChild(legend);
+  for(const g of CATIDX.groups){
+    const fs = document.createElement('fieldset'); fs.className='group'; fs.dataset.key=g.key;
+    const lg = document.createElement('legend'); lg.textContent = g.label; fs.appendChild(lg);
+    const sub = document.createElement('div'); sub.className='subnote';
+    sub.textContent = g.isPersonal? '개인자료 (로컬저장소)' : (g.isSeries? '시리즈' : '일반');
+    fs.appendChild(sub);
 
-    const note = document.createElement('div');
-    note.className='subnote';
-    note.textContent = g.isPersonal ? '개인자료 (로컬 저장)' : (g.isSeries ? '시리즈' : '일반');
-    field.appendChild(note);
+    const grid = document.createElement('div'); grid.className='child-grid';
 
-    const grid = document.createElement('div');
-    grid.className='child-grid';
-
-    g.children.forEach((c)=>{
-      const id = `cat_${g.key}_${c.value}`;
-      const wrap = document.createElement('label');
-      wrap.setAttribute('for', id);
-
-      const input = document.createElement('input');
-      input.type = 'checkbox';
-      input.id = id;
-      input.value = c.value;
-
-      const span = document.createElement('span');
-      span.className = 'txt';
-      span.textContent = g.isPersonal ? readPersonalLabel(c.value) : (c.label || c.value);
-
-      wrap.appendChild(input);
-      wrap.appendChild(span);
+    for(const c of g.children){
+      const lab = document.createElement('label');
+      const chk = document.createElement('input'); chk.type='checkbox'; chk.className='cat'; chk.value = c.value;
+      const span= document.createElement('span'); span.textContent = g.isPersonal ? readPersonalLabel(c.value) : (c.label || c.value);
+      lab.appendChild(chk); lab.appendChild(document.createTextNode(' ')); lab.appendChild(span);
 
       if(g.isPersonal){
-        const rename = document.createElement('button');
-        rename.type='button';
-        rename.className='rename-inline';
-        rename.textContent='이름변경';
-        rename.addEventListener('click', ()=>{
-          const now = readPersonalLabel(c.value);
-          const nv = prompt('개인자료 이름', now);
-          if(nv && nv.trim()){
-            writePersonalLabel(c.value, nv.trim());
-            span.textContent = nv.trim();
-          }
+        const btn = document.createElement('button'); btn.type='button'; btn.className='rename-inline'; btn.textContent='이름변경';
+        btn.addEventListener('click', ()=>{
+          const cur = readPersonalLabel(c.value);
+          const nv = prompt('개인자료 이름(최대 12자):', cur);
+          if(nv && nv.trim()){ setPersonalLabel(c.value, nv.trim()); span.textContent = readPersonalLabel(c.value); }
         });
-        wrap.appendChild(rename);
+        lab.appendChild(btn);
       }
+      grid.appendChild(lab);
+    }
+    fs.appendChild(grid);
+    catHost.appendChild(fs);
+  }
 
-      grid.appendChild(wrap);
-    });
+  // 단일 change 이벤트: 3개 초과/혼합 금지 처리 (마지막 체크 해제)
+  catHost.addEventListener('change', ()=>{
+    const checked = [...catHost.querySelectorAll('input.cat:checked')];
+    const chosen = checked.map(x=> x.value);
 
-    field.appendChild(grid);
-    $catHost.appendChild(field);
-  });
-
-  // 제한: 최대 3개, 개인자료 혼합 금지
-  $catHost.addEventListener('change', ()=>{
-    const chosen = getChosenCats();
-    if(chosen.length > 3){
-      // 마지막 체크를 되돌림
-      const last = $catHost.querySelector('input[type="checkbox"]:checked:last-of-type');
+    if(chosen.length>3){
+      const last = catHost.querySelector('input.cat:checked:last-of-type');
       last && (last.checked=false);
-      alert('카테고리는 최대 3개까지 선택할 수 있습니다.');
+      setMsg('카테고리는 최대 3개까지 선택 가능합니다.');
       return;
     }
     const hasPersonal = chosen.some(v=> CATIDX.isPersonalVal(v));
     const hasServer   = chosen.some(v=> !CATIDX.isPersonalVal(v));
     if(hasPersonal && hasServer){
-      alert('개인자료와 일반/시리즈 카테고리를 함께 선택할 수 없습니다.');
-      const last = $catHost.querySelector('input[type="checkbox"]:checked:last-of-type');
+      const last = catHost.querySelector('input.cat:checked:last-of-type');
       last && (last.checked=false);
+      setMsg('개인자료와 일반/시리즈는 함께 선택할 수 없습니다.');
+      return;
     }
+    setMsg('');
   }, { passive:true });
 }
-function getChosenCats(){
-  const boxes = $catHost?.querySelectorAll('input[type="checkbox"]:checked');
-  return boxes ? [...boxes].map(b=> b.value) : [];
-}
+renderCats();
 
-/* ---------------- 유틸 ---------------- */
-function getOrder(){
-  const el = document.querySelector('input[name="order"]:checked');
-  return el ? el.value : 'top';
-}
+/* ---------- URL/순서/파서 ---------- */
+const API_KEY = (window.YT_DATA_API_KEY || window.YT_API_KEY || null);
+function getOrder(){ return document.querySelector('input[name="order"]:checked')?.value || 'bottom'; }
 
-/* ---------------- YouTube PublishedAt (옵션) ---------------- */
 async function fetchPublishedAt(videoId){
-  const API_KEY = (typeof window !== 'undefined' ? window.YT_DATA_API_KEY : null);
   if(!API_KEY) return null;
-
   try{
-    const url =
-      `https://www.googleapis.com/youtube/v3/videos` +
-      `?part=snippet&id=${encodeURIComponent(videoId)}` +
-      `&key=${encodeURIComponent(API_KEY)}`;
-    const res = await fetch(url);
-    if(!res.ok) return null;
-    const data = await res.json();
-    const item = data?.items?.[0];
-    const pub  = item?.snippet?.publishedAt || null;
-    return pub || null;
+    const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${encodeURIComponent(videoId)}&key=${encodeURIComponent(API_KEY)}`;
+    const res = await fetch(url); if(!res.ok) return null;
+    const data = await res.json(); return data?.items?.[0]?.snippet?.publishedAt || null;
   }catch{ return null; }
 }
 
-/* ---------------- 붙여넣기 ---------------- */
-$('#btnPaste')?.addEventListener('click', async ()=>{
+/* ---------- 붙여넣기 ---------- */
+btnPaste?.addEventListener('click', async ()=>{
   try{
-    const t = await navigator.clipboard.readText();
-    if(!$urls) return;
-    if(!t){ setStatus('클립보드가 비어있습니다.'); return; }
-    $urls.value = ($urls.value.trim()? ($urls.value.replace(/\s*$/,'')+'\n') : '') + t.trim();
-    setStatus('붙여넣기 완료.');
+    const txt = await navigator.clipboard.readText();
+    if(!txt){ setMsg('클립보드가 비어있습니다.'); return; }
+    const cur = (urls.value||'').replace(/\s*$/,'');
+    urls.value = (cur ? (cur+'\n') : '') + txt.trim();
+    autoGrowTextarea(urls);
+    setMsg('붙여넣기 완료.');
   }catch{
-    alert('클립보드에서 읽어오지 못했습니다. 브라우저 권한을 확인해주세요.');
+    setMsg('클립보드 접근이 차단되었습니다. 브라우저 설정에서 허용해 주세요.');
   }
 });
 
-/* ---------------- 업로드 실행 ---------------- */
-async function handleSubmit(){
-  const raw = ($urls?.value || '').trim();
-  if(!raw){ setStatus('<span class="danger">URL을 입력해주세요.</span>'); return; }
+/* ---------- 등록 공통 로직 ---------- */
+function chosenCats(){
+  return [...catHost.querySelectorAll('input.cat:checked')].map(x=>x.value);
+}
+function lockButtons(v){
+  btnSubmitTop && (btnSubmitTop.disabled=v);
+  btnSubmitBot && (btnSubmitBot.disabled=v);
+}
+async function doSubmit(){
+  const raw = (urls.value||'').trim();
+  if(!raw){ setMsg('URL을 한 줄에 하나씩 입력해 주세요.'); return; }
 
-  const cats = getChosenCats();
-  if(!cats.length){ setStatus('<span class="danger">카테고리를 선택해주세요.</span>'); return; }
-  if(cats.length > 3){ setStatus('<span class="danger">카테고리는 최대 3개까지 선택할 수 있습니다.</span>'); return; }
+  const cats = chosenCats();
+  if(!cats.length){ setMsg('카테고리를 최소 1개 선택해 주세요.'); return; }
+  if(cats.length>3){ setMsg('카테고리는 최대 3개까지 선택 가능합니다.'); return; }
 
   const hasPersonal = cats.some(v=> CATIDX.isPersonalVal(v));
   const hasServer   = cats.some(v=> !CATIDX.isPersonalVal(v));
-  if(hasPersonal && hasServer){
-    setStatus('<span class="danger">개인자료와 일반/시리즈를 함께 선택할 수 없습니다.</span>'); return;
-  }
-  if(hasPersonal && cats.length !== 1){
-    setStatus('<span class="danger">개인자료 저장은 하나의 슬롯만 선택할 수 있습니다.</span>'); return;
-  }
+  if(hasPersonal && hasServer){ setMsg('개인자료는 다른 카테고리와 함께 선택할 수 없습니다.'); return; }
+  if(hasPersonal && cats.length!==1){ setMsg('개인자료 저장은 하나의 슬롯만 선택할 수 있습니다.'); return; }
 
-  // URL 분해 + 정렬
   let lines = raw.split(/\r?\n/).map(s=> s.trim()).filter(Boolean);
-  if(!lines.length){ setStatus('<span class="danger">유효한 URL이 없습니다.</span>'); return; }
+  if(!lines.length){ setMsg('유효한 URL이 없습니다.'); return; }
   const order = getOrder();
-  if(order === 'bottom') lines = lines.reverse();
+  if(order==='bottom') lines = lines.slice().reverse();
 
-  const entries = [];
-  for(const line of lines){
-    if(!isAllowedYouTube(line)){
-      entries.push({ url: line, ok:false, reason:'유튜브 URL 아님' });
-      continue;
-    }
+  // 파싱
+  const entries = lines.map(line=>{
+    if(!isAllowedYouTube(line)) return { ok:false, url:line, reason:'YouTube URL 아님' };
     const info = parseYouTube(line); // { id, url, type }
-    if(!info?.id){
-      entries.push({ url: line, ok:false, reason:'ID 파싱 실패' });
-      continue;
-    }
-    entries.push({
-      url: info.url || line,
-      id: info.id,
-      type: info.type === 'shorts' ? 'shorts' : 'video',
-      ok: true
-    });
+    if(!info?.id) return { ok:false, url:line, reason:'ID 파싱 실패' };
+    return { ok:true, id:info.id, url:info.url||line, type: (info.type==='shorts'?'shorts':'video') };
+  });
+
+  // 개인자료 → 로컬 저장
+  if(hasPersonal){
+    const slot = cats[0];
+    const good = entries.filter(e=>e.ok);
+    if(!good.length){ setMsg('저장할 유효한 URL이 없습니다.'); return; }
+    const key = `personal_${slot}`;
+    let arr=[]; try{ arr=JSON.parse(localStorage.getItem(key)||'[]'); }catch{ arr=[]; }
+    const now = Date.now();
+    good.forEach(e=> arr.push({ url:e.url, title:'', savedAt:now }));
+    try{ localStorage.setItem(key, JSON.stringify(arr)); }catch{}
+    setMsg(`로컬 저장 완료: ${good.length}건 (${readPersonalLabel(slot)})`);
+    urls.value=''; autoGrowTextarea(urls);
+    catHost.querySelectorAll('input.cat:checked').forEach(x=> x.checked=false);
+    return;
   }
 
-  // 버튼 lock
-  const lock = (v)=>{ $btnSubmitTop&&( $btnSubmitTop.disabled=v ); $btnSubmit&&( $btnSubmit.disabled=v ); };
-  lock(true);
+  // 서버 모드 → Firestore
+  const user = auth.currentUser;
+  if(!user){ setMsg('로그인 후 이용하세요.'); return; }
 
-  try{
-    // 개인자료 모드 (로컬)
-    if(hasPersonal){
-      const slot = cats[0]; // 한 슬롯만 허용
-      const good = entries.filter(e=> e.ok).map(e=> ({
+  lockButtons(true);
+  let ok=0, dup=0, bad=0, fail=0;
+
+  for(const e of entries){
+    if(!e.ok){ bad++; continue; }
+
+    const ref = doc(db,'videos', e.id);
+    try{
+      const snap = await getDoc(ref);
+      if(snap.exists()){
+        dup++;
+        const existedCats = Array.isArray(snap.data()?.cats) ? snap.data().cats : [];
+        const labels = existedCats.map(v=> CATIDX.labelOf(v)).join(', ');
+        setMsg(`중복(${dup}) · 이미 등록됨: ${e.id}${labels?` [${labels}]`:''} · 진행: 성공 ${ok}, 실패 ${fail}, 무시 ${bad}`);
+        continue;
+      }
+
+      const publishedAt = await fetchPublishedAt(e.id);
+
+      const payload = {
+        uid: user.uid,
         url: e.url,
-        title: '' // ArkTube 규칙: 제목 필드 사용 안 함
-      }));
-      if(!good.length){
-        setStatus('<span class="danger">저장할 유효한 URL이 없습니다.</span>');
-        return;
-      }
-      const key = `personal_${slot}`;
-      let arr = [];
-      try{ arr = JSON.parse(localStorage.getItem(key) || '[]'); }catch{ arr=[]; }
-      const now = Date.now();
-      good.forEach(en=> arr.push({ url: en.url, title: '', savedAt: now }));
-      try{ localStorage.setItem(key, JSON.stringify(arr)); }catch{}
-      setStatus(`<span class="ok">개인자료(${esc(readPersonalLabel(slot))})에 ${good.length}건 저장 완료</span>`);
-      $urls.value = '';
-      $catHost.querySelectorAll('input[type="checkbox"]:checked')?.forEach(c=> c.checked=false);
-      return;
+        cats: cats.slice(),
+        ytid: e.id,
+        type: e.type,
+        ownerName: user.displayName || '',
+        createdAt: serverTimestamp(),
+        ...(publishedAt? { youtubePublishedAt: publishedAt } : {})
+      };
+
+      await setDoc(ref, payload, { merge:false });
+      ok++;
+      setMsg(`등록 중... 성공 ${ok} · 중복 ${dup} · 실패 ${fail} · 무시 ${bad}`);
+    }catch(err){
+      console.error('[upload] setDoc fail:', err);
+      fail++;
+      setMsg(`오류 발생: 성공 ${ok} · 중복 ${dup} · 실패 ${fail} · 무시 ${bad}`);
     }
-
-    // 서버 모드 (일반/시리즈) — 로그인 필요
-    const user = auth.currentUser;
-    if(!user){ setStatus('<span class="danger">로그인이 필요합니다.</span>'); return; }
-
-    // 진행
-    let okCount=0, dupCount=0, badCount=0, failCount=0;
-    for(const e of entries){
-      if(!e.ok){ badCount++; continue; }
-
-      const ref = doc(db, 'videos', e.id);
-      try{
-        const exists = await getDoc(ref);
-        if(exists.exists()){
-          const data = exists.data() || {};
-          const existedCats = Array.isArray(data.cats) ? data.cats : [];
-          const labels = existedCats.map(v=> esc(CATIDX.labelOf(v))).join(', ');
-          dupCount++;
-          setStatus(`이미 등록됨: <b>${esc(e.id)}</b> (카테고리: ${labels || '없음'})`);
-          continue;
-        }
-
-        // optional publishedAt (키 있으면 조회)
-        const publishedAt = await fetchPublishedAt(e.id);
-
-        // 규칙 필수 필드 + 확장
-        const payload = {
-          uid: user.uid,                // 규칙: isSelf(data.uid)
-          url: e.url,                   // 규칙: validUrl
-          cats: cats.slice(),           // 규칙: validCats (최대 3)
-          ytid: e.id,                   // 규칙: ytid == doc id
-          type: e.type,                 // 'shorts'|'video'
-          ownerName: user.displayName || '',
-          createdAt: serverTimestamp(),
-          ...(publishedAt ? { youtubePublishedAt: publishedAt } : {})
-        };
-
-        await setDoc(ref, payload, { merge:false });
-        okCount++;
-        setStatus(`<span class="ok">${okCount}건 등록 성공</span> · 중복 ${dupCount} · 오류 ${badCount+failCount}`);
-      }catch(err){
-        console.error('[upload] save fail:', err);
-        failCount++;
-        setStatus(`<span class="danger">일부 실패: 성공 ${okCount}, 중복 ${dupCount}, 실패 ${failCount}, 무시 ${badCount}</span>`);
-      }
-    }
-
-    setStatus(`<span class="ok">완료</span> · 성공 ${okCount} · 중복 ${dupCount} · 실패 ${failCount} · 무시(비유튜브/파싱실패) ${badCount}`);
-    if(okCount){ $urls.value=''; $catHost.querySelectorAll('input[type="checkbox"]:checked')?.forEach(c=> c.checked=false); }
-  }finally{
-    lock(false);
   }
+
+  setMsg(`완료: 성공 ${ok} · 중복 ${dup} · 실패 ${fail} · 무시(비유튜브/파싱실패) ${bad}`);
+  lockButtons(false);
+  if(ok){ urls.value=''; autoGrowTextarea(urls); catHost.querySelectorAll('input.cat:checked').forEach(x=> x.checked=false); }
 }
 
-// 버튼 이벤트 (상/하 동일 로직 공유)
-$btnSubmitTop?.addEventListener('click', handleSubmit);
-$btnSubmit    ?.addEventListener('click', handleSubmit);
+/* 상/하단 버튼 동기화 */
+btnSubmitTop?.addEventListener('click', doSubmit);
+btnSubmitBot?.addEventListener('click', doSubmit);
 
-/* ---------------- 스와이프 네비 (데드존 18%) ---------------- */
-(function initSwipe(){
-  function initSimple({ goLeftHref='/index.html', deadZoneCenterRatio=0.18 }={}){
+/* ---------- 스와이프 (단순 + 고급, 데드존 18%) ---------- */
+(function(){
+  // 단순: 왼쪽 스와이프 → index.html
+  function simpleSwipe({ goLeftHref='/index.html', deadZoneCenterRatio=0.18 }={}){
     let sx=0, sy=0, t0=0, tracking=false;
-    const THRESH_X=70, MAX_OFF_Y=80, MAX_TIME=600;
-    const getPoint = (e)=> e.touches?.[0] || e.changedTouches?.[0] || e;
-    function onStart(e){
-      const p=getPoint(e); if(!p) return;
+    const TH=70, MAXY=80, TMAX=600;
+    const getP=(e)=> e.touches?.[0] || e.changedTouches?.[0] || e;
+    function start(e){
+      const p=getP(e); if(!p) return;
       const vw=Math.max(document.documentElement.clientWidth, window.innerWidth||0);
       const L=vw*(0.5-deadZoneCenterRatio/2), R=vw*(0.5+deadZoneCenterRatio/2);
       if(p.clientX>=L && p.clientX<=R) return;
       sx=p.clientX; sy=p.clientY; t0=Date.now(); tracking=true;
     }
-    function onEnd(e){
+    function end(e){
       if(!tracking) return; tracking=false;
-      const p=getPoint(e); const dx=p.clientX-sx, dy=p.clientY-sy, dt=Date.now()-t0;
-      if(Math.abs(dy)>MAX_OFF_Y || dt>MAX_TIME) return;
-      if(dx<=-THRESH_X && goLeftHref){ document.documentElement.classList.add('slide-out-left'); setTimeout(()=> location.href=goLeftHref, 260); }
+      const p=getP(e); const dx=p.clientX-sx, dy=p.clientY-sy, dt=Date.now()-t0;
+      if(Math.abs(dy)>MAXY || dt>TMAX) return;
+      if(dx<=-TH && goLeftHref){ document.documentElement.classList.add('slide-out-left'); setTimeout(()=> location.href=goLeftHref, 260); }
     }
-    document.addEventListener('touchstart', onStart, {passive:true});
-    document.addEventListener('touchend',   onEnd,   {passive:true});
-    document.addEventListener('pointerdown',onStart, {passive:true});
-    document.addEventListener('pointerup',  onEnd,   {passive:true});
+    document.addEventListener('touchstart', start, {passive:true});
+    document.addEventListener('touchend',   end,   {passive:true});
+    document.addEventListener('pointerdown',start, {passive:true});
+    document.addEventListener('pointerup',  end,   {passive:true});
   }
-  function initDrag({ goLeftHref='/index.html', deadZoneCenterRatio=0.18 }={}){
+
+  // 고급: 끌려가는 모션, 오른쪽 스와이프 → index.html
+  function dragSwipe({ goRightHref='/index.html', threshold=60, slop=45, timeMax=700, deadZoneCenterRatio=0.18 }={}){
     const page=document.querySelector('main')||document.body; if(!page) return;
     let x0=0,y0=0,t0=0,active=false,canceled=false;
-    const TH=60, SLOP=45, TMAX=700;
+    const isInteractive=(el)=> !!(el && el.closest('input,textarea,select,button,a,[role="button"],[contenteditable="true"]'));
     function reset(){ page.style.transition='transform 180ms ease'; requestAnimationFrame(()=>{ page.style.transform='translateX(0px)'; }); setTimeout(()=>{ page.style.transition=''; },200); }
-    function isInteractive(el){ return !!(el && el.closest('input,textarea,select,button,a,[role="button"],[contenteditable="true"]')); }
     function start(e){
       const t=(e.touches&&e.touches[0])||(e.pointerType?e:null); if(!t) return;
       if(isInteractive(e.target)) return;
@@ -434,17 +372,16 @@ $btnSubmit    ?.addEventListener('click', handleSubmit);
       if(!active) return;
       const t=(e.touches&&e.touches[0])||(e.pointerType?e:null); if(!t) return;
       const dx=t.clientX-x0, dy=t.clientY-y0;
-      if(Math.abs(dy)>SLOP){ canceled=true; active=false; reset(); return; }
-      const dxAdj = (dx<0)?dx:0;
-      if(dxAdj===0){ page.style.transform='translateX(0px)'; return; }
-      e.preventDefault(); page.style.transform='translateX('+dxAdj+'px)';
+      if(Math.abs(dy)>slop){ canceled=true; active=false; reset(); return; }
+      if(dx<=0){ page.style.transform='translateX(0px)'; return; }
+      e.preventDefault(); page.style.transform='translateX('+dx+'px)';
     }
     function end(e){
       if(!active) return; active=false;
       const t=(e.changedTouches&&e.changedTouches[0])||(e.pointerType?e:null); if(!t) return;
       const dx=t.clientX-x0, dy=t.clientY-y0, dt=Date.now()-t0;
-      if(canceled || Math.abs(dy)>SLOP || dt>TMAX){ reset(); return; }
-      if(dx<=-TH){ page.style.transition='transform 160ms ease'; page.style.transform='translateX(-100vw)'; setTimeout(()=>{ location.href=goLeftHref; },150); }
+      if(canceled || Math.abs(dy)>slop || dt>timeMax){ reset(); return; }
+      if(dx>=threshold && goRightHref){ page.style.transition='transform 160ms ease'; page.style.transform='translateX(100vw)'; setTimeout(()=>{ location.href=goRightHref; },150); }
       else reset();
     }
     document.addEventListener('touchstart',start,{passive:true});
@@ -454,11 +391,7 @@ $btnSubmit    ?.addEventListener('click', handleSubmit);
     document.addEventListener('pointermove', move ,{passive:false});
     document.addEventListener('pointerup',  end  ,{passive:true,capture:true});
   }
-  initSimple({ goLeftHref:'/index.html', deadZoneCenterRatio:0.18 });
-  initDrag  ({ goLeftHref:'/index.html', deadZoneCenterRatio:0.18 });
-})();
 
-/* ---------------- 초기화 ---------------- */
-(function init(){
-  renderCategories();
+  simpleSwipe({ goLeftHref:'/index.html', deadZoneCenterRatio:0.18 });
+  dragSwipe  ({ goRightHref:'/index.html', deadZoneCenterRatio:0.18 });
 })();
