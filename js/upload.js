@@ -208,6 +208,13 @@ function renderCategories(){
 
       grid.appendChild(lab);
     });
+        // ✅ 개인자료 그룹일 경우 안내문 추가
+    if (g.isPersonal) {
+      const note = document.createElement('div');
+      note.className = 'muted';   // 이미 정의된 회색 작은 글씨 스타일
+      note.textContent = '개인자료는 단독 등록/재생만 가능합니다.';
+      fs.appendChild(note);
+    }
 
     frag.appendChild(fs);
   });
