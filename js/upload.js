@@ -51,7 +51,14 @@ onAuthStateChanged(auth, (user)=>{
   const loggedIn = !!user;
   signupLink?.classList.toggle('hidden', loggedIn);
   signinLink?.classList.toggle('hidden', loggedIn);
-  if(welcome) welcome.textContent = loggedIn ? `Welcome! ${user?.displayName || '회원'}` : '';
+  if (welcome) {
+    if (loggedIn) {
+      const name = user?.displayName || '회원';
+      welcome.textContent = `ThankU! ${name}님`;
+    } else {
+      welcome.textContent = '';
+    }
+  }
   closeDropdown();
 });
 
