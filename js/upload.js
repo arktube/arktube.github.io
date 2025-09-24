@@ -392,10 +392,10 @@ async function submitAll(){
       url: e.url,
       cats: cats.slice(),
       ytid: e.id,
-      type: e.type,
+/*      type: e.type,
       ownerName: user.displayName || '',
       createdAt: serverTimestamp(),
-      ...(publishedAt ? { youtubePublishedAt: publishedAt } : {})
+      ...(publishedAt ? { youtubePublishedAt: publishedAt } : {}) */
     };
 
         // === 여기 "payload 직후" 한 줄(여러 줄) 추가 ===
