@@ -196,11 +196,23 @@ https://www.youtube.com/watch?v=bbb...
     <p class="muted">카테고리는 <b>최대 3개</b>까지 선택 가능합니다.</p>
     <div id="cats"></div>
 
-    <!-- 하단 버튼/메시지 (상단과 동기화) -->
-    <div class="bottom-actions">
-      <button id="btnPasteBottom" class="btn btn-clip2" type="button">클립보드 붙여넣기</button>
-      <button id="btnSubmitBottom" class="btn btn-submit2" type="button">등록</button>
-    </div>
+<!-- 하단 3열 컨트롤: 왼쪽 안내, 가운데 붙여넣기, 오른쪽 등록 -->
+<div class="controls-grid" id="controlsGridBottom" style="margin-top:10px;">
+  <!-- 왼쪽: 안내문구(개인자료 혼합 불가) -->
+  <div class="left-note" id="bottomLeftNote" aria-live="polite">
+    개인자료는 일반/시리즈 카테고리와 동시에 저장할 수 없습니다.
+  </div>
+
+  <!-- 가운데: 상단과 동일 스타일/크기 -->
+  <button id="btnPasteBottom" class="btn-clip" type="button" title="클립보드에서 붙여넣기">
+    클립보드<br/>붙여넣기
+  </button>
+
+  <!-- 오른쪽: 상단과 동일 스타일/크기 -->
+  <button id="btnSubmitBottom" class="btn-submit" type="button">
+    등록
+  </button>
+</div>
     <div id="msg" class="msg"></div>
   </main>
 
