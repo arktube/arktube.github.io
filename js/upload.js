@@ -1,36 +1,47 @@
-// /js/upload.js — CopyTube v1.5 UI + ArkTube 기능
-// - setDoc(docId=videoId), cats/type/ytid, ownerName/createdAt/(youtubePublishedAt)
-// - 개인자료 personal1..personal4 (로컬), 라벨 rename(최대 12자)
-// - UrlFind 모달 mount/unmount 지원
-// - 상/하 등록 버튼 & 붙여넣기 버튼 동기화, 메시지 동기화
-// - 시리즈/개인자료 판정: series_ prefix or g.isSeries===true/g.personal===true → CATIDX로 값단위 판정
-// - 단일 change 이벤트로 3개 초과/혼합 제약(마지막 클릭 항목 해제)
-// - API 키: window.YT_DATA_API_KEY || window.YT_API_KEY
-// - 스와이프: 단순/고급 모두, 데드존 18%
+// upload.v15.arktube.js — CopyTube v1.5 UI + ArkTube 기능 스펙
+// - setDoc(docId=videoId) / 필수필드 uid,url,cats,ytid + 추가 type,ownerName,createdAt,(youtubePublishedAt)
+// - series/personal 판별: series_ prefix || g.isSeries===true / g.personal===true
+// - 개인자료 personal1~4 로컬 저장, 라벨 12자 제한
+// - 상/하단 버튼/메시지/클립보드 동기화
+// - UrlFind 내장 모달 mount/unmount
+// - 스와이프: 단순/고급(데드존 18%), 좌로 스와이프 → index
 
 import { auth, db } from './firebase-init.js';
 import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
 import { CATEGORY_MODEL, CATEGORY_GROUPS } from './categories.js';
 import { isAllowedYouTube, parseYouTube } from './youtube-utils.js';
-import { doc, getDoc, setDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
+import {
+  doc, getDoc, setDoc, serverTimestamp
+} from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
 
-/* ---------- Helpers ---------- */
+/* ---------- 유틸 ---------- */
 const $ = (s)=>document.querySelector(s);
-const esc = (s='')=> String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+const esc = (s='')=> String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+function setStatusHTML(html){
+  const top = $('#msgTop'), bottom = $('#msg');
+  if(top) top.innerHTML = html || '';
+  if(bottom) bottom.innerHTML = html || '';
+}
+function getOrder(){ return document.querySelector('input[name="order"]:checked')?.value || 'bottom'; }
+function enableButtons(on=true){
+  $('#btnSubmitTop')   && ($('#btnSubmitTop').disabled   = !on);
+  $('#btnSubmitBottom')&& ($('#btnSubmitBottom').disabled= !on);
+  $('#btnPasteTop')    && ($('#btnPasteTop').disabled    = !on);
+  $('#btnPasteBottom') && ($('#btnPasteBottom').disabled = !on);
+}
 
-/* ---------- Topbar / Dropdown ---------- */
-const signupLink = $('#signupLink');
-const signinLink = $('#signinLink');
-const welcome    = $('#welcome');
-const menuBtn    = $('#menuBtn');
-const dropdown   = $('#dropdownMenu');
+/* ---------- 상단바/드롭다운 ---------- */
+const signupLink  = $('#signupLink');
+const signinLink  = $('#signinLink');
+const welcome     = $('#welcome');
+const menuBtn     = $('#menuBtn');
+const dropdown    = $('#dropdownMenu');
 
 const btnAbout     = $('#btnAbout');
+const btnCatOrder  = $('#btnCatOrder');
 const btnMyUploads = $('#btnMyUploads');
-const btnGoUpload  = $('#btnGoUpload');
 const btnSignOut   = $('#btnSignOut');
 const btnList      = $('#btnList');
-const btnCatOrder  = $('#btnCatOrder');
 const btnUrlFind   = $('#btnUrlFind');
 
 function openDropdown(){ dropdown?.classList.remove('hidden'); requestAnimationFrame(()=> dropdown?.classList.add('show')); }
@@ -40,7 +51,7 @@ onAuthStateChanged(auth, (user)=>{
   const loggedIn = !!user;
   signupLink?.classList.toggle('hidden', loggedIn);
   signinLink?.classList.toggle('hidden', loggedIn);
-  if (welcome) welcome.textContent = loggedIn ? `Welcome! ${user.displayName || '회원'}` : '';
+  if(welcome) welcome.textContent = loggedIn ? `Welcome! ${user?.displayName || '회원'}` : '';
   closeDropdown();
 });
 
@@ -49,199 +60,184 @@ document.addEventListener('pointerdown', (e)=>{ if(dropdown?.classList.contains(
 document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closeDropdown(); });
 dropdown?.addEventListener('click', (e)=> e.stopPropagation());
 
-btnAbout   ?.addEventListener('click', ()=>{ location.href='/about.html'; closeDropdown(); });
-btnList    ?.addEventListener('click', ()=>{ location.href='/list.html'; closeDropdown(); });
-btnGoUpload?.addEventListener('click', ()=>{ location.href='/upload.html'; closeDropdown(); });
-btnCatOrder?.addEventListener('click', ()=>{ location.href='/category-order.html'; closeDropdown(); });
+btnAbout    ?.addEventListener('click', ()=>{ location.href='/about.html'; closeDropdown(); });
+btnCatOrder ?.addEventListener('click', ()=>{ location.href='/category-order.html'; closeDropdown(); });
 btnMyUploads?.addEventListener('click', ()=>{
-  if(auth.currentUser){ location.href='/manage-uploads.html'; }
-  else { location.href='/signin.html'; }
+  if(auth.currentUser) location.href='/manage-uploads.html';
+  else location.href='/signin.html';
   closeDropdown();
 });
-btnSignOut ?.addEventListener('click', async ()=>{
-  if(!auth.currentUser){ location.href='/signin.html'; return; }
-  try{ await fbSignOut(auth); } finally{ closeDropdown(); }
-});
+btnSignOut  ?.addEventListener('click', async ()=>{ if(!auth.currentUser){ location.href='/signin.html'; return; } try{ await fbSignOut(auth); } finally{ closeDropdown(); } });
+btnList     ?.addEventListener('click', ()=>{ location.href='/list.html'; closeDropdown(); });
 
-/* ---------- UrlFind Modal ---------- */
+/* ---------- UrlFind 모달 ---------- */
 const urlfindModal = $('#urlfindModal');
 const urlfindBody  = $('#urlfindBody');
 const urlfindClose = $('#urlfindClose');
+btnUrlFind?.addEventListener('click', ()=>{ openUrlFindModal(); closeDropdown(); });
+urlfindClose?.addEventListener('click', closeUrlFindModal);
+urlfindModal?.addEventListener('pointerdown', (e)=>{ if(e.target === urlfindModal) closeUrlFindModal(); }, true);
 
 function openUrlFindModal(){
   if(!urlfindModal){ location.href='/urlfind.html'; return; }
   urlfindModal.classList.add('show');
   urlfindModal.setAttribute('aria-hidden','false');
-  try{
-    if(window.UrlFind && typeof window.UrlFind.mount === 'function'){
-      window.UrlFind.mount(urlfindBody);
-    }
-  }catch{}
+  try{ if(window.UrlFind?.mount) window.UrlFind.mount(urlfindBody); }catch{}
 }
 function closeUrlFindModal(){
-  urlfindModal?.classList.remove('show');
-  urlfindModal?.setAttribute('aria-hidden','true');
-  try{
-    if(window.UrlFind && typeof window.UrlFind.unmount === 'function'){
-      window.UrlFind.unmount(urlfindBody);
-    }
-  }catch{}
-}
-btnUrlFind   ?.addEventListener('click', ()=>{ openUrlFindModal(); closeDropdown(); });
-urlfindClose ?.addEventListener('click', closeUrlFindModal);
-urlfindModal ?.addEventListener('pointerdown', (e)=>{ if(e.target === urlfindModal) closeUrlFindModal(); }, true);
-
-/* ---------- DOM ---------- */
-const urls           = $('#urls');
-const btnPasteTop    = $('#btnPasteTop');
-const btnPaste       = $('#btnPaste');
-const btnSubmitTop   = $('#btnSubmitTop');
-const btnSubmit      = $('#btnSubmit');
-const msgTop         = $('#msgTop');
-const msg            = $('#msg');
-const catHost        = $('#catHost');
-
-function setStatus(html){
-  if(msgTop) msgTop.innerHTML = html || '';
-  if(msg)    msg.innerHTML    = html || '';
-}
-function lockButtons(v){
-  [btnPasteTop, btnPaste, btnSubmitTop, btnSubmit].forEach(b=>{ if(b) b.disabled = !!v; });
+  if(!urlfindModal) return;
+  urlfindModal.classList.remove('show');
+  urlfindModal.setAttribute('aria-hidden','true');
+  try{ if(window.UrlFind?.unmount) window.UrlFind.unmount(urlfindBody); }catch{}
 }
 
-/* ---------- URL textarea autosize ---------- */
-function autosize(){ if(!urls) return; urls.style.height='auto'; urls.style.height = Math.min(urls.scrollHeight, 420)+'px'; }
-urls?.addEventListener('input', autosize);
-window.addEventListener('load', autosize);
+/* ---------- URL 텍스트박스 (3줄 기본 + 자동확장) ---------- */
+const $urls = $('#urls');
+function autoGrowTA(el){
+  el.style.height = 'auto';
+  el.style.height = Math.max(el.scrollHeight, el.clientHeight) + 'px';
+}
+$urls?.addEventListener('input', ()=> autoGrowTA($urls));
+$urls && setTimeout(()=>autoGrowTA($urls), 0);
 
-/* ---------- Category Model → Index ---------- */
+/* ---------- 카테고리 렌더/선택 제약 ---------- */
+const $cats = $('#cats');
+const PERSONAL_SLOTS = ['personal1','personal2','personal3','personal4'];
+
 function buildCategoryIndex(){
-  const groupsSrc = CATEGORY_MODEL?.groups || CATEGORY_GROUPS || [];
-  const groups = [];
-  const labelOf = {};
-  const seriesVals = new Set();
-  const personalVals = new Set();
-
-  for(const g of groupsSrc){
-    const isSeries   = (g?.isSeries===true) || String(g?.key||'').startsWith('series_');
-    const isPersonal = (g?.personal===true)  || String(g?.key||'')==='personal';
-    const children = (g?.children||[]).map(c => ({ value:c.value, label:c.label }));
-    for(const c of children){
-      labelOf[c.value] = c.label || c.value;
-      if(isSeries)   seriesVals.add(c.value);
-      if(isPersonal) personalVals.add(c.value);
-    }
-    groups.push({ key:g.key, label:g.label, isSeries, isPersonal, children });
-  }
-
-  return {
-    groups,
-    labelOf: (v)=> labelOf[v] || v,
-    isSeriesVal:   (v)=> seriesVals.has(v),
-    isPersonalVal: (v)=> personalVals.has(v),
+  const groups = CATEGORY_MODEL?.groups || CATEGORY_GROUPS || [];
+  const idx = {
+    groups: [],
+    labelOf: (v)=>v,
+    isSeriesVal: (v)=>false,
+    isPersonalVal: (v)=>false
   };
+  const label = {};
+  const series = new Set();
+  const personal = new Set();
+
+  groups.forEach(g=>{
+    const isSeries = g?.isSeries===true || String(g?.key||'').startsWith('series_');
+    const isPersonal = g?.personal===true || String(g?.key||'')==='personal';
+    const children = (g?.children||[]).map(c=>({ value:c.value, label:c.label }));
+    children.forEach(c=>{
+      label[c.value] = c.label || c.value;
+      if(isSeries) series.add(c.value);
+      if(isPersonal) personal.add(c.value);
+    });
+    idx.groups.push({ key:g.key, label:g.label, isSeries, isPersonal, children });
+  });
+
+  idx.labelOf = (v)=> label[v] || v;
+  idx.isSeriesVal   = (v)=> series.has(v);
+  idx.isPersonalVal = (v)=> personal.has(v);
+  return idx;
 }
 const CATIDX = buildCategoryIndex();
 
-/* ---------- Personal label (<=12자) ---------- */
+/* 개인자료 라벨 저장 12자 제한 */
 function getPersonalLabels(){ try{ return JSON.parse(localStorage.getItem('personalLabels')||'{}'); }catch{ return {}; } }
-function setPersonalLabel(slot, label){
-  let s = String(label||'').trim().slice(0,12).replace(/[<>"]/g,'').replace(/[\u0000-\u001F]/g,'');
-  const map = getPersonalLabels(); map[slot] = s; localStorage.setItem('personalLabels', JSON.stringify(map));
+function setPersonalLabel(key, name){
+  let s = String(name||'').trim().slice(0,12).replace(/[<>"]/g,'').replace(/[\u0000-\u001F]/g,'');
+  const map = getPersonalLabels(); map[key] = s;
+  localStorage.setItem('personalLabels', JSON.stringify(map));
 }
-function readPersonalLabel(slot){
-  const map = getPersonalLabels();
-  if(map[slot]) return map[slot];
-  const m = String(slot||'').match(/^personal(\d)$/);
-  return m ? `자료${m[1]}` : '개인자료';
+function personalLabel(key){
+  const m = getPersonalLabels();
+  if(m[key]) return m[key];
+  const num = (key.match(/^personal(\d)$/)||[])[1];
+  return num ? `자료${num}` : key;
 }
 
-/* ---------- Render categories ---------- */
 function renderCategories(){
-  if(!catHost) return;
-  catHost.replaceChildren();
+  if(!$cats){ return; }
+  $cats.replaceChildren();
+  const frag = document.createDocumentFragment();
 
-  for(const g of CATIDX.groups){
-    const field = document.createElement('fieldset');
-    field.className = 'group';
+  CATIDX.groups.forEach(g=>{
+    const fs = document.createElement('fieldset');
+    fs.className = 'group';
+    fs.dataset.key = g.key;
 
     const legend = document.createElement('legend');
     legend.textContent = g.label || g.key || '';
-    field.appendChild(legend);
+    fs.appendChild(legend);
 
-    const note = document.createElement('div');
-    note.className = 'subnote';
-    note.textContent = g.isPersonal ? '개인자료 (로컬 저장)' : (g.isSeries ? '시리즈' : '일반');
-    field.appendChild(note);
+    const sub = document.createElement('span');
+    sub.className='subnote';
+    sub.textContent = g.isPersonal ? '개인자료 (로컬 저장)' : (g.isSeries ? '시리즈' : '일반');
+    fs.appendChild(sub);
 
     const grid = document.createElement('div');
     grid.className = 'child-grid';
+    fs.appendChild(grid);
 
-    for(const c of g.children){
-      const wrap = document.createElement('label');
+    g.children.forEach(c=>{
+      const lab = document.createElement('label');
 
-      const input = document.createElement('input');
-      input.type = 'checkbox';
-      input.value = c.value;
+      const inp = document.createElement('input');
+      inp.type='checkbox'; inp.value=c.value;
 
       const span = document.createElement('span');
-      span.textContent = g.isPersonal ? readPersonalLabel(c.value) : (c.label || c.value);
+      span.textContent = ' ' + (g.isPersonal ? personalLabel(c.value) : (c.label||c.value));
 
-      wrap.appendChild(input);
-      wrap.appendChild(span);
+      lab.appendChild(inp);
+      lab.appendChild(span);
 
       if(g.isPersonal){
         const btn = document.createElement('button');
-        btn.type='button'; btn.className='rename-inline'; btn.textContent='이름변경';
+        btn.type='button'; btn.className='rename-inline';
+        btn.textContent='이름변경';
         btn.addEventListener('click', ()=>{
-          const cur = readPersonalLabel(c.value);
-          const nv  = prompt('개인자료 이름(최대 12자):', cur);
-          if(nv && nv.trim()){ setPersonalLabel(c.value, nv.trim()); span.textContent = readPersonalLabel(c.value); }
+          const now = personalLabel(c.value);
+          const nv = prompt('개인자료 이름(최대 12자):', now);
+          if(!nv) return;
+          setPersonalLabel(c.value, nv);
+          renderCategories();
         });
-        wrap.appendChild(btn);
+        lab.appendChild(document.createTextNode(' '));
+        lab.appendChild(btn);
       }
 
-      grid.appendChild(wrap);
-    }
+      grid.appendChild(lab);
+    });
 
-    field.appendChild(grid);
-    catHost.appendChild(field);
-  }
+    frag.appendChild(fs);
+  });
 
-  // 제약: 단일 change 이벤트에서 집계 → 3개 초과/혼합 시 마지막 클릭 해제(정확도 위해 event.target 사용)
-  catHost.addEventListener('change', (e)=>{
-    const target = e.target;
-    if(!(target instanceof HTMLInputElement) || target.type!=='checkbox') return;
+  $cats.appendChild(frag);
 
-    const chosen = [...catHost.querySelectorAll('input[type="checkbox"]:checked')].map(x=> x.value);
+  // 선택 제약: change 이벤트 타겟을 기준으로 롤백 (가장 정확)
+  $cats.addEventListener('change', (e)=>{
+    const t = e.target;
+    if(!(t instanceof HTMLInputElement) || t.type!=='checkbox') return;
+
+    const chosen = Array.from($cats.querySelectorAll('input[type="checkbox"]:checked')).map(i=> i.value);
     const hasPersonal = chosen.some(v=> CATIDX.isPersonalVal(v));
     const hasServer   = chosen.some(v=> !CATIDX.isPersonalVal(v));
 
-    // 혼합 금지
-    if(hasPersonal && hasServer){
-      target.checked = false;
-      setStatus('<span class="danger">개인자료와 일반/시리즈를 함께 선택할 수 없습니다.</span>');
+    if(chosen.length > 3 && !CATIDX.isPersonalVal(t.value)){
+      t.checked = false;
+      setStatusHTML('<span class="danger">카테고리는 최대 3개까지 선택할 수 있습니다.</span>');
       return;
     }
-    // 3개 제한(서버 카테고리만 계산)
-    if(!CATIDX.isPersonalVal(target.value)){
-      const serverCount = chosen.filter(v=> !CATIDX.isPersonalVal(v)).length;
-      if(serverCount > 3){
-        target.checked = false;
-        setStatus('<span class="danger">카테고리는 최대 3개까지 선택할 수 있습니다.</span>');
-        return;
-      }
+    if(hasPersonal && hasServer){
+      t.checked = false;
+      setStatusHTML('<span class="danger">개인자료와 일반/시리즈를 함께 선택할 수 없습니다.</span>');
+      return;
     }
-    setStatus('');
+    setStatusHTML('');
   }, { passive:true });
 }
+renderCategories();
 
-/* ---------- Order ---------- */
-function getOrder(){ return document.querySelector('input[name="order"]:checked')?.value || 'bottom'; }
+function getChosenCats(){
+  return Array.from($cats?.querySelectorAll('input[type="checkbox"]:checked')||[]).map(b=> b.value);
+}
 
-/* ---------- PublishedAt (optional) ---------- */
+/* ---------- YouTube PublishedAt ---------- */
 async function fetchPublishedAt(videoId){
-  const API_KEY = (window.YT_DATA_API_KEY || window.YT_API_KEY || null);
+  const API_KEY = (typeof window!=='undefined' ? (window.YT_DATA_API_KEY || window.YT_API_KEY || null) : null);
   if(!API_KEY) return null;
   try{
     const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${encodeURIComponent(videoId)}&key=${encodeURIComponent(API_KEY)}`;
@@ -252,196 +248,186 @@ async function fetchPublishedAt(videoId){
   }catch{ return null; }
 }
 
-/* ---------- Paste (top/bottom 동작 동일) ---------- */
-async function doPaste(){
+/* ---------- 클립보드 ---------- */
+async function pasteFromClipboard(){
   try{
     const txt = await navigator.clipboard.readText();
-    if(!txt){ setStatus('클립보드가 비어있습니다.'); return; }
-    const cur = urls.value.trim();
-    urls.value = cur ? (cur.replace(/\s*$/,'') + '\n' + txt.trim()) : txt.trim();
-    autosize();
-    setStatus('<span class="ok">붙여넣기 완료.</span>');
+    if(!txt){ setStatusHTML('클립보드가 비어있습니다.'); return; }
+    const val = ($urls.value.trim()? ($urls.value.replace(/\s*$/,'')+'\n') : '') + txt.trim();
+    $urls.value = val;
+    autoGrowTA($urls);
+    setStatusHTML('<span class="ok">붙여넣기 완료</span>');
   }catch{
-    setStatus('<span class="danger">클립보드 접근이 차단되었습니다. 브라우저 설정에서 허용해 주세요.</span>');
+    setStatusHTML('클립보드 접근이 차단되었습니다. 브라우저 설정에서 허용해 주세요.');
   }
 }
-btnPasteTop?.addEventListener('click', doPaste);
-btnPaste   ?.addEventListener('click', doPaste);
+$('#btnPasteTop')?.addEventListener('click', pasteFromClipboard);
+$('#btnPasteBottom')?.addEventListener('click', pasteFromClipboard);
 
-/* ---------- Submit ---------- */
-function parseLines(){
-  return urls.value.split(/\r?\n/).map(s=> s.trim()).filter(Boolean);
-}
-function getChosenCats(){
-  return [...catHost.querySelectorAll('input[type="checkbox"]:checked')].map(x=> x.value);
-}
-
-async function handleSubmit(){
-  const linesRaw = parseLines();
-  if(!linesRaw.length){ setStatus('<span class="danger">URL을 한 줄에 하나씩 입력해 주세요.</span>'); return; }
+/* ---------- 등록 ---------- */
+async function submitAll(){
+  const raw = ($urls?.value || '').trim();
+  if(!raw){ setStatusHTML('<span class="danger">URL을 입력해주세요.</span>'); return; }
 
   const cats = getChosenCats();
-  if(!cats.length){ setStatus('<span class="danger">카테고리를 선택해주세요.</span>'); return; }
+  if(!cats.length){ setStatusHTML('<span class="danger">카테고리를 선택해주세요.</span>'); return; }
+  if(cats.length > 3 && !cats.every(CATIDX.isPersonalVal)){ setStatusHTML('<span class="danger">카테고리는 최대 3개까지 선택할 수 있습니다.</span>'); return; }
 
-  const hasPersonal = cats.some(v=> CATIDX.isPersonalVal(v));
+  const hasPersonal = cats.some(CATIDX.isPersonalVal);
   const hasServer   = cats.some(v=> !CATIDX.isPersonalVal(v));
-  if(hasPersonal && hasServer){ setStatus('<span class="danger">개인자료와 일반/시리즈를 함께 선택할 수 없습니다.</span>'); return; }
-  if(!hasPersonal && cats.filter(v=> !CATIDX.isPersonalVal(v)).length > 3){ setStatus('<span class="danger">카테고리는 최대 3개까지 선택할 수 있습니다.</span>'); return; }
-  if(hasPersonal && cats.length!==1){ setStatus('<span class="danger">개인자료 저장은 하나의 슬롯만 선택할 수 있습니다.</span>'); return; }
+  if(hasPersonal && hasServer){ setStatusHTML('<span class="danger">개인자료와 일반/시리즈를 함께 선택할 수 없습니다.</span>'); return; }
+  if(hasPersonal && cats.length !== 1){ setStatusHTML('<span class="danger">개인자료 저장은 하나의 슬롯만 선택할 수 있습니다.</span>'); return; }
 
-  // 정렬
-  const order = getOrder();
-  const lines = (order==='bottom') ? linesRaw.slice().reverse() : linesRaw.slice();
+  let lines = raw.split(/\r?\n/).map(s=> s.trim()).filter(Boolean);
+  if(!lines.length){ setStatusHTML('<span class="danger">유효한 URL이 없습니다.</span>'); return; }
+  if(getOrder()==='bottom') lines = lines.reverse();
 
-  // 1차 파싱
-  const entries = lines.map(url=>{
-    if(!isAllowedYouTube(url)) return { url, ok:false, reason:'유튜브 URL 아님' };
-    const info = parseYouTube(url); // {id,url,type}
-    if(!info?.id) return { url, ok:false, reason:'ID 파싱 실패' };
-    return { url: info.url || url, id: info.id, type: (info.type==='shorts'?'shorts':'video'), ok:true };
-  });
-
-  lockButtons(true);
-  try{
-    // 개인자료(로컬)
-    if(hasPersonal){
-      const slot = cats[0];
-      const key  = `personal_${slot}`;
-      const now  = Date.now();
-      let arr=[]; try{ arr = JSON.parse(localStorage.getItem(key)||'[]'); }catch{ arr=[]; }
-
-      const good = entries.filter(e=> e.ok);
-      good.forEach(e=> arr.push({ url:e.url, title:'', savedAt:now }));
-
-      localStorage.setItem(key, JSON.stringify(arr));
-      setStatus(`<span class="ok">개인자료(${esc(readPersonalLabel(slot))})에 ${good.length}건 저장 완료</span> · 무시 ${entries.length - good.length}`);
-      urls.value=''; autosize();
-      catHost.querySelectorAll('input[type="checkbox"]:checked')?.forEach(x=> x.checked=false);
-      return;
+  // 파싱
+  const entries = [];
+  for(const line of lines){
+    if(!isAllowedYouTube(line)){
+      entries.push({ url: line, ok:false, reason:'유튜브 URL 아님' });
+      continue;
     }
-
-    // 서버(일반/시리즈)
-    const user = auth.currentUser;
-    if(!user){ setStatus('<span class="danger">로그인이 필요합니다.</span>'); return; }
-
-    let ok=0, dup=0, bad=0, fail=0;
-
-    for(const e of entries){
-      if(!e.ok){ bad++; setStatus(`진행중... <span class="ok">성공 ${ok}</span> · <span>중복 ${dup}</span> · <span class="danger">실패 ${fail}</span> · 무시 ${bad}`); continue; }
-
-      const ref = doc(db, 'videos', e.id);
-      try{
-        const snap = await getDoc(ref);
-        if(snap.exists()){
-          // 중복 안내 + 기존 cats 라벨
-          const data = snap.data() || {};
-          const existedCats = Array.isArray(data.cats)? data.cats : [];
-          const labels = existedCats.map(v=> esc(CATIDX.labelOf(v))).join(', ');
-          dup++;
-          setStatus(`이미 등록됨: <b>${esc(e.id)}</b> (카테고리: ${labels||'없음'}) · <span class="ok">성공 ${ok}</span> · <span>중복 ${dup}</span> · <span class="danger">실패 ${fail}</span> · 무시 ${bad}`);
-          continue;
-        }
-
-        const publishedAt = await fetchPublishedAt(e.id);
-
-        const payload = {
-          uid: user.uid,
-          url: e.url,
-          cats: cats.slice(),
-          ytid: e.id,
-          type: e.type,                 // 'shorts'|'video'
-          ownerName: user.displayName || '',
-          createdAt: serverTimestamp(),
-          ...(publishedAt ? { youtubePublishedAt: publishedAt } : {})
-        };
-
-        await setDoc(ref, payload, { merge:false });
-        ok++;
-      }catch(err){
-        console.error('[upload] setDoc fail', err);
-        fail++;
-      }
-      setStatus(`진행중... <span class="ok">성공 ${ok}</span> · <span>중복 ${dup}</span> · <span class="danger">실패 ${fail}</span> · 무시 ${bad}`);
+    const info = parseYouTube(line); // { id, url, type }
+    if(!info?.id){
+      entries.push({ url: line, ok:false, reason:'ID 파싱 실패' });
+      continue;
     }
-
-    setStatus(`<span class="ok">완료</span> · <span class="ok">성공 ${ok}</span> · <span>중복 ${dup}</span> · <span class="danger">실패 ${fail}</span> · 무시 ${bad}`);
-    if(ok){ urls.value=''; autosize(); catHost.querySelectorAll('input[type="checkbox"]:checked')?.forEach(x=> x.checked=false); }
-  } finally {
-    lockButtons(false);
+    entries.push({
+      url: info.url || line,
+      id: info.id,
+      type: info.type === 'shorts' ? 'shorts' : 'video',
+      ok: true
+    });
   }
+
+  // 개인자료 → 로컬 저장
+  if(hasPersonal){
+    const slot = cats[0];
+    const good = entries.filter(e=> e.ok).map(e=> ({ url:e.url, title:'' }));
+    if(!good.length){ setStatusHTML('<span class="danger">저장할 유효한 URL이 없습니다.</span>'); return; }
+    const key = `personal_${slot}`;
+    let arr=[]; try{ arr=JSON.parse(localStorage.getItem(key)||'[]'); }catch{}
+    const now=Date.now();
+    good.forEach(g=> arr.push({ url:g.url, title:'', savedAt:now }));
+    try{ localStorage.setItem(key, JSON.stringify(arr)); }catch{}
+    setStatusHTML(`<span class="ok">개인자료(${esc(personalLabel(slot))})에 ${good.length}건 저장 완료</span>`);
+    return;
+  }
+
+  // 서버 모드
+  const user = auth.currentUser;
+  if(!user){ setStatusHTML('<span class="danger">로그인이 필요합니다.</span>'); return; }
+
+  let ok=0, dup=0, bad=0, fail=0;
+  enableButtons(false);
+  setStatusHTML('등록 시작...');
+
+  for(const e of entries){
+    if(!e.ok){ bad++; continue; }
+    const ref = doc(db,'videos', e.id);
+    try{
+      const exists = await getDoc(ref);
+      if(exists.exists()){
+        const data = exists.data()||{};
+        const existedCats = Array.isArray(data.cats)? data.cats : [];
+        const labels = existedCats.map(v=> esc(CATIDX.labelOf(v))).join(', ');
+        dup++;
+        setStatusHTML(`이미 등록됨: <b>${esc(e.id)}</b> (카테고리: ${labels||'없음'})  ·  <span class="ok">성공 ${ok}</span> / <span class="danger">중복 ${dup}</span> / 실패 ${fail} / 무시 ${bad}`);
+        continue;
+      }
+
+      const publishedAt = await fetchPublishedAt(e.id);
+      const payload = {
+        uid: user.uid,
+        url: e.url,
+        cats: cats.slice(),
+        ytid: e.id,
+        type: e.type,
+        ownerName: user.displayName || '',
+        createdAt: serverTimestamp(),
+        ...(publishedAt ? { youtubePublishedAt: publishedAt } : {})
+      };
+
+      await setDoc(ref, payload, { merge:false });
+      ok++;
+      setStatusHTML(`<span class="ok">${ok}건 등록 성공</span> · 중복 ${dup} · 실패 ${fail} · 무시 ${bad}`);
+    }catch(err){
+      console.error('[upload] save fail:', err);
+      fail++;
+      setStatusHTML(`<span class="danger">일부 실패</span>: 성공 ${ok}, 중복 ${dup}, 실패 ${fail}, 무시 ${bad}`);
+    }
+  }
+
+  enableButtons(true);
+  setStatusHTML(`<span class="ok">완료</span> · 성공 ${ok} · 중복 ${dup} · 실패 ${fail} · 무시(비유튜브/파싱실패) ${bad}`);
 }
 
-btnSubmitTop?.addEventListener('click', handleSubmit);
-btnSubmit   ?.addEventListener('click', handleSubmit);
+/* 상/하단 등록 버튼 동기화 */
+$('#btnSubmitTop')   ?.addEventListener('click', submitAll);
+$('#btnSubmitBottom')?.addEventListener('click', submitAll);
 
-/* ---------- Swipe: simple + advanced, deadzone 18% ---------- */
-(function swipe(){
-  // 단순: 왼쪽 스와이프 → index
-  (function initSimple({ goLeftHref='/index.html', deadZoneCenterRatio=0.18 }={}){
-    let sx=0, sy=0, t0=0, tracking=false;
-    const TH=70, MAXY=80, TMAX=600;
-    const P = (e)=> e.touches?.[0] || e.changedTouches?.[0] || e;
-    function start(e){
-      const p=P(e); if(!p) return;
-      const vw=Math.max(document.documentElement.clientWidth, window.innerWidth||0);
-      const L=vw*(0.5-deadZoneCenterRatio/2), R=vw*(0.5+deadZoneCenterRatio/2);
-      if(p.clientX>=L && p.clientX<=R) return;
-      sx=p.clientX; sy=p.clientY; t0=Date.now(); tracking=true;
-    }
-    function end(e){
-      if(!tracking) return; tracking=false;
-      const p=P(e); const dx=p.clientX-sx, dy=p.clientY-sy, dt=Date.now()-t0;
-      if(Math.abs(dy)>MAXY || dt>TMAX) return;
-      if(dx<=-TH && goLeftHref){ document.documentElement.classList.add('slide-out-left'); setTimeout(()=> location.href=goLeftHref, 260); }
-    }
-    document.addEventListener('touchstart',start,{passive:true});
-    document.addEventListener('touchend',  end  ,{passive:true});
-    document.addEventListener('pointerdown',start,{passive:true});
-    document.addEventListener('pointerup',  end  ,{passive:true});
-  })();
+/* ---------- 스와이프 내비 (dead-zone 18%) ---------- */
+// 단순형: 왼쪽으로 스와이프 시 index로
+(function simpleSwipe({ goLeftHref='/index.html', deadZoneCenterRatio=0.18 }={}){
+  let sx=0, sy=0, t0=0, tracking=false;
+  const TH=70, MAX_OFF_Y=80, MAX_T=600;
+  const point = (e)=> e.touches?.[0] || e.changedTouches?.[0] || e;
 
-  // 고급: 드래그 끌림 모션(왼쪽만 허용)
-  (function initDrag({ goLeftHref='/index.html', deadZoneCenterRatio=0.18 }={}){
-    const page=document.querySelector('main')||document.body; if(!page) return;
-    let x0=0,y0=0,t0=0,active=false,cancel=false;
-    const TH=60,SLOP=45,TMAX=700;
-    function reset(){ page.style.transition='transform 180ms ease'; requestAnimationFrame(()=>{ page.style.transform='translateX(0px)'; }); setTimeout(()=>{ page.style.transition=''; },200); }
-    function isInteractive(el){ return !!(el && el.closest('input,textarea,select,button,a,[role="button"],[contenteditable="true"]')); }
-    function start(e){
-      const t=(e.touches&&e.touches[0])||(e.pointerType?e:null); if(!t) return;
-      if(isInteractive(e.target)) return;
-      const vw=Math.max(document.documentElement.clientWidth, window.innerWidth||0);
-      const L=vw*(0.5-deadZoneCenterRatio/2), R=vw*(0.5+deadZoneCenterRatio/2);
-      if(t.clientX>=L && t.clientX<=R) return;
-      x0=t.clientX; y0=t.clientY; t0=Date.now(); active=true; cancel=false; page.style.transition='none';
-    }
-    function move(e){
-      if(!active) return;
-      const t=(e.touches&&e.touches[0])||(e.pointerType?e:null); if(!t) return;
-      const dx=t.clientX-x0, dy=t.clientY-y0;
-      if(Math.abs(dy)>SLOP){ cancel=true; active=false; reset(); return; }
-      const dxAdj = (dx<0)?dx:0;   // 왼쪽만
-      if(dxAdj===0){ page.style.transform='translateX(0px)'; return; }
-      e.preventDefault(); page.style.transform='translateX('+dxAdj+'px)';
-    }
-    function end(e){
-      if(!active) return; active=false;
-      const t=(e.changedTouches&&e.changedTouches[0])||(e.pointerType?e:null); if(!t) return;
-      const dx=t.clientX-x0, dy=t.clientY-y0, dt=Date.now()-t0;
-      if(cancel || Math.abs(dy)>SLOP || dt>TMAX){ reset(); return; }
-      if(dx<=-TH){ page.style.transition='transform 160ms ease'; page.style.transform='translateX(-100vw)'; setTimeout(()=>{ location.href=goLeftHref; },150); }
-      else reset();
-    }
-    document.addEventListener('touchstart',start,{passive:true});
-    document.addEventListener('touchmove', move ,{passive:false});
-    document.addEventListener('touchend',  end  ,{passive:true,capture:true});
-    document.addEventListener('pointerdown',start,{passive:true});
-    document.addEventListener('pointermove', move ,{passive:false});
-    document.addEventListener('pointerup',  end  ,{passive:true,capture:true});
-  })();
+  function onStart(e){
+    const p = point(e); if(!p) return;
+    const vw = Math.max(document.documentElement.clientWidth, window.innerWidth||0);
+    const L = vw*(0.5-deadZoneCenterRatio/2), R = vw*(0.5+deadZoneCenterRatio/2);
+    if(p.clientX>=L && p.clientX<=R) return;
+    sx=p.clientX; sy=p.clientY; t0=Date.now(); tracking=true;
+  }
+  function onEnd(e){
+    if(!tracking) return; tracking=false;
+    const p=point(e); const dx=p.clientX-sx, dy=p.clientY-sy, dt=Date.now()-t0;
+    if(Math.abs(dy)>MAX_OFF_Y || dt>MAX_T) return;
+    if(dx<=-TH && goLeftHref){ document.documentElement.classList.add('slide-out-left'); setTimeout(()=> location.href=goLeftHref, 260); }
+  }
+  document.addEventListener('touchstart', onStart, {passive:true});
+  document.addEventListener('touchend',   onEnd,   {passive:true});
+  document.addEventListener('pointerdown',onStart, {passive:true});
+  document.addEventListener('pointerup',  onEnd,   {passive:true});
 })();
 
-/* ---------- Init ---------- */
-(function init(){
-  renderCategories();
+// 고급형: 끌림 모션
+(function dragSwipe({ goLeftHref='/index.html', threshold=60, slop=45, timeMax=700, deadZoneCenterRatio=0.18 }={}){
+  const page = document.querySelector('main')||document.body; if(!page) return;
+  let x0=0,y0=0,t0=0,active=false,canceled=false;
+  function reset(){ page.style.transition='transform 180ms ease'; requestAnimationFrame(()=>{ page.style.transform='translateX(0px)'; }); setTimeout(()=>{ page.style.transition=''; },200); }
+  function isInteractive(el){ return !!(el && el.closest('input,textarea,select,button,a,[role="button"],[contenteditable="true"]')); }
+  function start(e){
+    const t=(e.touches&&e.touches[0])||(e.pointerType?e:null); if(!t) return;
+    if(isInteractive(e.target)) return;
+    const vw=Math.max(document.documentElement.clientWidth, window.innerWidth||0);
+    const L=vw*(0.5-deadZoneCenterRatio/2), R=vw*(0.5+deadZoneCenterRatio/2);
+    if(t.clientX>=L && t.clientX<=R) return;
+    x0=t.clientX; y0=t.clientY; t0=Date.now(); active=true; canceled=false; page.style.transition='none';
+  }
+  function move(e){
+    if(!active) return;
+    const t=(e.touches&&e.touches[0])||(e.pointerType?e:null); if(!t) return;
+    const dx=t.clientX-x0, dy=t.clientY-y0;
+    if(Math.abs(dy)>slop){ canceled=true; active=false; reset(); return; }
+    const dxAdj = (dx<0)?dx:0;
+    if(dxAdj===0){ page.style.transform='translateX(0px)'; return; }
+    e.preventDefault(); page.style.transform='translateX('+dxAdj+'px)';
+  }
+  function end(e){
+    if(!active) return; active=false;
+    const t=(e.changedTouches&&e.changedTouches[0])||(e.pointerType?e:null); if(!t) return;
+    const dx=t.clientX-x0, dy=t.clientY-y0, dt=Date.now()-t0;
+    if(canceled || Math.abs(dy)>slop || dt>timeMax){ reset(); return; }
+    if(dx<=-threshold && goLeftHref){ page.style.transition='transform 160ms ease'; page.style.transform='translateX(-100vw)'; setTimeout(()=>{ location.href=goLeftHref; },150); } else reset();
+  }
+  document.addEventListener('touchstart',start,{passive:true});
+  document.addEventListener('touchmove', move ,{passive:false});
+  document.addEventListener('touchend',  end  ,{passive:true,capture:true});
+  document.addEventListener('pointerdown',start,{passive:true});
+  document.addEventListener('pointermove', move ,{passive:false});
+  document.addEventListener('pointerup',  end  ,{passive:true,capture:true});
 })();
