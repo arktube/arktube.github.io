@@ -124,7 +124,7 @@
     grid-template-columns:1fr var(--cta-width) auto 1fr; /* v1.5 공통 */
     align-items:center;
     column-gap:0;
-    margin:4px 0;
+    margin:2px 0;
   }
   .btn-primary{
     grid-column:2;
@@ -141,13 +141,13 @@
 
   /* 형식 토글 (모두/쇼츠만/일반만) — 선택 시 가시성 강화 */
   .type-toggle{
-    display:inline-flex; align-items:center; gap:6px;
+    display:inline-flex; align-items:center; gap:1px;
     background:#151515; border:1px solid #2a2a2a; padding:4px;
     border-radius:999px;
   }
   .type-toggle input{ display:none; }
   .type-toggle label{
-    padding:6px 10px; border-radius:999px; font-size:13px; cursor:pointer; color:#d0d0d0;
+    padding:4px 4px; border-radius:999px; font-size:13px; cursor:pointer; color:#d0d0d0;
   }
   .type-toggle input:checked + label{
     background:#0f0f0f; border:1px solid #2a2a2a; color:#fff; font-weight:800;
@@ -163,7 +163,7 @@
   }
   .cat-title{ /* 버튼처럼 보이지 않게(사용자 선호 유지) */
     grid-column:2; display:inline-block; width:var(--cta-width);
-    margin:0; padding:8px 14px;
+    margin:0; padding:8px 14px 4px;
     background:transparent; border:0; border-radius:8px;
     color:#fff; font-weight:800; font-size:20px; text-align:center; user-select:none; cursor:pointer;
   }
