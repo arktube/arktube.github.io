@@ -378,6 +378,8 @@ async function submitAll(){
     }
 
     publishedAt = await fetchPublishedAt(e.id);
+    console.log('[debug] chosen cats =', cats); // ← 여기 한 줄 추가
+    console.log('payload(preview)=', { uid:user.uid, url:e.url, cats:cats, ytid:e.id, type:e.type });
     payload = {
       uid: user.uid,
       url: e.url,
