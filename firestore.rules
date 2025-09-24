@@ -1,131 +1,138 @@
-// Firestore Security Rules
 rules_version = '2';
 service cloud.firestore {
-  match /databases/{database}/documents {
+  match /databases/{db}/documents {
 
-    /* ---- Common helpers ---- */
-    function signedIn() {
-      return request.auth != null;
+    /* ── 공통 함수 ── */
+    function signedIn() { return request.auth != null; }
+    function isSelf(uid) { return signedIn() && request.auth.uid == uid; }
+    function isAdmin() {
+      return signedIn() && exists(/databases/$(db)/documents/admins/$(request.auth.uid));
+    }
+    function isBanned(uid) {
+      return signedIn() && exists(/databases/$(db)/documents/banned_users/$(uid));
+    }
+    function canWrite() { return signedIn() && !isBanned(request.auth.uid); }
+
+    /* ── 유효성(닉) ── */
+    function isString(s) { return s is string; }
+    function nonEmptyString(s, min, max) {
+      return isString(s) && s.size() >= min && s.size() <= max;
+    }
+    function validNickShown(n) {
+      return isString(n) && n.matches('^[가-힣A-Za-z0-9_]{2,16}$');
     }
 
-    function isOwner(uid) {
-      return signedIn() && request.auth.uid == uid;
+    /* ── 유효성(영상) ── */
+    function validCats(cats) {
+      return cats is list
+        && cats.size() <= 3
+        && cats.all(c, c is string && c.matches('^[a-z0-9_]{1,32}$'));
+    }
+    function validUrl(u) {
+      return isString(u) && u.matches('^https://.+');
     }
 
-    function validType(t) {
-      // CATEGORY_MODEL.types ⇒ 'shorts' | 'video'
-      return t is string && (t == 'shorts' || t == 'video');
+    // 생성 시 유효성 (upload.js 필드명과 일치: cats, (옵션) title, ytid)
+    function validVideoCreate(data, id) {
+      return
+        ("uid" in data) && isSelf(data.uid) &&
+        ("url" in data) && validUrl(data.url) &&
+        ("cats" in data) && validCats(data.cats) &&
+        (!("title" in data) || nonEmptyString(data.title, 1, 200)) &&
+        (!("ytid" in data) || data.ytid == id);
     }
 
-    function validYouTubeUrl(u) {
-      // https://youtu.be/...  |  https://www.youtube.com/watch?v=... | /shorts/...
-      return u is string
-             && u.size() >= 12
-             && u.size() <= 500
-             && u.matches('^https://(www\\.)?(youtube\\.com/(watch\\?v=|shorts/)|youtu\\.be/)[^\\s]+$');
+    // 업데이트 시 유효성 (기본)
+    function validVideoUpdate(oldData, newData, id) {
+      return
+        ("uid" in oldData) && ("uid" in newData) && oldData.uid == newData.uid &&
+        ("url" in newData) && validUrl(newData.url) &&
+        ("cats" in newData) && validCats(newData.cats) &&
+        (!("title" in newData) || nonEmptyString(newData.title, 1, 200)) &&
+        (!("ytid" in newData) || newData.ytid == id);
     }
 
-    function validTitle(t) {
-      return t is string && t.size() > 0 && t.size() <= 200;
+    // 업데이트 시 유효성 (구문서 소유자(uid) 없음 → 최초 1회 클레임 허용)
+    function validVideoUpdateClaim(newData, id) {
+      return
+        ("uid" in newData) && isSelf(newData.uid) &&
+        ("url" in newData) && validUrl(newData.url) &&
+        ("cats" in newData) && validCats(newData.cats) &&
+        (!("title" in newData) || nonEmptyString(newData.title, 1, 200)) &&
+        (!("ytid" in newData) || newData.ytid == id);
     }
 
-    function validCategories(cats) {
-      // 리스트/최대 25개만 강제 (개별 값 화이트리스트는 클라이언트에서 관리)
-      return cats is list && cats.size() <= 25;
-    }
-
-    function validThumb(th) {
-      return !( 'thumbnail' in request.resource.data ) ||
-             ( request.resource.data.thumbnail is string && request.resource.data.thumbnail.size() <= 500 );
-    }
-
-    function validCreatedAt(ts) {
-      // createdAt 은 과거 1년 ~ 현재 + 5분 버퍼 내
-      return ts is timestamp
-             && ts >= request.time - duration.value(365, 'd')
-             && ts <= request.time + duration.value(5, 'm');
-    }
-
-    /* =========================
-       videos/{id}
-       - 공개 읽기
-       - 생성/수정/삭제는 소유자만
-       - 필드/타입/길이 검증
-       ========================= */
-    match /videos/{id} {
-      allow read: if true;
-
-      allow create: if signedIn()
-        && isOwner(request.resource.data.ownerUid)
-        && validType(request.resource.data.type)
-        && validYouTubeUrl(request.resource.data.url)
-        && validTitle(request.resource.data.title)
-        && validCategories(request.resource.data.categories)
-        && validThumb(request.resource.data.thumbnail)
-        && validCreatedAt(request.resource.data.createdAt)
-        // 허용 필드만 쓰도록 제한(원하면 목록에 추가)
-        && request.resource.data.keys().hasOnly([
-          'type','url','title','categories','thumbnail',
-          'ownerUid','createdAt'
-        ]);
-
-      allow update: if signedIn()
-        && isOwner(resource.data.ownerUid) // 소유자만 수정
-        // ownerUid/createdAt은 불변
-        && request.resource.data.ownerUid == resource.data.ownerUid
-        && request.resource.data.createdAt == resource.data.createdAt
-        // 나머지 유효성
-        && validType(request.resource.data.type)
-        && validYouTubeUrl(request.resource.data.url)
-        && validTitle(request.resource.data.title)
-        && validCategories(request.resource.data.categories)
-        && validThumb(request.resource.data.thumbnail)
-        && request.resource.data.keys().hasOnly([
-          'type','url','title','categories','thumbnail',
-          'ownerUid','createdAt'
-        ]);
-
-      allow delete: if signedIn() && isOwner(resource.data.ownerUid);
-    }
-
-    /* =========================
-       users/{uid}
-       - 공개 읽기(닉/표시명 등)
-       - 본인만 생성/수정/삭제
-       - 민감/권한 필드 차단
-       ========================= */
+    /* ── (1) 프로필 ── */
     match /users/{uid} {
       allow read: if true;
-
-      allow create: if signedIn()
-        && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly([
-          'nickname','displayName','photoURL','createdAt','updatedAt'
-        ])
-        && ( !('nickname'    in request.resource.data) || (request.resource.data.nickname    is string && request.resource.data.nickname.size()    <= 50) )
-        && ( !('displayName' in request.resource.data) || (request.resource.data.displayName is string && request.resource.data.displayName.size() <= 50) )
-        && ( !('photoURL'    in request.resource.data) || (request.resource.data.photoURL    is string && request.resource.data.photoURL.size()    <= 500) )
-        && ( !('createdAt'   in request.resource.data) ||  request.resource.data.createdAt   is timestamp )
-        && ( !('updatedAt'   in request.resource.data) ||  request.resource.data.updatedAt   is timestamp );
-
-      allow update: if signedIn()
-        && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly([
-          'nickname','displayName','photoURL','updatedAt'
-        ])
-        && ( !('nickname'    in request.resource.data) || (request.resource.data.nickname    is string && request.resource.data.nickname.size()    <= 50) )
-        && ( !('displayName' in request.resource.data) || (request.resource.data.displayName is string && request.resource.data.displayName.size() <= 50) )
-        && ( !('photoURL'    in request.resource.data) || (request.resource.data.photoURL    is string && request.resource.data.photoURL.size()    <= 500) )
-        && ( !('updatedAt'   in request.resource.data) ||  request.resource.data.updatedAt   is timestamp );
-
-      allow delete: if signedIn() && request.auth.uid == uid;
+      allow create: if canWrite() && isSelf(uid);
+      allow update: if canWrite() && isSelf(uid);
+      allow delete: if isAdmin();
     }
 
-    /* (선택) 기타 공개 페이지용 설정 컬렉션이 있다면 읽기만 허용하고 쓰기는 금지
-    match /config/{doc} {
+    /* ── (2) 닉네임 점유 맵 ── */
+    match /nicks/{nickKey} {
       allow read: if true;
+      allow create: if canWrite()
+                    && ("uid" in request.resource.data) && isSelf(request.resource.data.uid)
+                    && ("nick" in request.resource.data) && validNickShown(request.resource.data.nick)
+                    && nickKey == lower(request.resource.data.nick)
+                    && !exists(/databases/$(db)/documents/nicks/$(nickKey));
+      allow delete: if (canWrite() && resource.data.uid == request.auth.uid) || isAdmin();
+      allow update: if false;
+    }
+
+    /* ── (3) 밴 목록 ── */
+    match /banned_users/{uid} {
+      allow read: if isSelf(uid) || isAdmin();
+      allow write: if isAdmin();
+    }
+
+    /* ── (4) 의견함 ── */
+    match /messages/{id} {
+      allow create: if canWrite();
+      allow read, delete: if isAdmin();
+    }
+
+/* ── (5) 영상 ── */
+match /videos/{id} {
+  // 누구나 읽기
+  allow read: if true;
+
+  // 새로 생성 (로그인 + 밴 아님 + 필드 유효성)
+  allow create: if canWrite() && validVideoCreate(request.resource.data, id);
+
+  // 수정
+  allow update: if
+      isAdmin()                                   // 관리자면 언제나 가능
+      || (
+           canWrite()                             // 로그인 + 미밴
+           && (
+                // (a) 정상 케이스: 기존 소유자만 수정 가능 + 필드 유효성
+                (("uid" in resource.data) && isSelf(resource.data.uid)
+                 && validVideoUpdate(resource.data, request.resource.data, id))
+                ||
+                // (b) 구버전 문서: uid가 없던 문서라면 본인이 최초 1회 소유권 클레임 가능
+                ((!("uid" in resource.data)) && validVideoUpdateClaim(request.resource.data, id))
+              )
+         );
+
+  // 삭제: 관리자 또는 소유자
+  allow delete: if isAdmin()
+                || (canWrite() && ("uid" in resource.data) && isSelf(resource.data.uid));
+}
+
+    /* ── (6) 관리자 표식 ── */
+    match /admins/{uid} {
+      allow read: if isSelf(uid);
       allow write: if false;
     }
-    */
+
+    /* ── (7) 로그인 로그(선택) ── */
+    match /login_logs/{id} {
+      allow read: if isAdmin();
+      allow create: if signedIn();  // ← 로그인한 요청만 기록
+      allow update, delete: if false;
+    }
   }
 }
