@@ -11,8 +11,12 @@ import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
 import { CATEGORY_MODEL, CATEGORY_GROUPS } from './categories.js';
 import { isAllowedYouTube, parseYouTube } from './youtube-utils.js';
 import {
-  doc, getDoc, setDoc, serverTimestamp
-} from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
+  doc, getDoc, setDoc, serverTimestamp, setLogLevel } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
+
+ // 디버그 토글 (원하면 주석 처리)
+ try { setLogLevel('debug'); } catch {}
+  
+/*} from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';*/
 
 /* ---------- 유틸 ---------- */
 const $ = (s)=>document.querySelector(s);
@@ -364,11 +368,31 @@ async function submitAll(){
         ...(publishedAt ? { youtubePublishedAt: publishedAt } : {})
       };
 
+     // ===== 디버그: 실제 전송 내용/문서ID/사용자 상태를 콘솔에 보기 좋게 출력 =====
+     console.groupCollapsed('[upload] setDoc try', e.id);
+     console.log('docPath', 'videos/' + e.id);
+     console.log('user.uid', user.uid, 'displayName', user.displayName);
+     console.log('cats', cats);
+     console.log('type', e.type, 'url', e.url);
+     console.log('publishedAt', publishedAt);
+     console.log('payload', payload);
+     console.groupEnd();
+     // 전역에서도 마지막 페이로드 확인 가능
+     (window.__lastPayloads ||= []).push({ id:e.id, payload, ts:Date.now() });
+
+
+      
       await setDoc(ref, payload, { merge:false });
       ok++;
       setStatusHTML(`<span class="ok">${ok}건 등록 성공</span> · 중복 ${dup} · 실패 ${fail} · 무시 ${bad}`);
     }catch(err){
-      console.error('[upload] save fail:', err);
+      /*console.error('[upload] save fail:', err);*/
+      console.group('[upload] save fail');
+      console.error('error object', err);
+      console.error('code:', err?.code, 'message:', err?.message);
+      console.log('docId', e.id);
+      console.log('payload (last tried)', payload);
+      console.groupEnd();
       fail++;
       setStatusHTML(`<span class="danger">일부 실패</span>: 성공 ${ok}, 중복 ${dup}, 실패 ${fail}, 무시 ${bad}`);
     }
