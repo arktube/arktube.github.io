@@ -33,6 +33,22 @@ function enableButtons(on=true){
   $('#btnPasteTop')    && ($('#btnPasteTop').disabled    = !on);
   $('#btnPasteBottom') && ($('#btnPasteBottom').disabled = !on);
 }
+function preflightCheck(payload, docId, user){
+  const errs = [];
+  if (!user?.uid) errs.push('no auth');
+  if (payload.uid !== user?.uid) errs.push(`uid mismatch (${payload.uid} != ${user?.uid})`);
+  if (!/^https:\/\//.test(payload.url||'')) errs.push('url must start with https://');
+
+  if (!Array.isArray(payload.cats) || payload.cats.length < 1 || payload.cats.length > 3)
+    errs.push(`cats.length=${payload.cats?.length}`);
+
+  if (!Array.isArray(payload.cats) || !payload.cats.every(c=>/^[a-z0-9_]{1,32}$/.test(c||'')))
+    errs.push('cats value invalid (^[a-z0-9_]{1,32}$)');
+
+  if (payload.ytid && payload.ytid !== docId) errs.push(`ytid != docId (${payload.ytid} != ${docId})`);
+  return errs;
+}
+
 
 /* ---------- 상단바/드롭다운 ---------- */
 const signupLink  = $('#signupLink');
@@ -390,8 +406,27 @@ async function submitAll(){
     console.assert(Array.isArray(payload.cats) && payload.cats.length>=1 && payload.cats.length<=3, 'cats invalid length');
     console.assert(payload.cats.every(c => /^[a-z0-9_]{1,32}$/.test(c)), 'cats value not matched');
 
-    await setDoc(ref, payload, { merge:false });
-    ok++;
+// 규칙과 동일한 사전검사 + 자세한 로그
+const pfErrs = preflightCheck(payload, e.id, user);
+console.groupCollapsed('[upload] preflight', e.id);
+console.log('docPath', 'videos/' + e.id);
+console.log('auth.uid', user?.uid);
+console.log('payload', JSON.parse(JSON.stringify({
+  ...payload,
+  createdAt: '[serverTimestamp()]', // stringify 가려짐 방지 표기
+})));
+console.log('preflight errors', pfErrs);
+console.groupEnd();
+
+if (pfErrs.length){
+  fail++;
+  setStatusHTML(`<span class="danger">로컬 유효성 실패:</span> ${pfErrs.join(', ')}`);
+  continue; // setDoc 호출하지 않음
+}
+
+await setDoc(ref, payload, { merge:false });
+ok++;
+
     setStatusHTML(`<span class="ok">${ok}건 등록 성공</span> · 중복 ${dup} · 실패 ${fail} · 무시 ${bad}`);
   } catch (err) {
     console.group('[upload] save fail');
