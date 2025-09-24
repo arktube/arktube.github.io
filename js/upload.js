@@ -384,7 +384,7 @@ $('#btnSubmitBottom')?.addEventListener('click', submitAll);
 
 /* ---------- 스와이프 내비 (dead-zone 18%) ---------- */
 // 단순형: 왼쪽으로 스와이프 시 index로
-(function simpleSwipe({ goLeftHref='/index.html', deadZoneCenterRatio=0.18 }={}){
+(function simpleSwipe({ goRightHref='/index.html', deadZoneCenterRatio=0.18 }={}){
   let sx=0, sy=0, t0=0, tracking=false;
   const TH=70, MAX_OFF_Y=80, MAX_T=600;
   const point = (e)=> e.touches?.[0] || e.changedTouches?.[0] || e;
@@ -400,7 +400,7 @@ $('#btnSubmitBottom')?.addEventListener('click', submitAll);
     if(!tracking) return; tracking=false;
     const p=point(e); const dx=p.clientX-sx, dy=p.clientY-sy, dt=Date.now()-t0;
     if(Math.abs(dy)>MAX_OFF_Y || dt>MAX_T) return;
-    if(dx<=-TH && goLeftHref){ document.documentElement.classList.add('slide-out-left'); setTimeout(()=> location.href=goLeftHref, 260); }
+    if(dx>=-TH && goRightHref){ document.documentElement.classList.add('slide-out-right'); setTimeout(()=> location.href=goRightHref, 260); }
   }
   document.addEventListener('touchstart', onStart, {passive:true});
   document.addEventListener('touchend',   onEnd,   {passive:true});
@@ -409,7 +409,7 @@ $('#btnSubmitBottom')?.addEventListener('click', submitAll);
 })();
 
 // 고급형: 끌림 모션
-(function dragSwipe({ goLeftHref='/index.html', threshold=60, slop=45, timeMax=700, deadZoneCenterRatio=0.18 }={}){
+(function dragSwipe({ goRightHref='/index.html', threshold=60, slop=45, timeMax=700, deadZoneCenterRatio=0.18 }={}){
   const page = document.querySelector('main')||document.body; if(!page) return;
   let x0=0,y0=0,t0=0,active=false,canceled=false;
   function reset(){ page.style.transition='transform 180ms ease'; requestAnimationFrame(()=>{ page.style.transform='translateX(0px)'; }); setTimeout(()=>{ page.style.transition=''; },200); }
@@ -427,7 +427,7 @@ $('#btnSubmitBottom')?.addEventListener('click', submitAll);
     const t=(e.touches&&e.touches[0])||(e.pointerType?e:null); if(!t) return;
     const dx=t.clientX-x0, dy=t.clientY-y0;
     if(Math.abs(dy)>slop){ canceled=true; active=false; reset(); return; }
-    const dxAdj = (dx<0)?dx:0;
+    const dxAdj = (dx>0)?dx:0;
     if(dxAdj===0){ page.style.transform='translateX(0px)'; return; }
     e.preventDefault(); page.style.transform='translateX('+dxAdj+'px)';
   }
@@ -436,7 +436,7 @@ $('#btnSubmitBottom')?.addEventListener('click', submitAll);
     const t=(e.changedTouches&&e.changedTouches[0])||(e.pointerType?e:null); if(!t) return;
     const dx=t.clientX-x0, dy=t.clientY-y0, dt=Date.now()-t0;
     if(canceled || Math.abs(dy)>slop || dt>timeMax){ reset(); return; }
-    if(dx<=-threshold && goLeftHref){ page.style.transition='transform 160ms ease'; page.style.transform='translateX(-100vw)'; setTimeout(()=>{ location.href=goLeftHref; },150); } else reset();
+    if(dx>=-threshold && goRightHref){ page.style.transition='transform 160ms ease'; page.style.transform='translateX(100vw)'; setTimeout(()=>{ location.href=goRightHref; },150); } else reset();
   }
   document.addEventListener('touchstart',start,{passive:true});
   document.addEventListener('touchmove', move ,{passive:false});
