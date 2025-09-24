@@ -88,7 +88,8 @@ const $btnPaste  = document.getElementById('btnPaste');
 const $btnSubmit = document.getElementById('btnSubmit');
 const $msg    = document.getElementById('msg');
 const $catHost= document.getElementById('catHost');
-
+const $btnSubmitTop = document.getElementById('btnSubmitTop');
+$btnSubmitTop?.addEventListener('click', () => document.getElementById('btnSubmit')?.click());
 function esc(s=''){
   return String(s).replace(/[&<>"']/g, m => ({
     '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
