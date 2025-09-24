@@ -5,111 +5,128 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>추천영상 등록 - ArkTube</title>
 
-  <!-- CSP -->
+  <!-- CSP (요청 톤 유지) -->
   <meta http-equiv="Content-Security-Policy" content="
-    default-src 'self';
-    connect-src 'self'
-      https://www.googleapis.com
-      https://firestore.googleapis.com
-      https://securetoken.googleapis.com
-      https://identitytoolkit.googleapis.com
-      https://firebaseinstallations.googleapis.com
-      https://firebase.googleapis.com
-      https://www.gstatic.com
-      https://www.google-analytics.com
-      https://www.youtube.com
-      https://i.ytimg.com;
-    img-src 'self' data: https://i.ytimg.com https://www.google-analytics.com;
-    frame-src https://www.youtube.com https://www.youtube-nocookie.com https://accounts.google.com https://www.google.com https://theark-3c896.firebaseapp.com https://theark-3c896.web.app;
-    script-src 'self' https://www.gstatic.com https://apis.google.com https://www.googletagmanager.com 'unsafe-inline';
-    style-src 'self' 'unsafe-inline';
-    object-src 'none';
-    base-uri 'self';
-    upgrade-insecure-requests;
+  default-src 'self';
+  connect-src 'self'
+    https://www.googleapis.com
+    https://firestore.googleapis.com
+    https://securetoken.googleapis.com
+    https://identitytoolkit.googleapis.com
+    https://firebaseinstallations.googleapis.com
+    https://firebase.googleapis.com
+    https://www.gstatic.com
+    https://www.google-analytics.com
+    https://www.youtube.com
+    https://i.ytimg.com;
+  img-src 'self' data: https://i.ytimg.com https://www.google-analytics.com;
+  frame-src https://www.youtube.com https://www.youtube-nocookie.com
+    https://accounts.google.com https://www.google.com
+    https://theark-3c896.firebaseapp.com https://theark-3c896.web.app;
+  script-src 'self' https://www.gstatic.com https://apis.google.com https://www.googletagmanager.com 'unsafe-inline';
+  style-src 'self' 'unsafe-inline';
+  object-src 'none';
+  base-uri 'self';
+  upgrade-insecure-requests;
   ">
 
+  <!-- 공통 스타일 (CopyTube v1.5 톤 그대로) -->
   <link rel="stylesheet" href="/css/style.css"/>
 
-  <!-- CopyTube v1.5 톤 유지 + 카테고리 박스 더 촘촘 -->
   <style>
-    :root{ --bg:#000; --bg-2:#111; --bg-3:#1b1b1b; --fg:#fff; --muted:#9aa0a6; --accent:#4ea1ff; --border:#333; }
-    *{ box-sizing:border-box }
-    html,body{ height:100% }
-    body{ margin:0; font-family:system-ui,Segoe UI,Apple SD Gothic Neo,Arial,sans-serif; background:var(--bg); color:var(--fg); padding-top:52px; }
+  :root{ --bg:#000; --bg-2:#111; --bg-3:#1b1b1b; --fg:#fff; --muted:#9aa0a6; --accent:#4ea1ff; --border:#333; }
+  *{box-sizing:border-box} html,body{height:100%}
+  body{ margin:0; font-family:system-ui,Segoe UI,Apple SD Gothic Neo,Arial,sans-serif; background:var(--bg); color:var(--fg); padding-top:52px; }
 
-    /* 헤더 */
-    #topbar{ position:fixed; inset:0 0 auto 0; z-index:20; display:flex; align-items:center; justify-content:space-between; height:52px; padding:0 16px; background:var(--bg-2); border-bottom:1px solid var(--border); }
-    .brand a{ color:var(--fg); text-decoration:none; font-weight:700; font-size:16px; display:inline-flex; align-items:center; gap:8px; line-height:1; }
-    .brand a:hover{ opacity:.9; cursor:pointer; }
-    .brand-logo{ height:48px; width:auto; display:block; object-fit:contain; }
-    @media (max-width:420px){ .brand-logo{ height:40px; } }
-    .right{ display:flex; align-items:center; gap:12px; position:relative; }
-    .link{ color:var(--accent); text-decoration:none; font-size:14px; }
-    .welcome{ font-size:14px; color:var(--muted); }
-    .icon{ background:none; border:0; color:var(--fg); font-size:20px; cursor:pointer; padding:4px 6px; border-radius:6px; }
-    .icon:hover{ background:var(--bg-3); }
-    .hidden{ display:none !important; }
+  /* 헤더 */
+  #topbar{ position:fixed; top:0; left:0; right:0; z-index:20; display:flex; align-items:center; justify-content:space-between; height:52px; padding:0 16px; background:var(--bg-2); border-bottom:1px solid var(--border); }
+  #topbar.autohide{ transition:transform .25s ease, opacity .25s ease; }
+  #topbar.hide{ transform:translateY(-100%); opacity:0; pointer-events:none; }
+  #topbar .right{ display:flex; align-items:center; gap:12px; }
+  .brand a{ color:var(--fg); text-decoration:none; font-weight:700; font-size:16px; display:inline-flex; align-items:center; gap:8px; line-height:1; }
+  .brand a:hover{ opacity:.9; cursor:pointer; }
+  .brand-logo{ height:48px; width:auto; object-fit:contain; display:block; } @media (max-width:420px){ .brand-logo{ height:40px; } }
+  .link{ color:var(--accent); text-decoration:none; font-size:14px; }
+  .welcome{ font-size:14px; color:var(--muted); }
+  .icon{ background:none; border:0; color:var(--fg); font-size:20px; cursor:pointer; padding:4px 6px; border-radius:6px; }
+  .icon:hover{ background:var(--bg-3); }
+  .hidden{ display:none !important; }
 
-    /* 드롭다운 */
-    .dropdown{ position:absolute; right:0; top:100%; background:var(--bg-2); border:1px solid var(--border); border-radius:8px; display:flex; flex-direction:column; min-width:200px; padding:6px 0; opacity:0; transform:translateY(-8px); pointer-events:none; transition:opacity .18s ease, transform .18s ease; }
-    .dropdown.show{ opacity:1; transform:translateY(0); pointer-events:auto; }
-    .dropdown button{ background:none; border:0; color:var(--fg); text-align:left; padding:10px 16px; cursor:pointer; font-size:14px; line-height:1.25; }
-    .dropdown button:hover{ background:var(--bg-3); }
-    .dropdown .menu-strong{ font-size:16px; font-weight:700; }
-    .custom-separator{ border:none; border-top:1px solid #555; margin:8px 0; }
+  /* 드롭다운 */
+  .dropdown{ position:absolute; right:0; top:100%; background:var(--bg-2); border:1px solid var(--border); border-radius:8px; display:flex; flex-direction:column; min-width:200px; padding:6px 0; opacity:0; transform:translateY(-8px); pointer-events:none; transition:opacity .18s ease, transform .18s ease; }
+  .dropdown.show{ opacity:1; transform:translateY(0); pointer-events:auto; }
+  .dropdown button{ background:none; border:0; color:var(--fg); text-align:left; padding:10px 16px; cursor:pointer; font-size:14px; line-height:1.25; }
+  .dropdown button:hover{ background:var(--bg-3); }
+  .dropdown .menu-strong{ font-size:16px; font-weight:700; }
+  .custom-separator{ border:none; border-top:1px solid #555; margin:8px 0; }
 
-    /* 메인 */
-    main{ max-width:1000px; margin:0 auto; padding:10px 16px 40px; }
-    .group{ border:1px solid var(--border); border-radius:12px; background:var(--bg-3); padding:6px 6px 8px; margin:3px 0; text-align:left; max-width:900px; margin-inline:auto; }
-    .group legend{ padding:0 4px; font-weight:800; font-size:15px; color:#eee; margin-bottom:0; line-height:1.05; display:inline-flex; gap:6px; align-items:center; }
-    .group .subnote{ font-size:12px; color:#9aa0a6; margin-left:6px; }
+  /* 본문 컨테이너 */
+  main{ max-width:1000px; margin:0 auto; padding:12px 16px 40px; }
+  h2{ margin:8px 0 10px; }
 
-    /* URL 입력 박스: 기본 3줄, 입력되면 자동 높이 증가 */
-    #urls{ width:100%; min-height:3lh; max-height:420px; overflow:auto; resize:vertical; border:1px solid var(--border); border-radius:10px; background:#0f0f0f; color:#fff; padding:10px; }
+  /* URL 입력/컨트롤 (CopyTube 3-열 레이아웃) */
+  .controls-grid{
+    display:grid;
+    grid-template-columns: minmax(160px, 40%) 1fr 1fr;
+    grid-template-rows: auto auto;
+    gap:10px; align-items:stretch; margin:10px 0 8px;
+  }
+  .order-col{ display:grid; grid-template-rows: 1fr 1fr; gap:10px; }
+  .pill-radio{
+    display:flex; align-items:center; gap:10px;
+    padding:12px 14px; border-radius:10px;
+    background:#121212; border:1px solid #2a2a2a; color:#e5e7eb; font-weight:700;
+  }
+  .pill-radio input{ accent-color:#4ea1ff; transform:scale(1.1); }
+  .btn-clip, .btn-submit{
+    grid-row: span 2; display:flex; align-items:center; justify-content:center; text-align:center;
+    border:0; border-radius:12px; cursor:pointer; font-weight:800; line-height:1.2;
+    padding:0 12px; min-height:96px;
+  }
+  @media (min-width:900px){ .btn-clip, .btn-submit{ min-height:110px; } }
+  .btn-clip{ background:#22c55e; color:#000; font-size:16px; white-space:normal; word-break:keep-all; }
+  .btn-submit{ background:#4ea1ff; color:#fff; font-size:16px; }
 
-    /* 3열 컨트롤 바 (CopyTube처럼) */
-    .controls-grid{ display:grid; grid-template-columns: minmax(160px, 40%) 1fr 1fr; gap:10px; align-items:stretch; margin:10px 0 6px; }
-    .order-col{ display:grid; grid-template-rows: 1fr 1fr; gap:10px; }
-    .pill-radio{ display:flex; align-items:center; gap:10px; padding:12px 14px; border-radius:10px; background:#121212; border:1px solid #2a2a2a; color:#e5e7eb; font-weight:700; }
-    .pill-radio input{ accent-color:#4ea1ff; transform:scale(1.08); }
-    .btn-clip, .btn-submit{ grid-row: span 2; display:flex; align-items:center; justify-content:center; text-align:center; border:0; border-radius:12px; cursor:pointer; font-weight:800; line-height:1.2; padding:0 12px; min-height:96px; }
-    .btn-clip{ background:#22c55e; color:#000; font-size:16px; }
-    .btn-submit{ background:#4ea1ff; color:#fff; font-size:16px; }
+  /* 텍스트영역(3줄 기본 + 자동확장) */
+  #urls{
+    display:block; width:100%; min-height:3em; resize:vertical;
+    padding:12px; margin-top:6px; border-radius:8px; border:1px solid #333; background:#000; color:#fff; line-height:1.4;
+  }
 
-    /* 상태 메시지(상단/하단 동기화) */
-    .msg{ margin-top:6px; font-size:13px; color:#ccc; min-height:1.2em; }
-    .ok{ color:#6ef5a9; }
-    .danger{ color:#ff8a8a; }
+  /* 메시지/도움/카테고리 */
+  .msg{ margin-top:10px; font-size:13px; color:#ccc; white-space:pre-line; min-height:1.2em; }
+  .ok{ color:#60ffa3; } .danger{ color:#ff8484; }
+  .muted{ color:#9aa0a6; font-size:12px; margin:10px 0 6px; }
 
-    /* 하단 컨트롤 (좌: 붙여넣기, 우: 등록) */
-    .bottom-bar{ display:flex; gap:10px; align-items:stretch; justify-content:space-between; margin:10px 0 6px; }
-    .bottom-left{ display:flex; gap:10px; align-items:stretch; }
-    .btn{ padding:8px 12px; border-radius:10px; border:1px solid #2a2a2a; background:#151515; color:#fff; cursor:pointer; }
-    .btn:hover{ background:#1a1a1a; }
-    .btn-clipboard{ background:#22c55e; color:#000; border:0; font-weight:800; }
+  /* 카테고리(인덱스와 동일 밀도/모양) */
+  .group{ border:1px solid var(--border); border-radius:12px; background:var(--bg-3); padding:6px 6px 8px; margin:3px 0; text-align:left; max-width:900px; margin-left:auto; margin-right:auto; }
+  .group legend{ padding:0 4px; font-weight:800; font-size:15px; color:#eee; margin-bottom:0; line-height:1.05; display:inline-flex; gap:6px; align-items:center; }
+  .group .subnote{ font-size:12px; color:#9aa0a6; margin-left:6px; }
+  .child-grid{ margin-top:0; display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:4px; }
+  @media (min-width:900px){ .child-grid{ grid-template-columns:repeat(4, minmax(0,1fr)); } }
+  .child-grid label{ background:#0f0f0f; border:1px solid #2a2a2a; border-radius:8px; padding:6px 8px; font-size:14px; line-height:1.2; display:flex; gap:6px; align-items:center; justify-content:flex-start; }
+  .child-grid input[type="checkbox"]{ accent-color:#4ea1ff; transform:scale(1.05); }
 
-    /* 카테고리 그리드(촘촘) */
-    .child-grid{ margin-top:-2px; display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:4px; }
-    @media (min-width:900px){ .child-grid{ grid-template-columns:repeat(4, minmax(0,1fr)); } }
-    .child-grid label{ background:#0f0f0f; border:1px solid #2a2a2a; border-radius:8px; padding:6px 8px; font-size:14px; line-height:1.2; display:flex; gap:6px; align-items:center; justify-content:flex-start; }
-    .rename-inline{ margin-left:auto; font-size:12px; padding:4px 6px; border-radius:6px; border:1px solid #2a2a2a; background:#0f0f0f; color:#ddd; cursor:pointer; }
-    .rename-inline:hover{ background:#141414; }
+  /* 하단 바 */
+  .bottom-actions{ display:flex; gap:8px; align-items:stretch; margin-top:10px; }
+  .btn{ padding:8px 12px; border-radius:10px; border:1px solid #2a2a2a; background:#151515; color:#fff; cursor:pointer; }
+  .btn:hover{ background:#1a1a1a; }
+  .btn-clip2{ background:#22c55e; color:#000; font-weight:800; border:0; }
+  .btn-submit2{ background:#4ea1ff; color:#fff; font-weight:800; border:0; }
 
-    /* urlfind 모달 */
-    .modal{ position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; z-index:50; }
-    .modal.show{ display:flex; }
-    .modal .sheet{ width:min(960px, 92vw); height:min(80vh, 720px); background:var(--bg-2); border:1px solid var(--border); border-radius:12px; padding:10px; display:flex; flex-direction:column; }
-    .modal .sheet header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
-    .modal .sheet .body{ flex:1 1 auto; overflow:auto; background:#0f0f0f; border:1px solid #2a2a2a; border-radius:10px; padding:8px; }
+  /* 모달 */
+  .modal{ position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; z-index:50; }
+  .modal.show{ display:flex; }
+  .modal .sheet{ width:min(960px, 92vw); height:min(80vh, 720px); background:var(--bg-2); border:1px solid var(--border); border-radius:12px; padding:10px; display:flex; flex-direction:column; }
+  .modal .sheet header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+  .modal .sheet .body{ flex:1 1 auto; overflow:auto; background:#0f0f0f; border:1px solid #2a2a2a; border-radius:10px; padding:8px; }
 
-    /* 슬라이드 트랜지션 + 스와이프 대응 */
-    @keyframes pageSlideLeft { from { transform: translateX(0); opacity:1; } to { transform: translateX(-22%); opacity:.92; } }
-    @keyframes pageSlideRight{ from { transform: translateX(0); opacity:1; } to { transform: translateX(22%);  opacity:.92; } }
-    :root.slide-out-left  body { animation: pageSlideLeft 0.26s ease forwards; }
-    :root.slide-out-right body { animation: pageSlideRight 0.26s ease forwards; }
-    @media (prefers-reduced-motion: reduce){
-      :root.slide-out-left  body, :root.slide-out-right body { animation:none; }
-    }
+  /* 슬라이드 트랜지션 */
+  @keyframes pageSlideLeft { from{ transform:translateX(0); opacity:1;} to{ transform:translateX(-22%); opacity:.92;} }
+  @keyframes pageSlideRight{ from{ transform:translateX(0); opacity:1;} to{ transform:translateX(22%);  opacity:.92;} }
+  :root.slide-out-left  body{ animation: pageSlideLeft .26s ease forwards; }
+  :root.slide-out-right body{ animation: pageSlideRight .26s ease forwards; }
+  @media (prefers-reduced-motion:reduce){ :root.slide-out-left body,:root.slide-out-right body{ animation:none; } }
   </style>
 
   <!-- PWA -->
@@ -119,70 +136,72 @@
   <link rel="apple-touch-icon" href="/image/arktube_icon_192b.png">
 </head>
 <body>
+  <!-- 상단바 -->
   <header id="topbar">
     <div class="brand">
       <a href="/index.html" aria-label="ArkTube 홈으로">
-        <img class="brand-logo" src="/image/arktube_side.png" alt="ArkTube"/>
+        <img class="brand-logo" src="/image/arktube_side.png" alt="ArkTube">
       </a>
     </div>
-    <div class="right">
+    <div class="right" style="position:relative;">
       <a id="signupLink" class="link" href="/signup.html">Sign up</a>
       <a id="signinLink" class="link" href="/signin.html">Sign in</a>
       <span id="welcome" class="welcome"></span>
       <button id="menuBtn" class="icon" aria-label="menu">三</button>
       <div id="dropdownMenu" class="dropdown hidden" role="menu" aria-hidden="true">
-        <button id="btnAbout" class="menu-strong" type="button">ArkTube는…</button>
+        <button id="btnAbout"     type="button">ArkTube는…</button>
+        <button id="btnCatOrder"  type="button">카테고리순서</button>
         <button id="btnMyUploads" type="button">내영상관리</button>
-        <button id="btnList" type="button">영상목록</button>
-        <button id="btnGoUpload" class="menu-strong" type="button">추천영상등록</button>
-        <button id="btnCatOrder" type="button">카테고리순서</button>
+        <button id="btnList"      type="button">영상목록</button>
+        <button id="btnUrlFind"   class="menu-strong" type="button">Playlist URL 추출</button>
         <hr class="custom-separator"/>
-        <button id="btnUrlFind" type="button" style="font-weight:700;">Playlist URL 추출</button>
-        <button id="btnSignOut" type="button">Sign out</button>
+        <button id="btnSignOut"   type="button">Sign out</button>
       </div>
     </div>
   </header>
 
-  <main class="intro" style="align-items:flex-start; padding-top:48px;">
-    <div style="max-width:900px; width:100%; text-align:left;">
-      <h2>추천영상 등록</h2>
+  <main>
+    <h2>추천영상 등록</h2>
 
-      <!-- URL 입력 -->
-      <textarea id="urls" rows="3" placeholder="https://youtu.be/aaa...&#10;https://www.youtube.com/watch?v=bbb..."></textarea>
+    <label style="display:block;margin-top:14px;">YouTube 공유 URL들 (여러 줄 가능)
+      <textarea id="urls" rows="3" placeholder="https://youtu.be/aaa...
+https://www.youtube.com/watch?v=bbb...
+..."></textarea>
+    </label>
 
-      <!-- 3열 컨트롤: 왼쪽(순서 2행), 중간(클립보드), 오른쪽(등록) -->
-      <div class="controls-grid" id="controlsGrid">
-        <div class="order-col">
-          <label class="pill-radio"><input type="radio" name="order" value="top"> 위부터 등록</label>
-          <label class="pill-radio"><input type="radio" name="order" value="bottom" checked> 아래부터 등록</label>
-        </div>
-        <button id="btnPasteTop" class="btn-clip" type="button" title="클립보드에서 붙여넣기">클립보드<br/>붙여넣기</button>
-        <button id="btnSubmitTop" class="btn-submit" type="button">등록</button>
+    <!-- 3열 컨트롤 -->
+    <div class="controls-grid" id="controlsGrid">
+      <div class="order-col">
+        <label class="pill-radio"><input type="radio" name="order" value="bottom" checked> 아래부터 등록</label>
+        <label class="pill-radio"><input type="radio" name="order" value="top"> 위부터 등록</label>
       </div>
-
-      <!-- 상단 메시지 -->
-      <div id="msgTop" class="msg"></div>
-
-      <!-- 안내 -->
-      <p style="margin:10px 0 6px;color:#bfc6ce;">카테고리는 <b>최대 3개</b>까지 선택 가능합니다.</p>
-
-      <!-- 카테고리 -->
-      <section class="group">
-        <legend>카테고리 선택</legend>
-        <div id="catHost"></div>
-      </section>
-
-      <!-- 하단 컨트롤(붙여넣기 + 등록 동기화) -->
-      <div class="bottom-bar">
-        <div class="bottom-left">
-          <button id="btnPaste" class="btn btn-clipboard" type="button">클립보드 붙여넣기</button>
-        </div>
-        <button id="btnSubmit" class="btn-submit" type="button" style="min-height:56px;">등록</button>
-      </div>
-
-      <!-- 하단 메시지 -->
-      <div id="msg" class="msg"></div>
+      <button id="btnPasteTop" class="btn-clip" type="button" title="클립보드에서 붙여넣기">클립보드<br/>붙여넣기</button>
+      <button id="btnSubmitTop" class="btn-submit" type="button">등록</button>
     </div>
+
+    <div id="msgTop" class="msg"></div>
+
+    <details class="help" id="regHelp" style="margin:10px 0 8px;">
+      <summary style="display:flex;gap:8px;align-items:center;cursor:pointer;user-select:none;font-weight:800;color:#e5e7eb;list-style:none;">
+        <span class="chev" style="display:inline-block;transition:transform .2s ease;font-size:12px;opacity:.85;">▶</span>
+        <span>영상등록 도움말</span>
+      </summary>
+      <div class="help-body" style="margin-top:8px;color:#bfc6ce;font-size:14px;line-height:1.6;">
+        • URL 입력칸에 직접 붙여넣거나, “클립보드 붙여넣기” 버튼을 사용하세요.<br/>
+        • 한 줄에 1개의 URL을 넣고, 카테고리 선택 후 등록을 누르면 일괄 등록됩니다.<br/>
+        • 시리즈는 피드 최신순이라 보통 <b>아래부터 등록</b>을 권장합니다.
+      </div>
+    </details>
+
+    <p class="muted">카테고리는 <b>최대 3개</b>까지 선택 가능합니다.</p>
+    <div id="cats"></div>
+
+    <!-- 하단 버튼/메시지 (상단과 동기화) -->
+    <div class="bottom-actions">
+      <button id="btnPasteBottom" class="btn btn-clip2" type="button">클립보드 붙여넣기</button>
+      <button id="btnSubmitBottom" class="btn btn-submit2" type="button">등록</button>
+    </div>
+    <div id="msg" class="msg"></div>
   </main>
 
   <!-- UrlFind 모달 -->
@@ -190,18 +209,19 @@
     <div class="sheet">
       <header>
         <strong>Playlist URL 추출</strong>
-        <button id="urlfindClose" class="btn">닫기</button>
+        <button id="urlfindClose" class="btn" type="button" aria-label="닫기">닫기</button>
       </header>
       <div class="body" id="urlfindBody"></div>
     </div>
   </div>
 
   <!-- 모듈 -->
+  <script>/* API 키 합집합 지원 */ window.YT_DATA_API_KEY = window.YT_DATA_API_KEY || window.YT_API_KEY || null;</script>
   <script type="module" src="/js/firebase-init.js"></script>
   <script type="module" src="/js/auth.js"></script>
   <script type="module" src="/js/categories.js"></script>
   <script type="module" src="/js/youtube-utils.js"></script>
   <script type="module" src="/js/urlfind.js"></script>
-  <script type="module" src="/js/upload.js"></script>
+  <script type="module" src="/js/upload.v15.arktube.js"></script>
 </body>
 </html>
