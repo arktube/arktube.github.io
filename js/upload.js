@@ -389,41 +389,44 @@ async function submitAll(){
       ...(publishedAt ? { youtubePublishedAt: publishedAt } : {})
     };
 
-    // 보기 좋은 디버그
-    console.groupCollapsed('[upload] setDoc try', e.id);
-    console.log('docPath', 'videos/' + e.id);
-    console.log('user.uid', user.uid, 'displayName', user.displayName);
-    console.log('cats', cats);
-    console.log('type', e.type, 'url', e.url);
-    console.log('publishedAt', publishedAt);
-    console.log('payload', payload);
+/* ===== 프리플라이트: Firestore 규칙과 동일 조건으로 사전검사 + 자세한 로그 ===== */
+(function preflight() {
+  const errs = [];
+
+  // 프로젝트/사용자 확인
+  try { console.info('[firebase] projectId:', db.app?.options?.projectId); } catch {}
+  console.info('[preflight] auth.uid:', auth.currentUser?.uid || null);
+
+  // 1) uid 자기 자신
+  if (!(auth.currentUser && payload.uid === auth.currentUser.uid))
+    errs.push('uid: request.auth.uid != payload.uid (또는 로그인 안됨)');
+
+  // 2) URL 형식
+  if (!/^https:\/\//i.test(payload.url))
+    errs.push('url: https:// 로 시작해야 함');
+
+  // 3) cats (1~3개, 패턴)
+  if (!(Array.isArray(payload.cats) && payload.cats.length >= 1 && payload.cats.length <= 3))
+    errs.push('cats: 최소 1개 ~ 최대 3개');
+  if (!payload.cats.every(v => /^[a-z0-9_]{1,32}$/.test(v)))
+    errs.push('cats: 값은 ^[a-z0-9_]{1,32}$ 패턴만 허용');
+
+  // 4) ytid == 문서 ID
+  if (payload.ytid !== e.id)
+    errs.push(`ytid: payload.ytid(${payload.ytid}) != docId(${e.id})`);
+
+  // 참고: 마지막 시도 payload 전체 출력
+  try {
+    console.log('docId', e.id);
+    console.log('payload (last tried)', JSON.stringify(payload, null, 2));
+  } catch {}
+
+  if (errs.length) {
+    console.group('[preflight] errors');
+    errs.forEach(x => console.warn(' -', x));
     console.groupEnd();
-    (window.__lastPayloads ||= []).push({ id: e.id, payload, ts: Date.now() });
-
-    // 규칙 핵심 체크(콘솔 경고)
-    console.assert(payload.ytid === e.id, 'ytid != doc id');
-    console.assert(/^https:\/\//.test(payload.url), 'url invalid');
-    console.assert(Array.isArray(payload.cats) && payload.cats.length>=1 && payload.cats.length<=3, 'cats invalid length');
-    console.assert(payload.cats.every(c => /^[a-z0-9_]{1,32}$/.test(c)), 'cats value not matched');
-
-// 규칙과 동일한 사전검사 + 자세한 로그
-const pfErrs = preflightCheck(payload, e.id, user);
-console.groupCollapsed('[upload] preflight', e.id);
-console.log('docPath', 'videos/' + e.id);
-console.log('auth.uid', user?.uid);
-console.log('payload', JSON.parse(JSON.stringify({
-  ...payload,
-  createdAt: '[serverTimestamp()]', // stringify 가려짐 방지 표기
-})));
-console.log('preflight errors', pfErrs);
-console.groupEnd();
-
-if (pfErrs.length){
-  fail++;
-  setStatusHTML(`<span class="danger">로컬 유효성 실패:</span> ${pfErrs.join(', ')}`);
-  continue; // setDoc 호출하지 않음
-}
-
+  }
+})();
 await setDoc(ref, payload, { merge:false });
 ok++;
 
