@@ -15,6 +15,13 @@ import {
 
  // 디버그 토글 (원하면 주석 처리)
  try { setLogLevel('debug'); } catch {}
+
+// === 프로젝트/앱 확인 로그 (import들 바로 아래) ===
+try {
+  console.info('[app] projectId(db):',  db.app?.options?.projectId);
+  console.info('[app] projectId(auth):', auth.app?.options?.projectId);
+} catch(e){}
+
   
 /*} from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';*/
 
