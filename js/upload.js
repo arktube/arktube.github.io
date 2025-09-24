@@ -398,6 +398,12 @@ async function submitAll(){
       ...(publishedAt ? { youtubePublishedAt: publishedAt } : {})
     };
 
+        // === 여기 "payload 직후" 한 줄(여러 줄) 추가 ===
+    console.groupCollapsed('[preflight quick]');
+    console.log('auth.uid:', auth.currentUser?.uid);
+    console.log('docId:', e.id);
+    console.log('payload:', payload);
+    console.groupEnd();
 /* ===== 프리플라이트: Firestore 규칙과 동일 조건으로 사전검사 + 자세한 로그 ===== */
 (function preflight() {
   const errs = [];
