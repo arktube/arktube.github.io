@@ -436,7 +436,7 @@ $('#btnSubmitBottom')?.addEventListener('click', submitAll);
     const t=(e.changedTouches&&e.changedTouches[0])||(e.pointerType?e:null); if(!t) return;
     const dx=t.clientX-x0, dy=t.clientY-y0, dt=Date.now()-t0;
     if(canceled || Math.abs(dy)>slop || dt>timeMax){ reset(); return; }
-    if(dx>=-threshold && goRightHref){ page.style.transition='transform 160ms ease'; page.style.transform='translateX(100vw)'; setTimeout(()=>{ location.href=goRightHref; },150); } else reset();
+    if(dx>=threshold && goRightHref){ page.style.transition='transform 160ms ease'; page.style.transform='translateX(100vw)'; setTimeout(()=>{ location.href=goRightHref; },150); } else reset();
   }
   document.addEventListener('touchstart',start,{passive:true});
   document.addEventListener('touchmove', move ,{passive:false});
