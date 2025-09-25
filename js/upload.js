@@ -1,32 +1,31 @@
 // upload.v15.arktube.js — CopyTube v1.5 UI + ArkTube 기능 스펙
-// - setDoc(docId=videoId) / 필수필드 uid,url,cats,ytid + 추가 type,ownerName,createdAt,(youtubePublishedAt)
+// - Firestore setDoc(docId = YouTube videoId)
+// - 규칙에 맞춰 필수 필드: uid, url, cats, ytid, title
+// - 추가 저장: type('video'|'shorts'), ownerName, createdAt(serverTimestamp), (youtubePublishedAt)
 // - series/personal 판별: series_ prefix || g.isSeries===true / g.personal===true
-// - 개인자료 personal1~4 로컬 저장, 라벨 12자 제한
+// - 개인자료 personal1~4 로컬 저장(이름 변경, 12자 제한)
 // - 상/하단 버튼/메시지/클립보드 동기화
 // - UrlFind 내장 모달 mount/unmount
-// - 스와이프: 단순/고급(데드존 18%), 좌로 스와이프 → index
+// - 스와이프 내비게이션
+// - 풍부한 디버그 로그 (projectId, auth uid, payload 등)
 
 import { auth, db } from './firebase-init.js';
 import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
 import { CATEGORY_MODEL, CATEGORY_GROUPS } from './categories.js';
 import { isAllowedYouTube, parseYouTube } from './youtube-utils.js';
 import {
-  doc, getDoc, setDoc, serverTimestamp, setLogLevel } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
+  doc, getDoc, setDoc, serverTimestamp, setLogLevel
+} from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
 
- // 디버그 토글 (원하면 주석 처리)
- try { setLogLevel('debug'); } catch {}
+try { setLogLevel('debug'); } catch {}
 
-// === 프로젝트/앱 확인 로그 (import들 바로 아래) ===
 try {
   console.info('[app] projectId(db):',  db.app?.options?.projectId);
   console.info('[app] projectId(auth):', auth.app?.options?.projectId);
-} catch(e){}
-
-  
-/*} from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';*/
+} catch {}
 
 /* ---------- 유틸 ---------- */
-const $ = (s)=>document.querySelector(s);
+const $  = (s)=>document.querySelector(s);
 const esc = (s='')=> String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
 function setStatusHTML(html){
   const top = $('#msgTop'), bottom = $('#msg');
@@ -40,6 +39,48 @@ function enableButtons(on=true){
   $('#btnPasteTop')    && ($('#btnPasteTop').disabled    = !on);
   $('#btnPasteBottom') && ($('#btnPasteBottom').disabled = !on);
 }
+
+/* ----- 제목/게시일 취득 유틸 ----- */
+function cleanTitle(s=''){
+  s = String(s).trim().replace(/\s+/g,' ');
+  return s.slice(0, 200);
+}
+
+// API 키가 있으면 Data API로 title/publishedAt, 없으면 oEmbed로 title만 시도
+async function fetchYouTubeMeta(videoId, fullUrl){
+  const meta = { title: null, publishedAt: null };
+  const API_KEY = (typeof window!=='undefined' ? (window.YT_DATA_API_KEY || window.YT_API_KEY || null) : null);
+
+  if (API_KEY) {
+    try {
+      const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${encodeURIComponent(videoId)}&key=${encodeURIComponent(API_KEY)}`;
+      const r = await fetch(url);
+      if (r.ok) {
+        const j = await r.json();
+        const sn = j?.items?.[0]?.snippet;
+        if (sn) {
+          meta.title = cleanTitle(sn.title || '');
+          meta.publishedAt = sn.publishedAt || null;
+          return meta;
+        }
+      }
+    } catch {}
+  }
+
+  // oEmbed (제목만)
+  try {
+    const o = `https://www.youtube.com/oembed?url=${encodeURIComponent(fullUrl)}&format=json`;
+    const r = await fetch(o);
+    if (r.ok) {
+      const j = await r.json();
+      meta.title = cleanTitle(j?.title || '');
+    }
+  } catch {}
+
+  return meta;
+}
+
+// 규칙과 동일한 사전 점검(로그만)
 function preflightCheck(payload, docId, user){
   const errs = [];
   if (!user?.uid) errs.push('no auth');
@@ -52,10 +93,12 @@ function preflightCheck(payload, docId, user){
   if (!Array.isArray(payload.cats) || !payload.cats.every(c=>/^[a-z0-9_]{1,32}$/.test(c||'')))
     errs.push('cats value invalid (^[a-z0-9_]{1,32}$)');
 
-  if (payload.ytid && payload.ytid !== docId) errs.push(`ytid != docId (${payload.ytid} != ${docId})`);
+  if (payload.ytid !== docId) errs.push(`ytid != docId (${payload.ytid} != ${docId})`);
+
+  if (!payload.title || !payload.title.trim()) errs.push('title empty');
+
   return errs;
 }
-
 
 /* ---------- 상단바/드롭다운 ---------- */
 const signupLink  = $('#signupLink');
@@ -79,12 +122,7 @@ onAuthStateChanged(auth, (user)=>{
   signupLink?.classList.toggle('hidden', loggedIn);
   signinLink?.classList.toggle('hidden', loggedIn);
   if (welcome) {
-    if (loggedIn) {
-      const name = user?.displayName || '회원';
-      welcome.textContent = `ThankU! ${name}님`;
-    } else {
-      welcome.textContent = '';
-    }
+    welcome.textContent = loggedIn ? `ThankU! ${(user?.displayName||'회원')}님` : '';
   }
   closeDropdown();
 });
@@ -96,11 +134,7 @@ dropdown?.addEventListener('click', (e)=> e.stopPropagation());
 
 btnAbout    ?.addEventListener('click', ()=>{ location.href='/about.html'; closeDropdown(); });
 btnCatOrder ?.addEventListener('click', ()=>{ location.href='/category-order.html'; closeDropdown(); });
-btnMyUploads?.addEventListener('click', ()=>{
-  if(auth.currentUser) location.href='/manage-uploads.html';
-  else location.href='/signin.html';
-  closeDropdown();
-});
+btnMyUploads?.addEventListener('click', ()=>{ location.href= auth.currentUser ? '/manage-uploads.html' : '/signin.html'; closeDropdown(); });
 btnSignOut  ?.addEventListener('click', async ()=>{ if(!auth.currentUser){ location.href='/signin.html'; return; } try{ await fbSignOut(auth); } finally{ closeDropdown(); } });
 btnList     ?.addEventListener('click', ()=>{ location.href='/list.html'; closeDropdown(); });
 
@@ -125,7 +159,7 @@ function closeUrlFindModal(){
   try{ if(window.UrlFind?.unmount) window.UrlFind.unmount(urlfindBody); }catch{}
 }
 
-/* ---------- URL 텍스트박스 (3줄 기본 + 자동확장) ---------- */
+/* ---------- URL 텍스트박스 ---------- */
 const $urls = $('#urls');
 function autoGrowTA(el){
   el.style.height = 'auto';
@@ -208,15 +242,11 @@ function renderCategories(){
 
     g.children.forEach(c=>{
       const lab = document.createElement('label');
-
       const inp = document.createElement('input');
       inp.type='checkbox'; inp.value=c.value;
-
       const span = document.createElement('span');
       span.textContent = ' ' + (g.isPersonal ? personalLabel(c.value) : (c.label||c.value));
-
-      lab.appendChild(inp);
-      lab.appendChild(span);
+      lab.appendChild(inp); lab.appendChild(span);
 
       if(g.isPersonal){
         const btn = document.createElement('button');
@@ -232,13 +262,12 @@ function renderCategories(){
         lab.appendChild(document.createTextNode(' '));
         lab.appendChild(btn);
       }
-
       grid.appendChild(lab);
     });
-        // ✅ 개인자료 그룹일 경우 안내문 추가
+
     if (g.isPersonal) {
       const note = document.createElement('div');
-      note.className = 'muted';   // 이미 정의된 회색 작은 글씨 스타일
+      note.className = 'muted';
       note.textContent = '개인자료는 단독 등록/재생만 가능합니다.';
       fs.appendChild(note);
     }
@@ -248,7 +277,7 @@ function renderCategories(){
 
   $cats.appendChild(frag);
 
-  // 선택 제약: change 이벤트 타겟을 기준으로 롤백 (가장 정확)
+  // 선택 제약
   $cats.addEventListener('change', (e)=>{
     const t = e.target;
     if(!(t instanceof HTMLInputElement) || t.type!=='checkbox') return;
@@ -274,19 +303,6 @@ renderCategories();
 
 function getChosenCats(){
   return Array.from($cats?.querySelectorAll('input[type="checkbox"]:checked')||[]).map(b=> b.value);
-}
-
-/* ---------- YouTube PublishedAt ---------- */
-async function fetchPublishedAt(videoId){
-  const API_KEY = (typeof window!=='undefined' ? (window.YT_DATA_API_KEY || window.YT_API_KEY || null) : null);
-  if(!API_KEY) return null;
-  try{
-    const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${encodeURIComponent(videoId)}&key=${encodeURIComponent(API_KEY)}`;
-    const res = await fetch(url);
-    if(!res.ok) return null;
-    const data = await res.json();
-    return data?.items?.[0]?.snippet?.publishedAt || null;
-  }catch{ return null; }
 }
 
 /* ---------- 클립보드 ---------- */
@@ -365,110 +381,81 @@ async function submitAll(){
   enableButtons(false);
   setStatusHTML('등록 시작...');
 
- for (const e of entries) {
-  if (!e.ok) { bad++; continue; }
-  const ref = doc(db,'videos', e.id);
+  for (const e of entries) {
+    if (!e.ok) { bad++; continue; }
+    const ref = doc(db,'videos', e.id);
 
-  // <-- catch에서도 보이도록 밖에 선언
-  let payload; 
-  let publishedAt = null;
+    let payload;
+    try {
+      // 중복 체크
+      const exists = await getDoc(ref);
+      if(exists.exists()){
+        const data = exists.data() || {};
+        const existedCats = Array.isArray(data.cats) ? data.cats : [];
+        const labels = existedCats.map(v=> esc(CATIDX.labelOf(v))).join(', ');
+        dup++;
+        setStatusHTML(`이미 등록됨: <b>${esc(e.id)}</b> (카테고리: ${labels||'없음'})  ·  <span class="ok">성공 ${ok}</span> / <span class="danger">중복 ${dup}</span> / 실패 ${fail} / 무시 ${bad}`);
+        continue;
+      }
 
-  try {
-    const exists = await getDoc(ref);
-    if (exists.exists()) {
-      const data = exists.data() || {};
-      const existedCats = Array.isArray(data.cats) ? data.cats : [];
-      const labels = existedCats.map(v => esc(CATIDX.labelOf(v))).join(', ');
-      dup++;
-      setStatusHTML(`이미 등록됨: <b>${esc(e.id)}</b> (카테고리: ${labels||'없음'})  ·  <span class="ok">성공 ${ok}</span> / <span class="danger">중복 ${dup}</span> / 실패 ${fail} / 무시 ${bad}`);
-      continue;
+      // 메타 취득 (title 필수, publishedAt 선택)
+      const meta = await fetchYouTubeMeta(e.id, e.url);
+      let title = cleanTitle(meta.title || '');
+      if (!title) {
+        // 마지막 보루: URL에서 대충 뽑거나 기본값
+        title = '제목없음';
+      }
+      const publishedAt = meta.publishedAt || null;
+
+      payload = {
+        uid: user.uid,
+        url: e.url,
+        cats: cats.slice(),
+        ytid: e.id,
+        type: e.type,
+        ownerName: user.displayName || '',
+        createdAt: serverTimestamp(),
+        title,
+        ...(publishedAt ? { youtubePublishedAt: publishedAt } : {})
+      };
+
+      // 프리플라이트 로그
+      (function(){
+        console.groupCollapsed('[preflight quick]');
+        console.log('auth.uid:', auth.currentUser?.uid);
+        console.log('docId:', e.id);
+        console.log('payload:', payload);
+        const errs = preflightCheck(payload, e.id, user);
+        if (errs.length) {
+          console.warn('preflight errors:', errs);
+        }
+        console.groupEnd();
+      })();
+
+      await setDoc(ref, payload, { merge:false });
+      ok++;
+      setStatusHTML(`<span class="ok">${ok}건 등록 성공</span> · 중복 ${dup} · 실패 ${fail} · 무시 ${bad}`);
+    } catch (err) {
+      console.group('[upload] save fail');
+      console.error('error object', err);
+      console.error('code:', err?.code, 'message:', err?.message);
+      console.log('docId', e.id);
+      console.log('payload (last tried)', payload);
+      console.groupEnd();
+      fail++;
+      setStatusHTML(`<span class="danger">일부 실패</span>: 성공 ${ok}, 중복 ${dup}, 실패 ${fail}, 무시 ${bad}`);
     }
-
-    publishedAt = await fetchPublishedAt(e.id);
-    console.log('[debug] chosen cats =', cats); // ← 여기 한 줄 추가
-    console.log('payload(preview)=', { uid:user.uid, url:e.url, cats:cats, ytid:e.id, type:e.type });
-    payload = {
-      uid: user.uid,
-      url: e.url,
-      cats: cats.slice(),
-      ytid: e.id,
-      type: e.type,
-      ownerName: user.displayName || '',
-      createdAt: serverTimestamp(),
-      title: e.title || '',   // 👈 여기 title 추가
-      ...(publishedAt ? { youtubePublishedAt: publishedAt } : {}) 
-    };
-
-        // === 여기 "payload 직후" 한 줄(여러 줄) 추가 ===
-    console.groupCollapsed('[preflight quick]');
-    console.log('auth.uid:', auth.currentUser?.uid);
-    console.log('docId:', e.id);
-    console.log('payload:', payload);
-    console.groupEnd();
-/* ===== 프리플라이트: Firestore 규칙과 동일 조건으로 사전검사 + 자세한 로그 ===== */
-(function preflight() {
-  const errs = [];
-
-  // 프로젝트/사용자 확인
-  try { console.info('[firebase] projectId:', db.app?.options?.projectId); } catch {}
-  console.info('[preflight] auth.uid:', auth.currentUser?.uid || null);
-
-  // 1) uid 자기 자신
-  if (!(auth.currentUser && payload.uid === auth.currentUser.uid))
-    errs.push('uid: request.auth.uid != payload.uid (또는 로그인 안됨)');
-
-  // 2) URL 형식
-  if (!/^https:\/\//i.test(payload.url))
-    errs.push('url: https:// 로 시작해야 함');
-
-  // 3) cats (1~3개, 패턴)
-  if (!(Array.isArray(payload.cats) && payload.cats.length >= 1 && payload.cats.length <= 3))
-    errs.push('cats: 최소 1개 ~ 최대 3개');
-  if (!payload.cats.every(v => /^[a-z0-9_]{1,32}$/.test(v)))
-    errs.push('cats: 값은 ^[a-z0-9_]{1,32}$ 패턴만 허용');
-
-  // 4) ytid == 문서 ID
-  if (payload.ytid !== e.id)
-    errs.push(`ytid: payload.ytid(${payload.ytid}) != docId(${e.id})`);
-
-  // 참고: 마지막 시도 payload 전체 출력
-  try {
-    console.log('docId', e.id);
-    console.log('payload (last tried)', JSON.stringify(payload, null, 2));
-  } catch {}
-
-  if (errs.length) {
-    console.group('[preflight] errors');
-    errs.forEach(x => console.warn(' -', x));
-    console.groupEnd();
   }
-})();
-await setDoc(ref, payload, { merge:false });
-ok++;
-
-    setStatusHTML(`<span class="ok">${ok}건 등록 성공</span> · 중복 ${dup} · 실패 ${fail} · 무시 ${bad}`);
-  } catch (err) {
-    console.group('[upload] save fail');
-    console.error('error object', err);
-    console.error('code:', err?.code, 'message:', err?.message);
-    console.log('docId', e.id);
-    console.log('payload (last tried)', payload); // 이제 안전
-    console.groupEnd();
-    fail++;
-    setStatusHTML(`<span class="danger">일부 실패</span>: 성공 ${ok}, 중복 ${dup}, 실패 ${fail}, 무시 ${bad}`);
-  }
-}
-
 
   enableButtons(true);
   setStatusHTML(`<span class="ok">완료</span> · 성공 ${ok} · 중복 ${dup} · 실패 ${fail} · 무시(비유튜브/파싱실패) ${bad}`);
 }
 
-/* 상/하단 등록 버튼 동기화 */
+/* 버튼 이벤트 */
 $('#btnSubmitTop')   ?.addEventListener('click', submitAll);
 $('#btnSubmitBottom')?.addEventListener('click', submitAll);
 
-/* ---------- 스와이프 내비 (dead-zone 18%) ---------- */
+/* ---------- 스와이프 내비 ---------- */
 // 단순형: 왼쪽으로 스와이프 시 index로
 (function simpleSwipe({ goRightHref='/index.html', deadZoneCenterRatio=0.18 }={}){
   let sx=0, sy=0, t0=0, tracking=false;
