@@ -23,43 +23,64 @@ service cloud.firestore {
     }
 
     /* ── 유효성(영상) ── */
+    // 이전: size() <= 3  →  이후: 최소 1개 & 최대 3개  // ★
     function validCats(cats) {
       return cats is list
-        && cats.size() <= 3
+        && cats.size() >= 1 && cats.size() <= 3   // ★
         && cats.all(c, c is string && c.matches('^[a-z0-9_]{1,32}$'));
     }
     function validUrl(u) {
       return isString(u) && u.matches('^https://.+');
     }
 
-    // 생성 시 유효성 (upload.js 필드명과 일치: cats, (옵션) title, ytid)
+    // 생성 시 유효성
+    // 이전: uid/url/cats(+title optional)/(ytid optional==id)
+    // 이후: 위 + ytid는 필수, type/ownerName/createdAt/youtubePublishedAt 허용(형식검사)  // ★
     function validVideoCreate(data, id) {
       return
         ("uid" in data) && isSelf(data.uid) &&
         ("url" in data) && validUrl(data.url) &&
         ("cats" in data) && validCats(data.cats) &&
-        (!("title" in data) || nonEmptyString(data.title, 1, 200)) &&
-        (!("ytid" in data) || data.ytid == id);
+        ("ytid" in data) && data.ytid == id &&                // ★ ytid 필수
+        (!("type" in data) || (data.type == "video" || data.type == "shorts")) &&               // ★
+        (!("ownerName" in data) || isString(data.ownerName)) &&                                  // ★
+        (!("createdAt" in data) || (data.createdAt is timestamp)) &&                              // ★ serverTimestamp 허용
+        ("title" in data) && nonEmptyString(data.title, 1, 200) &&
+        (!("youtubePublishedAt" in data) || isString(data.youtubePublishedAt));                 // ★
+        
     }
 
     // 업데이트 시 유효성 (기본)
+    // 이전: uid 동일 + url/cats(+title/ytid= id)
+    // 이후: type/ownerName/createdAt/youtubePublishedAt도 허용(형식검사)  // ★
     function validVideoUpdate(oldData, newData, id) {
       return
         ("uid" in oldData) && ("uid" in newData) && oldData.uid == newData.uid &&
         ("url" in newData) && validUrl(newData.url) &&
         ("cats" in newData) && validCats(newData.cats) &&
-        (!("title" in newData) || nonEmptyString(newData.title, 1, 200)) &&
-        (!("ytid" in newData) || newData.ytid == id);
+        (!("ytid" in newData) || newData.ytid == id) &&
+        (!("type" in newData) || (newData.type == "video" || newData.type == "shorts")) &&        // ★
+        (!("ownerName" in newData) || isString(newData.ownerName)) &&                             // ★
+        (!("createdAt" in newData) || (newData.createdAt is timestamp)) &&                        // ★
+        ("title" in newData) && nonEmptyString(newData.title, 1, 200) &&
+        (!("youtubePublishedAt" in newData) || isString(newData.youtubePublishedAt));            // ★
+        
     }
 
     // 업데이트 시 유효성 (구문서 소유자(uid) 없음 → 최초 1회 클레임 허용)
+    // 이후: 동일하게 확장 필드 허용  // ★
     function validVideoUpdateClaim(newData, id) {
       return
         ("uid" in newData) && isSelf(newData.uid) &&
         ("url" in newData) && validUrl(newData.url) &&
         ("cats" in newData) && validCats(newData.cats) &&
-        (!("title" in newData) || nonEmptyString(newData.title, 1, 200)) &&
-        (!("ytid" in newData) || newData.ytid == id);
+        (!("ytid" in newData) || newData.ytid == id) &&
+        (!("type" in newData) || (newData.type == "video" || newData.type == "shorts")) &&        // ★
+        (!("ownerName" in newData) || isString(newData.ownerName)) &&                             // ★
+        (!("createdAt" in newData) || (newData.createdAt is timestamp)) &&                        // ★
+        ("title" in newData) && nonEmptyString(newData.title, 1, 200) &&
+        (!("youtubePublishedAt" in newData) || isString(newData.youtubePublishedAt));           // ★
+        
     }
 
     /* ── (1) 프로필 ── */
@@ -94,33 +115,24 @@ service cloud.firestore {
       allow read, delete: if isAdmin();
     }
 
-/* ── (5) 영상 ── */
-match /videos/{id} {
-  // 누구나 읽기
-  allow read: if true;
-
-  // 새로 생성 (로그인 + 밴 아님 + 필드 유효성)
-  allow create: if canWrite() && validVideoCreate(request.resource.data, id);
-
-  // 수정
-  allow update: if
-      isAdmin()                                   // 관리자면 언제나 가능
-      || (
-           canWrite()                             // 로그인 + 미밴
-           && (
-                // (a) 정상 케이스: 기존 소유자만 수정 가능 + 필드 유효성
-                (("uid" in resource.data) && isSelf(resource.data.uid)
-                 && validVideoUpdate(resource.data, request.resource.data, id))
-                ||
-                // (b) 구버전 문서: uid가 없던 문서라면 본인이 최초 1회 소유권 클레임 가능
-                ((!("uid" in resource.data)) && validVideoUpdateClaim(request.resource.data, id))
-              )
-         );
-
-  // 삭제: 관리자 또는 소유자
-  allow delete: if isAdmin()
-                || (canWrite() && ("uid" in resource.data) && isSelf(resource.data.uid));
-}
+    /* ── (5) 영상 ── */
+    match /videos/{id} {
+      allow read: if true;
+      allow create: if canWrite() && validVideoCreate(request.resource.data, id);
+      allow update: if
+        isAdmin() ||
+        (
+          canWrite() &&
+          (
+            (("uid" in resource.data) && isSelf(resource.data.uid) &&
+             validVideoUpdate(resource.data, request.resource.data, id))
+            ||
+            ((!("uid" in resource.data)) && validVideoUpdateClaim(request.resource.data, id))
+          )
+        );
+      allow delete: if isAdmin()
+                 || (canWrite() && ("uid" in resource.data) && isSelf(resource.data.uid));
+    }
 
     /* ── (6) 관리자 표식 ── */
     match /admins/{uid} {
@@ -131,7 +143,7 @@ match /videos/{id} {
     /* ── (7) 로그인 로그(선택) ── */
     match /login_logs/{id} {
       allow read: if isAdmin();
-      allow create: if signedIn();  // ← 로그인한 요청만 기록
+      allow create: if signedIn();
       allow update, delete: if false;
     }
   }
