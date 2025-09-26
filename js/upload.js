@@ -312,6 +312,20 @@ renderCategories();
    const uniq = Array.from(new Set(raw)).filter(Boolean).slice(0, 3);
    return uniq;
  }
+/* ---------- 폼 초기화 유틸 ---------- */
+function resetFormAfterSubmit(){
+  try{
+    // URL 텍스트박스 비우기 + 자동 높이 재계산
+    if ($urls) {
+      $urls.value = '';
+      autoGrowTA($urls);
+    }
+    // 카테고리 체크박스 모두 해제
+    if ($cats) {
+      $cats.querySelectorAll('input[type="checkbox"]').forEach(inp => { inp.checked = false; });
+    }
+  }catch{}
+}
 
 /* ---------- 클립보드 ---------- */
 async function pasteFromClipboard(){
@@ -382,8 +396,10 @@ async function submitAll(){
     const now=Date.now();
     good.forEach(g=> arr.push({ url:g.url, title:'', savedAt:now }));
     try{ localStorage.setItem(key, JSON.stringify(arr)); }catch{}
-    setStatusHTML(`<span class="ok">개인자료(${esc(personalLabel(slot))})에 ${good.length}건 저장 완료</span>`);
-    return;
+      setStatusHTML(`<span class="ok">개인자료(${esc(personalLabel(slot))})에 ${good.length}건 저장 완료</span>`);
+  resetFormAfterSubmit();   // ← 추가
+  return;
+
   }
 
   // 서버 모드
@@ -461,8 +477,14 @@ async function submitAll(){
     }
   }
 
-  enableButtons(true);
-  setStatusHTML(`<span class="ok">완료</span> · 성공 ${ok} · 중복 ${dup} · 실패 ${fail} · 무시(비유튜브/파싱실패) ${bad}`);
+enableButtons(true);
+setStatusHTML(`<span class="ok">완료</span> · 성공 ${ok} · 중복 ${dup} · 실패 ${fail} · 무시(비유튜브/파싱실패) ${bad}`);
+
+if (ok > 0) {
+  // 최소 1건 이상 정상 등록된 경우에만 초기화
+  resetFormAfterSubmit();
+}
+
 }
 
 /* 버튼 이벤트 */
