@@ -301,9 +301,17 @@ function renderCategories(){
 }
 renderCategories();
 
-function getChosenCats(){
-  return Array.from($cats?.querySelectorAll('input[type="checkbox"]:checked')||[]).map(b=> b.value);
-}
+//function getChosenCats(){
+ // return Array.from($cats?.querySelectorAll('input[type="checkbox"]:checked')||[]).map(b=> b.value);
+//}
+ function getChosenCats(){
+   const raw = Array.from(
+     $cats?.querySelectorAll('input[type="checkbox"]:checked') || []
+   ).map(el => String(el?.value ?? '').trim());
+   // 공백 제거, 빈값 제거, 중복 제거, 3개 제한
+   const uniq = Array.from(new Set(raw)).filter(Boolean).slice(0, 3);
+   return uniq;
+ }
 
 /* ---------- 클립보드 ---------- */
 async function pasteFromClipboard(){
@@ -326,7 +334,12 @@ async function submitAll(){
   const raw = ($urls?.value || '').trim();
   if(!raw){ setStatusHTML('<span class="danger">URL을 입력해주세요.</span>'); return; }
 
-  const cats = getChosenCats();
+ // const cats = getChosenCats();
+  const catsRaw = getChosenCats();
+ // 최후 보루: 항상 "문자열 배열(≤3)" 보장
+ const cats = Array.isArray(catsRaw)
+   ? Array.from(new Set(catsRaw.map(v => String(v).trim()).filter(Boolean))).slice(0, 3)
+   : [];
   if(!cats.length){ setStatusHTML('<span class="danger">카테고리를 선택해주세요.</span>'); return; }
   if(cats.length > 3 && !cats.every(CATIDX.isPersonalVal)){ setStatusHTML('<span class="danger">카테고리는 최대 3개까지 선택할 수 있습니다.</span>'); return; }
 
@@ -410,7 +423,8 @@ async function submitAll(){
       payload = {
         uid: user.uid,
         url: e.url,
-        cats: cats.slice(),
+      //  cats: cats.slice(),
+        cats,
         ytid: e.id,
         type: e.type,
         ownerName: user.displayName || '',
