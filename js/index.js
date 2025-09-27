@@ -137,7 +137,7 @@ function getPersonalLabels(){
 }
 
 function renderGroups(){
-  const groups = applyGroupOrder(CATEGORY_GROUPS);
+  const groups = applyGroupOrder(CATEGORY_MODEL?.groups || CATEGORY_GROUPS);
   const personalLabels = getPersonalLabels();
 
   const html = groups.map(g=>{
