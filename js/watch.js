@@ -1,16 +1,41 @@
-// /js/watch.js — ArkTube v0.1
+// /js/watch.js — ArkTube v0.1.1
 // - CopyTube watch 기반(뷰포트·IO·유튜브 postMessage 제어·XSS 방어) + ArkTube 요구 반영
 // - series-only 등록순 asc / 혼합은 최신순 desc + 형식토글 적용
-// - 개인자료 personal1..personal4 로컬 지원
+// - 개인자료 personal1..personal4 로컬 지원 (키: personal_${slot})
 // - 이어보기: /js/resume.js 사용 (10초 스로틀 저장)
+// - FIX: Firestore 필드명 cats로 통일, 개인자료 키 통일
+// - FIX: 완전 전체화면(흰줄 제거)용 스타일 주입
 
 import { auth, db } from './firebase-init.js';
 import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
-import { CATEGORY_GROUPS } from './categories.js';
+import { CATEGORY_MODEL } from './categories.js';
 import * as resume from './resume.js';
 import {
   collection, getDocs, query, where, orderBy, limit, startAfter, doc, getDoc
 } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
+
+/* ---------- Full-bleed 스타일 주입 (흰색 테두리 제거) ---------- */
+(function injectWatchStyles(){
+  if (document.getElementById('watch-fullbleed-css')) return;
+  const s = document.createElement('style');
+  s.id = 'watch-fullbleed-css';
+  s.textContent = `
+html, body { background:#000 !important; margin:0 !important; height:100%; }
+#videoContainer { background:#000 !important; margin:0 !important; padding:0 !important; }
+.video { width:100vw; height:var(--app-vh, 100vh); margin:0 auto; background:#000; position:relative; }
+.video .thumb, .video iframe { width:100%; height:100%; display:block; background:#000; }
+.video .thumb img { width:100%; height:100%; object-fit:cover; background:#000; display:block; }
+.playhint, .mute-tip { position:absolute; left:50%; transform:translateX(-50%); z-index:3;
+  color:#eee; text-shadow:0 1px 2px rgba(0,0,0,.6); }
+.playhint { bottom:14px; font-size:14px; opacity:.9; }
+.mute-tip { top:12px; font-size:12px; opacity:.9; }
+.gesture-capture { position:absolute; inset:0; z-index:4; background:transparent; }
+.gesture-capture.hidden { display:none; }
+#topbar.hide { opacity:0; pointer-events:none; transition:opacity .25s ease; }
+#topbar { transition:opacity .2s ease; }
+`;
+  document.head.appendChild(s);
+})();
 
 /* ---------- viewport fix ---------- */
 function updateVh(){ document.documentElement.style.setProperty('--app-vh', `${window.innerHeight}px`); }
@@ -90,15 +115,15 @@ const PERSONAL_MODE = wantsPersonal && !(SEL_SET && ([...SEL_SET].some(v => !per
 function getViewType(){ return localStorage.getItem('arktube:view:type') || 'all'; } // all|shorts|video
 
 /* ---------- series-only 판별을 위해 series children 집합 구성 ---------- */
-const SERIES_CHILD_SET = (()=> {
-  const set = new Set();
-  CATEGORY_GROUPS.forEach(g=>{
-    if(String(g.key).startsWith('series_')){
-      (g.children||[]).forEach(c => set.add(c.value));
-    }
-  });
-  return set;
-})();
++ const SERIES_CHILD_SET = (()=> {
++   const set = new Set();
++   (CATEGORY_MODEL?.groups || []).forEach(g=>{
++     if(String(g.key).startsWith('series_') || g.isSeries===true){
++       (g.children||[]).forEach(c => set.add(c.value));
++     }
++   });
++   return set;
++ })();
 
 function selectedIsSeriesOnly(){
   const fromUrl = parseCatsFromQuery();
@@ -131,7 +156,6 @@ addEventListener('message',(e)=>{
 
   if(data.event==='onStateChange' && data.info===0 /*ENDED*/){
     const card = winToCard.get(e.source); if(!card) return;
-    // 마지막 진행을 0으로 저장(완주) — resume 모듈
     const vid = card.dataset.vid || '';
     const url = card.dataset.url || '';
     resume.updateFromInfo(vid, url, { currentTime: 0, duration: Number(card.dataset.dur||0)||0, playerState: 0 });
@@ -139,7 +163,6 @@ addEventListener('message',(e)=>{
     return;
   }
 
-  // infoDelivery — 현재 시간/길이 주기적 전달
   if(data.event==='infoDelivery' && data.info){
     const card = winToCard.get(e.source); if(!card) return;
     const vid = card.dataset.vid || '';
@@ -147,7 +170,6 @@ addEventListener('message',(e)=>{
     const ct  = Number(data.info.currentTime||0);
     const dur = Number(data.info.duration||0);
     if(vid) resume.updateFromInfo(vid, url, { currentTime: ct, duration: dur, playerState: data.info.playerState });
-    // 카드에 dur 캐시(완주 판정 보조)
     if(dur>0) card.dataset.dur = String(Math.floor(dur));
   }
 }, false);
@@ -275,9 +297,9 @@ const SERIES_ONLY = selectedIsSeriesOnly(); // 시리즈 단독 모드?
 const VIEW_TYPE = SERIES_ONLY ? 'all' : getViewType(); // 시리즈 단독이면 무시
 
 function matchesFilter(data){
-  // 카테고리
+  // 카테고리 (★ cats로 통일)
   if(CAT_FILTER){
-    const cats = Array.isArray(data?.categories) ? data.categories : [];
+    const cats = Array.isArray(data?.cats) ? data.cats : [];
     let hit=false; for(const v of cats){ if(CAT_FILTER.has(v)){ hit=true; break; } }
     if(!hit) return false;
   }
@@ -298,10 +320,9 @@ function resetFeed(){
 let personalItems=[], personalOffset=0;
 const PERSONAL_PAGE_SIZE = 12;
 function loadPersonalInit(){
-  // 우선순위: URL cats 파라미터 > selectedCats 중 체크된 personal*
   const pArr = parseCatsFromQuery() || Array.from(SEL_SET||[]);
   const slot = pArr.find(v=> personalVals.includes(v)) || 'personal1';
-  const key  = `copytube_${slot}`; // 기존 포맷 호환
+  const key  = `personal_${slot}`; // ★ 업로드와 동일한 키
   try{ personalItems = JSON.parse(localStorage.getItem(key) || '[]'); if(!Array.isArray(personalItems)) personalItems=[]; }catch{ personalItems=[]; }
   personalItems.sort((a,b)=> (b?.savedAt||0) - (a?.savedAt||0));
   personalOffset = 0; hasMore = personalItems.length > 0;
@@ -328,7 +349,6 @@ async function loadMoreCommon(initial=false){
     const base = collection(db, "videos");
     const filterSize = CAT_FILTER ? CAT_FILTER.size : 0;
 
-    // 정렬: 시리즈 단독 asc, 그 외 desc
     const PRIMARY_ORDER = SERIES_ONLY ? ['createdAt','asc'] : ['createdAt','desc'];
 
     // 1) 필터 없음
@@ -343,7 +363,7 @@ async function loadMoreCommon(initial=false){
     // 2) array-contains-any (≤10)
     else if(filterSize <= 10){
       const whereVals = Array.from(CAT_FILTER);
-      const parts=[ where("categories","array-contains-any", whereVals), orderBy(...PRIMARY_ORDER) ];
+      const parts=[ where("cats","array-contains-any", whereVals), orderBy(...PRIMARY_ORDER) ]; // ★ cats
       if(VIEW_TYPE!=='all') parts.push(where('type','==', VIEW_TYPE));
       if(lastDoc) parts.push(startAfter(lastDoc));
       parts.push(limit(PAGE_SIZE));
@@ -470,9 +490,9 @@ async function tryResumeSeries(){
   const seriesKey = sessionStorage.getItem('resumeSeriesKey');
   if(!seriesKey) return false;
 
-  // 시리즈 등록순 asc로 문서 로드
+  // 시리즈 등록순 asc로 문서 로드  (★ cats)
   const base = collection(db, "videos");
-  const q = query(base, where('categories','array-contains', seriesKey), orderBy('createdAt','asc'), limit(120));
+  const q = query(base, where('cats','array-contains', seriesKey), orderBy('createdAt','asc'), limit(120));
   const snap = await getDocs(q);
   if(snap.empty){ sessionStorage.removeItem('resumeSeriesKey'); return false; }
 
@@ -480,21 +500,17 @@ async function tryResumeSeries(){
   const pick = resume.chooseNextInSeries(seriesKey, docsAsc);
   if(!pick?.targetId){ sessionStorage.removeItem('resumeSeriesKey'); return false; }
 
-  // 큐 구성: 시리즈 전체(등록순 asc)로 고정
   resetFeed(); QUEUE_MODE = true; hasMore = false;
   docsAsc.forEach((it)=>{ if(loadedIds.has(it.id)) return; const card = makeCard(it.url, it.id); if(!card) return; loadedIds.add(it.id); videoContainer.appendChild(card); });
 
-  // 시작 인덱스/위치
   const idx = Math.max(0, docsAsc.findIndex(x=> x.id===pick.targetId));
   const target = videoContainer.querySelectorAll('.video')[idx];
   if (target) {
     target.scrollIntoView({ behavior:'instant', block:'start' });
     ensureIframe(target); currentActive = target;
-    // 시작 위치는 infoDelivery에 첫 프레임 후 반영되므로, 힌트를 카드 데이터로 적재
     target.dataset.seekHint = String(pick.startPosSec||0);
   }
 
-  // 힌트(마지막 본 지점의 다음) 저장
   resume.setSeriesHint(seriesKey, { lastVideoId: pick.targetId, lastIndex: idx });
   sessionStorage.removeItem('resumeSeriesKey');
   updateSnapHeightForSamsung(); showTopbar(); return true;
@@ -529,7 +545,6 @@ async function tryResumeSeries(){
 
 /* ---------- 최초 탭에서 소리 허용 후, seekHint 처리 ---------- */
 addEventListener('click', ()=>{
-  // 현재 카드가 seekHint를 담고 있으면 재생 직후 한번만 이동
   const t = currentActive; if(!t) return;
   const hint = Number(t.dataset.seekHint||0)||0;
   if(hint>0){
