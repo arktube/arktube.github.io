@@ -1,18 +1,12 @@
-// /js/list.js — ArkTube v0.2 List (refactor)
-// - CATEGORY_MODEL/CATEGORY_GROUPS 어댑터(둘 중 무엇이든 동작)
-// - 시리즈 전용 선택 시 형식(view type) 무시
-// - 정렬: 최신(desc) ↔ 등록(asc) ↔ 랜덤(rand)
-// - 카테고리 ≤10 서버 필터 / >10 클라 폴백(턴별 파생값으로 일관성 보장)
-// - 랜덤: 최대 12페이지 선로딩 + sessionStorage 시드 셔플(새로고침 유지)
-// - personal1..4 다중 선택 시 "병합" 표시/재생
-// - 등록자: displayName만 사용
-// - 널 가드 철저 ($modeText/$msg/$btnMore 등)
+// /js/list.js — ArkTube v0.2.1 List (refactor)
+// - CATEGORY_MODEL 어댑터(그룹 내 isSeries/key 규칙 반영)
+// - Firestore cats 필드로 통일
+// - 개인자료 키 personal_${slot} 우선 + copytube_${slot} 폴백
+// - 등록자: ownerName만 사용 (preloadDisplayNames는 no-op로 유지)
+// - 기존 기능(정렬/랜덤/검색/무한스크롤/스와이프/개인병합) 전부 유지
 
 import { auth, db } from './firebase-init.js';
 import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
-// NOTE: categories.js 안에 CATEGORY_MODEL 또는 CATEGORY_GROUPS 둘 중 하나만 있어도 동작.
-//  - CATEGORY_MODEL 예상 구조: { types:[{key:'all'|'shorts'|'video', label}], groups:[{key, label, isSeries?, children:[{value,label}]}] }
-//  - CATEGORY_GROUPS 예상 구조: [{ key, label, children:[{value,label}] }]
 import { CATEGORY_MODEL, CATEGORY_GROUPS } from './categories.js';
 import {
   collection, getDocs, getDoc, doc, query, where, orderBy, limit, startAfter
@@ -72,8 +66,8 @@ const ORDER_KEY = 'list_sort_dir_v3'; // 'desc'|'asc'|'rand'
 
 let ORDER_MODE = 'desc';
 let lastDoc = null, hasMore = true, isLoading = false;
-let allDocs = [];  // 서버 로드 누적(랜덤 제외)
-let loadedIds = new Set(); // 중복 방지
+let allDocs = [];                 // 서버 로드 누적(랜덤 제외)
+let loadedIds = new Set();        // 중복 방지
 
 // 랜덤 모드
 let randSeed = 0;
@@ -107,9 +101,12 @@ function getSelectedCats(){
 function getViewType(){ return localStorage.getItem('arktube:view:type') || 'all'; } // 'all'|'shorts'|'video'
 
 function readPersonalItems(slot){
-  const key = `copytube_${slot}`; // 구버전 호환
+  // 우선 최신 포맷, 없으면 구버전 호환
+  const keyNew = `personal_${slot}`;
+  const keyOld = `copytube_${slot}`;
   try{
-    const arr = JSON.parse(localStorage.getItem(key) || '[]');
+    let arr = JSON.parse(localStorage.getItem(keyNew) || 'null');
+    if(!Array.isArray(arr)) arr = JSON.parse(localStorage.getItem(keyOld) || '[]');
     return Array.isArray(arr) ? arr : [];
   }catch{ return []; }
 }
@@ -123,14 +120,9 @@ function getPersonalLabel(slot){
   }catch{ return slot || '개인자료'; }
 }
 
-/* ========== 카테고리 어댑터(CATEGORY_MODEL/CATEGORY_GROUPS 모두 지원) ========== */
+/* ========== 카테고리 어댑터(CATEGORY_MODEL/CATEGORY_GROUPS 지원) ========== */
 function buildCategoryIndex(){
-  const idx = {
-    labelOf: (v)=>v,
-    // 시리즈 그룹 판단: (group.isSeries===true) 또는 key가 'series_'로 시작
-    isSeriesValue: (value)=>false
-  };
-
+  const idx = { labelOf: (v)=>v, isSeriesValue: (value)=>false };
   const groups = CATEGORY_MODEL?.groups || CATEGORY_GROUPS || [];
   try{
     const seriesSet = new Set();
@@ -154,7 +146,6 @@ const CATIDX = buildCategoryIndex();
 /* ========== 시리즈 전용 선택 판정(턴 단위) ========== */
 function isSeriesOnlySelection(selected){
   if(!Array.isArray(selected) || !selected.length) return false;
-  // personal 제외
   const cats = selected.filter(v => !personalVals.includes(v));
   if(!cats.length) return false;
   return cats.every(v => CATIDX.isSeriesValue(v));
@@ -201,6 +192,9 @@ async function hydrateTitleIfNeeded(titleEl, url, existing){
   if(t) titleEl.textContent = t;
 }
 
+/* ========== (no-op) 등록자 프리로드 ========== */
+// 문서에 ownerName이 이미 저장되므로, 구조 유지용 no-op
+async function preloadDisplayNames(_batch){ return; }
 
 /* ========== 파생 필터(턴 단위) ========== */
 function deriveFilters(){
@@ -217,7 +211,7 @@ function deriveFilters(){
   return {
     selected,
     selectedNonPersonal,
-    personalPicked,           // [] | ['personal1', ...]
+    personalPicked,
     seriesOnly,
     viewType,
     canServerCats,
@@ -276,7 +270,6 @@ function shuffleSeeded(arr, seed){
 
 /* ========== 개인자료 렌더(다중 병합) ========== */
 function renderPersonalMerged(personalPicked){
-  // personal 다중 선택 시 병합. 하나도 없으면 기본 personal1.
   const slots = (personalPicked && personalPicked.length) ? personalPicked : ['personal1'];
   const bucket = [];
   slots.forEach(slot=>{
@@ -289,7 +282,6 @@ function renderPersonalMerged(personalPicked){
     setStatus('0개');
     return;
   }
-  // 최신 저장순
   bucket.sort((a,b)=> (b.item?.savedAt||0) - (a.item?.savedAt||0));
 
   $cards && ($cards.innerHTML='');
@@ -347,7 +339,7 @@ async function loadPageAscDesc(derived, initial=false){
 
     // 서버 카테고리 필터(≤10만)
     if(derived.canServerCats){
-      parts.push(where('categories','array-contains-any', derived.selectedNonPersonal));
+      parts.push(where('cats','array-contains-any', derived.selectedNonPersonal)); // ★ cats
     }
     // 형식(시리즈 전용이 아니면 적용)
     if(derived.viewType !== 'all'){
@@ -374,7 +366,7 @@ async function loadPageAscDesc(derived, initial=false){
       const data = d.data();
       // 서버에서 못거른 경우(>10 카테고리 선택) — 클라 필터 보조
       if(derived.needClientCats){
-        const cats = Array.isArray(data?.categories) ? data.categories : [];
+        const cats = Array.isArray(data?.cats) ? data.cats : []; // ★ cats
         if(!cats.some(v => derived.selectedSet.has(v))) continue;
       }
       allDocs.push({ id:d.id, data });
@@ -417,7 +409,7 @@ async function buildRandomPool(derived){
 
     const parts = [];
     if(derived.canServerCats){
-      parts.push(where('categories','array-contains-any', derived.selectedNonPersonal));
+      parts.push(where('cats','array-contains-any', derived.selectedNonPersonal)); // ★ cats
     }
     if(derived.viewType !== 'all'){
       parts.push(where('type','==', derived.viewType));
@@ -433,7 +425,7 @@ async function buildRandomPool(derived){
         if(loadedIds.has(d.id)) continue;
         const data = d.data();
         if(derived.needClientCats){
-          const cats = Array.isArray(data?.categories) ? data.categories : [];
+          const cats = Array.isArray(data?.cats) ? data.cats : []; // ★ cats
           if(!cats.some(v => derived.selectedSet.has(v))) continue;
         }
         allDocs.push({ id:d.id, data });
@@ -468,7 +460,7 @@ function filterBySearch(list){
   return list.filter(x=>{
     const url = String(x.data?.url || '').toLowerCase();
     const id  = extractYouTubeId(x.data?.url || '');
-    const title = String(x.data?.title || lazyTitleMap.get(id) || '').toLowerCase();
+    const title = String((x.data?.title && x.data.title.trim()) ? x.data.title : (lazyTitleMap.get(id) || '')).toLowerCase();
     return title.includes(q) || url.includes(q);
   });
 }
@@ -482,9 +474,11 @@ function renderFrom(list){
   const frag = document.createDocumentFragment();
   list.forEach((x, idx)=>{
     const d     = x.data || {};
-    const title = d.title || '(제목 없음)';
+    const title = (typeof d.title === 'string' && d.title.trim().length)
+      ? d.title
+      : '(제목 없음)'; // 빈 제목만 보강 대상    
     const url   = d.url || '';
-    const catsV = Array.isArray(d.categories) ? d.categories : [];
+    const catsV = Array.isArray(d.cats) ? d.cats : [];            // ★ cats
     const thumb = d.thumbnail || toThumb(url);
     const name  = d?.ownerName || '회원';
 
@@ -501,7 +495,10 @@ function renderFrom(list){
       <div class="right">
         <div class="thumb-wrap"><img class="thumb" src="${esc(thumb)}" alt="썸네일" loading="lazy"></div>
       </div>`;
-    hydrateTitleIfNeeded(card.querySelector('.title'), url, title);
+// Firestore 제목이 비어 있을 때만 oEmbed(7일 캐시)로 보강
+    if (title === '(제목 없음)') {
+      hydrateTitleIfNeeded(card.querySelector('.title'), url, title);
+    };    
     const open = ()=> openInWatch(list, idx);
     card.querySelector('.left') ?.addEventListener('click', open);
     card.querySelector('.thumb')?.addEventListener('click', open);
@@ -514,7 +511,6 @@ function render(derived){
     renderPersonalMerged(derived.personalPicked);
     return;
   }
-  // 서버 쿼리 결과는 이미 (필요 시) 클라 카테고리 필터 적용됨.
   const list = filterBySearch(allDocs);
   renderFrom(list);
 }
@@ -526,8 +522,10 @@ function openInWatch(list, index){
     return {
       id: x.id,
       url: x.data?.url || '',
-      title: x.data?.title || lazyTitleMap.get(id) || '',
-      cats: Array.isArray(x.data?.categories) ? x.data.categories : []
+      title: (x.data?.title && x.data.title.trim())
+          ? x.data.title
+          : (lazyTitleMap.get(id) || ''),
+      cats: Array.isArray(x.data?.cats) ? x.data.cats : []       // ★ cats
     };
   });
   sessionStorage.setItem('playQueue', JSON.stringify(queue));
@@ -652,9 +650,9 @@ window.addEventListener('scroll', async ()=>{
   }
 })();
 
-/* ========== 스와이프 네비 (기본형+고급형, 데드존 15%) ========== */
+/* ========== 스와이프 네비 (기본형+고급형, 데드존 18%) ========== */
 (function initSwipe(){
-  function initSimple({ goLeftHref='/index.html', deadZoneCenterRatio=0.15 }={}){
+  function initSimple({ goLeftHref='/index.html', deadZoneCenterRatio=0.18 }={}){
     let sx=0, sy=0, t0=0, tracking=false;
     const THRESH_X=70, MAX_OFF_Y=80, MAX_TIME=600;
     const getPoint = (e)=> e.touches?.[0] || e.changedTouches?.[0] || e;
@@ -676,7 +674,7 @@ window.addEventListener('scroll', async ()=>{
     document.addEventListener('pointerdown',onStart, {passive:true});
     document.addEventListener('pointerup',  onEnd,   {passive:true});
   }
-  function initDrag({ goLeftHref='/index.html', deadZoneCenterRatio=0.15 }={}){
+  function initDrag({ goLeftHref='/index.html', deadZoneCenterRatio=0.18 }={}){
     const page=document.querySelector('main')||document.body; if(!page) return;
     let x0=0,y0=0,t0=0,active=false,canceled=false;
     const TH=60, SLOP=45, TMAX=700;
