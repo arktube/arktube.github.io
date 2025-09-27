@@ -303,7 +303,10 @@ function renderPersonalMerged(personalPicked){
       <div class="right">
         <div class="thumb-wrap"><img class="thumb" src="${esc(thumb)}" alt="썸네일" loading="lazy"></div>
       </div>`;
-    hydrateTitleIfNeeded(card.querySelector('.title'), url, title);
+     // Firestore 제목이 비어 있을 때만 oEmbed(7일 캐시)로 보강
+    if (title === '(제목 없음)') {
+      hydrateTitleIfNeeded(card.querySelector('.title'), url, title);
+    }
 
     const open = ()=> openInWatchPersonal(bucket.map(b=>b.item), idx, 'merged', '개인자료');
     card.querySelector('.left') ?.addEventListener('click', open);
@@ -498,7 +501,7 @@ function renderFrom(list){
 // Firestore 제목이 비어 있을 때만 oEmbed(7일 캐시)로 보강
     if (title === '(제목 없음)') {
       hydrateTitleIfNeeded(card.querySelector('.title'), url, title);
-    };    
+    }    
     const open = ()=> openInWatch(list, idx);
     card.querySelector('.left') ?.addEventListener('click', open);
     card.querySelector('.thumb')?.addEventListener('click', open);
