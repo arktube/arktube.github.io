@@ -115,7 +115,14 @@ function ensureCategoryModelValid() {
 }
 
 // ---------- 카테고리 렌더 ----------
-function isSeriesValue(v) { return String(v).startsWith('series_'); }
+if (String(group.key).startsWith('series_')) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'resume-mini';
+  btn.textContent = '이어보기';
+  btn.addEventListener('click', () => handleResumePlay(group.key, child.value));
+  label.appendChild(btn);
+}
 
 function renderCategories() {
   if (!catsRoot) return;
@@ -148,15 +155,6 @@ function renderCategories() {
       span.textContent = child.label;
 
       label.prepend(cb, span);
-
-      if (isSeriesValue(child.value)) {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'resume-mini';
-        btn.textContent = '이어보기';
-        btn.addEventListener('click', () => handleResumePlay(group.key, child.value));
-        label.appendChild(btn);
-      }
 
       grid.appendChild(label);
     }
