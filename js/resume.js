@@ -1,264 +1,204 @@
-// /js/resume.js  — ArkTube v0.1 호환 겸용 버전
-// - 당신 버전의 구조/이름 유지 + watch.js 호환 API (updateFromInfo / chooseNextInSeries / set|getSeriesHint) 추가
-// - 전역 postMessage 리스너는 attachYTTracker()가 처음 호출될 때 1회만 바인딩
+// /js/resume.js — ArkTube series resume helper (localStorage, GC, multi-tab sync)
+// key:    resume:{type}:{groupKey}:{subKey}
+// value:  { sort:"createdAt-desc"|"createdAt-asc"|"random:SEED", index:Number, t:Number(sec), savedAt:Number }
+//
+// 추가 기능:
+// - 오래된 항목 자동 정리(GC): 기본 120일 경과 시 삭제 + 비정상/깨진 JSON 자동 정리
+// - JSON 파싱 오류 복구: decodeURIComponent 재시도 → 실패 시 해당 항목 삭제
+// - 스토리지 이벤트 처리(다중 탭 동기화): 다른 탭에서 변경되면 변경 이벤트 발행
+// - 변경 이벤트 구독 onChange/offChange 제공 (watch/index 등에서 실시간 반영 가능)
+//
+// 사용 예시:
+//   onChange((e) => { console.log('resume change', e.detail); });
+//   const r = loadResume({ type:'video', groupKey:'series', subKey:'series_foo' });
+//   saveResume({ type, groupKey, subKey, sort:'createdAt-asc', index:3, t:120 });
+//   clearResume({ type, groupKey, subKey });
+//
+// 비고:
+// - 비로그인 공개 열람 기준: uid 네임스페이스 없이 "기기 단위" 저장
+// - 필요 시 makeKey에 uid 포함 구현으로 확장 가능
 
-const NS = 'arktube:prog:v1:';
-const SPFX_SERIES = 'arktube:series:v1:'; // 시리즈 힌트 저장 (마지막 본 영상 등)
+const LS = typeof localStorage !== 'undefined' ? localStorage : null;
+const PREFIX = 'resume:';
+const AUTONEXT_KEY = 'arktube:autoNext'; // index의 연속재생 토글 상태
+const EVENT_NAME = 'arktube:resume-change';
 
-/* ========= 공용 유틸 ========= */
-const nowSec = () => Math.floor(Date.now()/1000);
-const clamp  = (n,min,max)=> Math.max(min, Math.min(max, n));
+// ---- 내부 이벤트 버스 ----
+const bus = (typeof window !== 'undefined' && typeof window.EventTarget !== 'undefined')
+  ? new EventTarget()
+  : null;
 
-/** 저장: posSec, durSec(초), completed, url 포함 (기존 merge 방식 유지) */
-export function saveProgress(videoId, data) {
-  if (!videoId) return;
-  const now = nowSec();
-  const prev = getProgress(videoId) || {};
-  const merged = {
-    posSec: 0,
-    durSec: 0,
-    completed: false,
-    url: null,
-    ...prev,
-    ...data,
-    updatedAt: now,
-  };
-  try { localStorage.setItem(NS + videoId, JSON.stringify(merged)); } catch {}
+function emitChange(detail) {
+  if (!bus) return;
+  try {
+    bus.dispatchEvent(new CustomEvent(EVENT_NAME, { detail }));
+  } catch {}
 }
 
-/** 로드 */
-export function getProgress(videoId) {
-  if (!videoId) return null;
+// ---- 공개: 변경 이벤트 구독/해제 ----
+export function onChange(handler) {
+  if (!bus || typeof handler !== 'function') return () => {};
+  const wrapped = (ev) => handler(ev);
+  bus.addEventListener(EVENT_NAME, wrapped);
+  // 해제 함수 반환
+  return () => {
+    try { bus.removeEventListener(EVENT_NAME, wrapped); } catch {}
+  };
+}
+export function offChange(handler) {
+  if (!bus || typeof handler !== 'function') return;
+  try { bus.removeEventListener(EVENT_NAME, handler); } catch {}
+}
+
+// ---- AutoNext (index 전용 토글 상태 공유) ----
+export function getAutoNext() {
+  try { return (LS.getItem(AUTONEXT_KEY) === '1'); } catch { return false; }
+}
+export function setAutoNext(on) {
   try {
-    const raw = localStorage.getItem(NS + videoId);
-    return raw ? JSON.parse(raw) : null;
+    LS.setItem(AUTONEXT_KEY, on ? '1' : '0');
+    emitChange({ kind:'autonext', key: AUTONEXT_KEY, value: on ? '1' : '0', source: 'local' });
+  } catch {}
+}
+
+// ---- 키 조립 ----
+export function makeKey({ type, groupKey, subKey }) {
+  return `${PREFIX}${type}:${groupKey}:${subKey}`;
+}
+
+// ---- JSON 파싱(복구 포함) ----
+function parseJSONSafe(raw, { keyForCleanup } = {}) {
+  if (raw == null) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // 한 번 더 복구 시도: decodeURIComponent → JSON.parse
+    try {
+      const decoded = decodeURIComponent(raw);
+      const obj = JSON.parse(decoded);
+      // 복구 성공하면 정상화(다음 접근 시 오류 방지)
+      try { if (keyForCleanup) LS.setItem(keyForCleanup, JSON.stringify(obj)); } catch {}
+      return obj;
+    } catch {
+      // 완전 실패: 깨진 항목 정리
+      try { if (keyForCleanup) LS.removeItem(keyForCleanup); } catch {}
+      return null;
+    }
+  }
+}
+
+// ---- 스키마 검증/보정 ----
+function sanitizePayload(obj) {
+  if (!obj || typeof obj !== 'object') return null;
+  const out = {};
+  const s = String(obj.sort || '');
+  if (!(s === 'createdAt-desc' || s === 'createdAt-asc' || s.startsWith('random'))) return null;
+  out.sort = s;
+
+  const idx = Number(obj.index);
+  if (!Number.isFinite(idx) || idx < 0) return null;
+  out.index = Math.floor(idx);
+
+  const t = Number(obj.t);
+  out.t = Number.isFinite(t) && t >= 0 ? Math.floor(t) : 0;
+
+  const savedAt = Number(obj.savedAt);
+  out.savedAt = Number.isFinite(savedAt) ? savedAt : Date.now();
+  return out;
+}
+
+// ---- CRUD ----
+export function loadResume({ type, groupKey, subKey }) {
+  try {
+    const key = makeKey({ type, groupKey, subKey });
+    const raw = LS.getItem(key);
+    const obj = parseJSONSafe(raw, { keyForCleanup: key });
+    const sane = sanitizePayload(obj);
+    return sane || null;
   } catch { return null; }
 }
 
-/** 진행도 삭제(보조) */
-export function clearProgress(videoId){
-  try { localStorage.removeItem(NS + videoId); } catch {}
+export function saveResume({ type, groupKey, subKey, sort, index, t }) {
+  try {
+    const key = makeKey({ type, groupKey, subKey });
+    const payload = sanitizePayload({ sort, index, t, savedAt: Date.now() });
+    if (!payload) return; // 잘못된 인자면 저장 안 함
+    LS.setItem(key, JSON.stringify(payload));
+    emitChange({ kind:'resume', key, value: payload, source: 'local' });
+  } catch {}
 }
 
-/** 시작 위치: completed면 0, 아니면 posSec(5초 미만이면 0) */
-export function pickStartPos(videoId) {
-  const p = getProgress(videoId);
-  if (!p) return 0;
-  if (p.completed) return 0;
-  return (p.posSec && p.posSec >= 5) ? p.posSec : 0;
+export function clearResume({ type, groupKey, subKey }) {
+  try {
+    const key = makeKey({ type, groupKey, subKey });
+    LS.removeItem(key);
+    emitChange({ kind:'resume', key, value: null, source: 'local' });
+  } catch {}
 }
 
-/** 완주 기준 */
-export function isCompleted(pos, dur) {
-  if (!dur || dur <= 0) return false;
-  const gate = Math.max(dur * 0.9, dur - 30);
-  return pos >= gate;
-}
+// ---- GC: 오래된 항목/깨진 항목 정리 ----
+// 기본 정책:
+//  - maxAgeDays: 120일 경과 항목 삭제
+//  - maxScan: 한 번에 최대 1000개 키 스캔(성능 보호)
+//  - 깨진 JSON/스키마 불일치 항목 즉시 삭제
+export function vacuumOld({ maxAgeDays = 120, maxScan = 1000 } = {}) {
+  if (!LS) return { scanned: 0, removed: 0 };
+  const now = Date.now();
+  const ageMs = maxAgeDays * 24 * 60 * 60 * 1000;
 
-/** 큐(등록순 asc 또는 최신순 desc)에서 이어보기 시작 인덱스 선택 */
-export function chooseResumeIndex(queue) {
-  // 1순위: 미완 진행중(pos>=5) 최신(updatedAt)
-  let candidate = -1, latestTs = -1;
-  for (let i=0;i<queue.length;i++){
-    const v = queue[i]; const p = getProgress(v.videoId);
-    if (p && !p.completed && (p.posSec||0) >= 5) {
-      if ((p.updatedAt||0) > latestTs) { latestTs = p.updatedAt; candidate = i; }
-    }
-  }
-  if (candidate >= 0) return candidate;
+  let scanned = 0;
+  let removed = 0;
 
-  // 2순위: 마지막 완료 다음
-  let lastDone = -1, doneTs = -1;
-  for (let i=0;i<queue.length;i++){
-    const v = queue[i]; const p = getProgress(v.videoId);
-    if (p && p.completed) {
-      if ((p.updatedAt||0) > doneTs) { doneTs = p.updatedAt; lastDone = i; }
-    }
-  }
-  if (lastDone >= 0 && lastDone+1 < queue.length) return lastDone+1;
+  try {
+    const len = LS.length;
+    for (let i = 0; i < len && scanned < maxScan; i++) {
+      const k = LS.key(i);
+      if (!k || (!k.startsWith(PREFIX) && k !== AUTONEXT_KEY)) continue;
+      scanned++;
 
-  // 3순위: 맨앞
-  return 0;
-}
+      if (k === AUTONEXT_KEY) {
+        // AutoNext는 보존
+        continue;
+      }
 
-/* ========= (추가) 시리즈 힌트 API — watch.js 호환 ========= */
-export function setSeriesHint(seriesKey, { lastVideoId=null, lastIndex=null }={}){
-  if(!seriesKey) return;
-  const v = { lastVideoId: lastVideoId || null, lastIndex: (Number(lastIndex)||0), updatedAt: nowSec() };
-  try{ localStorage.setItem(SPFX_SERIES + seriesKey, JSON.stringify(v)); }catch{}
-}
-export function getSeriesHint(seriesKey){
-  try{
-    const raw = localStorage.getItem(SPFX_SERIES + seriesKey);
-    return raw ? JSON.parse(raw) : null;
-  }catch{ return null; }
-}
-
-/** (추가) 시리즈 이어보기 선택 — watch.js가 기대하는 시그니처 */
-export function chooseNextInSeries(seriesKey, docsAsc){
-  // docsAsc: [{ id, url }, ... ]  // 등록순 asc
-  if(!Array.isArray(docsAsc) || docsAsc.length===0){
-    return { targetId:null, startPosSec:0, targetIndex:0 };
-  }
-
-  // 1) 진행 중(미완 + pos>=5)
-  for(let i=0;i<docsAsc.length;i++){
-    const d = docsAsc[i];
-    const p = getProgress(d.id);
-    if(p && !p.completed && (p.posSec||0) >= 5){
-      return { targetId:d.id, startPosSec:p.posSec||0, targetIndex:i };
-    }
-  }
-
-  // 2) 시리즈 힌트 있으면 그 다음 인덱스
-  const hint = seriesKey ? getSeriesHint(seriesKey) : null;
-  if(hint?.lastVideoId){
-    const at = docsAsc.findIndex(x=> x.id===hint.lastVideoId);
-    if(at>=0){
-      const next = Math.min(docsAsc.length-1, at+1);
-      return { targetId: docsAsc[next].id, startPosSec:0, targetIndex: next };
-    }
-  }
-
-  // 2') 힌트가 없으면 마지막 completed의 다음
-  let lastDone = -1;
-  for(let i=0;i<docsAsc.length;i++){
-    const p = getProgress(docsAsc[i].id);
-    if(p?.completed) lastDone = i;
-  }
-  if(lastDone>=0 && lastDone < docsAsc.length-1){
-    return { targetId: docsAsc[lastDone+1].id, startPosSec:0, targetIndex:lastDone+1 };
-  }
-
-  // 3) 첫 영상
-  return { targetId: docsAsc[0].id, startPosSec:0, targetIndex:0 };
-}
-
-/* ========= (추가) watch.js 호환: updateFromInfo(videoId, url, info) =========
-   - watch.js가 postMessage를 직접 수신할 때 이 함수로 저장 위임 */
-const _lastWrite = new Map(); // videoId -> epoch sec
-export function updateFromInfo(videoId, url, info){
-  if(!videoId || !info) return;
-  const pos = Math.floor(Number(info.currentTime)||0);
-  const dur = Math.floor(Number(info.duration)||0);
-  const t   = nowSec();
-  const prevT = _lastWrite.get(videoId) || 0;
-
-  const ended = (info.playerState === 0); // ENDED
-  const throttled = (t - prevT >= 10) || ended;
-
-  if(!throttled) return;
-
-  const done = ended || isCompleted(pos, dur);
-  const posToSave = done ? 0 : pos;
-  saveProgress(videoId, { posSec: posToSave, durSec: dur, completed: !!done, url: url || null });
-  _lastWrite.set(videoId, t);
-}
-
-/* ========= YouTube postMessage 기반(당신 버전 유지) ========= */
-
-const PLAYER_STATE = { ENDED:0, PLAYING:1, PAUSED:2, BUFFERING:3, CUED:5 };
-const trackers = new Map(); // iframe.contentWindow -> tracker
-let pmBound = false;        // 전역 message 리스너 중복 바인딩 방지
-
-function _bindGlobalPM(){
-  if(pmBound) return; pmBound = true;
-  window.addEventListener('message', (e)=>{
-    let data = e.data;
-    if (typeof data === 'string') {
-      try { data = JSON.parse(data); } catch { data = null; }
-    }
-    if (!data) return;
-
-    const cw = e.source;
-    const t = trackers.get(cw);
-    if (!t) return;
-
-    if (data.info) {
-      if (typeof data.info.currentTime === 'number') t.lastPos = data.info.currentTime;
-      if (typeof data.info.duration === 'number')     t.duration = data.info.duration;
-
-      const now = nowSec();
-      if (now - (t.lastFlush||0) >= t.throttleSec) {
-        saveProgress(t.videoId, {
-          posSec: Math.floor(t.lastPos||0),
-          durSec: Math.floor(t.duration||0),
-          completed: false,
-          url: t.url||null
-        });
-        t.lastFlush = now;
+      const raw = LS.getItem(k);
+      const obj = parseJSONSafe(raw, { keyForCleanup: k });
+      const sane = sanitizePayload(obj);
+      if (!sane) {
+        // 깨진 JSON/스키마 불일치 → 삭제
+        try { LS.removeItem(k); removed++; } catch {}
+        continue;
+      }
+      if (now - sane.savedAt > ageMs) {
+        try { LS.removeItem(k); removed++; } catch {}
       }
     }
+  } catch {}
 
-    if (data.event === 'onStateChange') {
-      const s = data.info;
-      if (s === PLAYER_STATE.PLAYING) {
-        t.playing = true;
-      } else if (s === PLAYER_STATE.PAUSED) {
-        saveProgress(t.videoId, {
-          posSec: Math.floor(t.lastPos||0),
-          durSec: Math.floor(t.duration||0),
-          completed: false,
-          url: t.url||null
-        });
-      } else if (s === PLAYER_STATE.ENDED) {
-        saveProgress(t.videoId, {
-          posSec: 0,
-          durSec: Math.floor(t.duration||0),
-          completed: true,
-          url: t.url||null
-        });
-      }
-    }
-  }, false);
+  return { scanned, removed };
 }
 
-/** postMessage 명령 송신 */
-function _sendCmd(iframe, func, args=[]) {
-  if (!iframe?.contentWindow) return;
-  const msg = JSON.stringify({ event: 'command', func, args });
-  iframe.contentWindow.postMessage(msg, '*');
-}
-function _addEvt(iframe, evt) {
-  if (!iframe?.contentWindow) return;
-  const msg = JSON.stringify({ event: 'command', func: 'addEventListener', args: [evt] });
-  iframe.contentWindow.postMessage(msg, '*');
-}
+// ---- 시작 시 1회 GC 수행(부담 낮은 파라미터) ----
+try { vacuumOld({ maxAgeDays: 120, maxScan: 1000 }); } catch {}
 
-/** (유지) iframe에 진행도 트래커 부착 — 당신 버전 API */
-export function attachYTTracker(iframe, { videoId, url, throttleSec=10 }){
-  if (!iframe || !videoId) return;
-  _bindGlobalPM();
-
-  const state = {
-    videoId, url: url || null,
-    lastPos: 0, duration: 0,
-    lastFlush: 0,
-    playing: false,
-    throttleSec: Math.max(3, Math.floor(throttleSec)||10),
-  };
-  trackers.set(iframe.contentWindow, state);
-
-  function handshake() {
+// ---- 스토리지 이벤트(다중 탭 동기화) ----
+// 다른 탭/창에서 localStorage가 변경되면 여기로 이벤트가 옴.
+// 우리 prefix/AUTONEXT만 필터하여 변경 이벤트를 애플리케이션에 전달.
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('storage', (ev) => {
     try {
-      const msg = JSON.stringify({ event: 'listening' });
-      iframe.contentWindow.postMessage(msg, '*');
-      _addEvt(iframe, 'onStateChange');
-      _addEvt(iframe, 'onPlaybackRateChange');
-      _addEvt(iframe, 'onPlaybackQualityChange');
-      // infoDelivery는 자동 푸시됨
-    } catch {}
-  }
-  if (iframe.contentWindow) {
-    setTimeout(handshake, 300);
-  } else {
-    iframe.addEventListener('load', ()=> setTimeout(handshake, 300), { once:true });
-  }
-}
+      const { key, newValue } = ev;
+      if (!key || (!key.startsWith(PREFIX) && key !== AUTONEXT_KEY)) return;
 
-/* (유지) 보조 제어 함수들 */
-export function play(iframe){ _sendCmd(iframe, 'playVideo'); }
-export function pause(iframe){ _sendCmd(iframe, 'pauseVideo'); }
-export function seekTo(iframe, seconds){ _sendCmd(iframe, 'seekTo', [seconds, true]); }
-export function mute(iframe){ _sendCmd(iframe, 'mute'); }
-export function unMute(iframe){ _sendCmd(iframe, 'unMute'); }
+      if (key === AUTONEXT_KEY) {
+        emitChange({ kind:'autonext', key, value: newValue, source: 'storage' });
+        return;
+      }
+
+      // resume 항목
+      const obj = parseJSONSafe(newValue || null);
+      const sane = sanitizePayload(obj);
+      emitChange({ kind:'resume', key, value: sane || null, source: 'storage' });
+    } catch {}
+  });
+}
