@@ -107,7 +107,9 @@
   }
   .dropdown button:hover{ background:var(--bg-3); }
   .dropdown .menu-strong{ font-size:16px; font-weight:700; }
-
+ /* 드롭다운 기본/열림 트랜지션 (선택사항) */
+  #dropdownMenu { opacity:0; transform:translateY(-6px); pointer-events:none; transition:opacity .15s ease, transform .15s ease; }
+  #dropdownMenu.open { opacity:1; transform:translateY(0); pointer-events:auto; }
   /* 인트로 (헤더 높이 보정: 상단 여백 56px) */
   .intro{
     min-height:100vh;
