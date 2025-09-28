@@ -338,51 +338,120 @@ document.addEventListener('keydown',(e)=>{
 });
 
 /* ========= 스와이프 내비 (중앙 15% 데드존) ========= */
+/* ========= 스와이프 내비 (고급형, 중앙 18% 데드존) ========= */
 window.__swipeNavigating = window.__swipeNavigating || false;
 
-function initSwipeNav({ goLeftHref=null, goRightHref=null, animateMs=260, deadZoneCenterRatio=0.15 } = {}){
-  let sx=0, sy=0, t0=0, tracking=false;
-  const THRESH_X = 70;
-  const MAX_OFF_Y = 80;
-  const MAX_TIME  = 600;
-  const getPoint = (e) => e.touches?.[0] || e.changedTouches?.[0] || e;
+function initSwipeNavAdvanced({
+  goLeftHref = null,   // 좌로 미는 제스처(→) 결과: 왼쪽으로 슬라이드 아웃 후 이동
+  goRightHref = null,  // 우로 미는 제스처(←) 결과
+  animateMs = 260,
+  deadZoneCenterRatio = 0.18,   // 중앙 데드존 18%
+  intentDx = 12,                // 가로 의도 임계값
+  cancelDy = 10,                // 세로 의도 취소 임계값(의도 확정 전)
+  maxDy = 90,                   // 전체 세로 허용치
+  maxMs = 700,                  // 최대 제스처 시간
+  minDx = 70,                   // 최소 거리 트리거
+  minVx = 0.6                   // 최소 속도(px/ms) 트리거
+} = {}) {
+  let sx=0, sy=0, t0=0, tracking=false, horizontalIntent=false, multiTouch=false;
+  let lastX=0, lastT=0;
+
+  const getPt = (e) => e.touches?.[0] || e.changedTouches?.[0] || e;
+
+  function isInteractiveEl(el){
+    return !!el.closest('button, a, [role="button"], input, select, textarea, label, .no-swipe');
+  }
 
   function onStart(e){
-    const p = getPoint(e); if(!p) return;
+    if (window.__swipeNavigating) return;
+    multiTouch = (e.touches && e.touches.length > 1);
+    if (multiTouch) return;
+
+    const p = getPt(e); if(!p) return;
+    if (isInteractiveEl(p.target)) return;
+
     const vw = Math.max(document.documentElement.clientWidth, window.innerWidth || 0);
     const dz = Math.max(0, Math.min(0.9, deadZoneCenterRatio));
     const L  = vw * (0.5 - dz/2);
     const R  = vw * (0.5 + dz/2);
-    if (p.clientX >= L && p.clientX <= R) { tracking = false; return; } // 중앙 데드존 15%
+    if (p.clientX >= L && p.clientX <= R) return; // 중앙 데드존
 
-    sx = p.clientX; sy = p.clientY; t0 = Date.now(); tracking = true;
+    sx = lastX = p.clientX; sy = p.clientY; t0 = lastT = performance.now();
+    tracking = true; horizontalIntent = false;
   }
-  function onEnd(e){
-    if(!tracking) return; tracking = false;
-    if (window.__swipeNavigating) return;
 
-    const p = getPoint(e);
+  function onMove(e){
+    if (!tracking || multiTouch) return;
+    const p = getPt(e); if(!p) return;
+
     const dx = p.clientX - sx;
     const dy = p.clientY - sy;
-    const dt = Date.now() - t0;
-    if (Math.abs(dy) > MAX_OFF_Y || dt > MAX_TIME) return;
+    const dt = performance.now() - t0;
 
-    if (dx <= -THRESH_X && goLeftHref){
+    // 의도 확정 전: 세로가 먼저 커지면 스크롤 의도로 보고 취소
+    if (!horizontalIntent){
+      if (Math.abs(dy) > cancelDy) { tracking=false; return; }
+      if (Math.abs(dx) >= intentDx) horizontalIntent = true;
+    } else {
+      // 의도 확정 후: 과도한 세로 흔들림이면 취소
+      if (Math.abs(dy) > maxDy) { tracking=false; return; }
+    }
+
+    // 핀치/멀티 방지
+    if (e.touches && e.touches.length > 1){ tracking=false; return; }
+
+    lastX = p.clientX; lastT = performance.now();
+  }
+
+  function onEnd(e){
+    if (!tracking || multiTouch) return;
+    tracking = false;
+
+    const p = getPt(e); if(!p) return;
+    const dx = p.clientX - sx;
+    const dy = p.clientY - sy;
+    const t1 = performance.now();
+    const dt = t1 - t0;
+
+    if (!horizontalIntent) return;
+    if (Math.abs(dy) > maxDy) return;
+    if (dt > maxMs) return;
+
+    const vx = Math.abs(dx) / Math.max(1, dt); // px/ms
+
+    const passDistance = Math.abs(dx) >= minDx;
+    const passVelocity = vx >= minVx;
+
+    if (!(passDistance || passVelocity)) return;
+    if (window.__swipeNavigating) return;
+
+    // 방향 판정
+    if (dx <= -minDx || (dx < 0 && vx >= minVx)) {
+      // 왼쪽으로 밀기(→) = goLeftHref
+      if (!goLeftHref) return;
       window.__swipeNavigating = true;
       document.documentElement.classList.add('slide-out-left');
       setTimeout(()=> location.href = goLeftHref, animateMs);
-    } else if (dx >= THRESH_X && goRightHref){
+    } else if (dx >= minDx || (dx > 0 && vx >= minVx)) {
+      // 오른쪽으로 밀기(←) = goRightHref
+      if (!goRightHref) return;
       window.__swipeNavigating = true;
       document.documentElement.classList.add('slide-out-right');
       setTimeout(()=> location.href = goRightHref, animateMs);
     }
   }
 
+  // 수동 스크롤과 충돌 최소화: passive=true
   document.addEventListener('touchstart', onStart, { passive:true });
-  document.addEventListener('touchend', onEnd, { passive:true });
+  document.addEventListener('touchmove',  onMove,  { passive:true });
+  document.addEventListener('touchend',   onEnd,   { passive:true });
 
-  const style = document.createElement('style');
-  style.textContent = `
+  // 애니메이션 스타일 주입
+  const styleId = 'swipe-anim-advanced';
+  if (!document.getElementById(styleId)){
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.textContent = `
 @keyframes pageSlideLeft { from { transform: translateX(0); opacity:1; } to { transform: translateX(-22%); opacity:.92; } }
 @keyframes pageSlideRight{ from { transform: translateX(0); opacity:1; } to { transform: translateX(22%);  opacity:.92; } }
 :root.slide-out-left  body { animation: pageSlideLeft 0.26s ease forwards; }
@@ -391,7 +460,14 @@ function initSwipeNav({ goLeftHref=null, goRightHref=null, animateMs=260, deadZo
   :root.slide-out-left  body,
   :root.slide-out-right body { animation:none; }
 }`;
-  document.head.appendChild(style);
+    document.head.appendChild(style);
+  }
 }
-// index: 좌→우 = list, 우→좌 = upload
-initSwipeNav({ goLeftHref: '/upload.html', goRightHref: '/list.html', deadZoneCenterRatio: 0.15 });
+
+// index: 좌→우 = list, 우→좌 = upload (중앙 18% 데드존)
+initSwipeNavAdvanced({
+  goLeftHref: '/upload.html',
+  goRightHref: '/list.html',
+  deadZoneCenterRatio: 0.18
+});
+
