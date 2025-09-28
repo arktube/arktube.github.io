@@ -265,7 +265,7 @@ function bindResumeButtons(){
       if (!groupKey || !subKey) return;
 
       // 항상 등록순(asc)으로 시리즈 큐를 만들고, 저장된 위치 있으면 거기로 진입
-      // resume 키 포맷: resume:{groupKey}:{subKey}  → resume.js는 내부 prefix를 더해 저장
+      // resume 키 포맷: resume:{groupKey}:{subKey}
       const seriesKey = `${groupKey}:${subKey}`;
 
       // watch가 이어보기를 인지할 수 있도록 sessionStorage에 명시
@@ -392,100 +392,115 @@ document.addEventListener('keydown',(e)=>{
   }
 });
 
-/* ========= 스와이프 내비 (고급형, 중앙 18% 데드존) ========= */
+/* ========= 스와이프 내비 (고급형, 중앙 18% 데드존 / Pointer Events) ========= */
 window.__swipeNavigating = window.__swipeNavigating || false;
 
 function initSwipeNavAdvanced({
-  goLeftHref = null,   // 좌로 미는 제스처(→) 결과: 왼쪽으로 슬라이드 아웃 후 이동
-  goRightHref = null,  // 우로 미는 제스처(←) 결과
+  goLeftHref = null,    // ←로 넘길 때 이동할 URL (좌로 미는 제스처)
+  goRightHref = null,   // →로 넘길 때 이동할 URL (우로 미는 제스처)
   animateMs = 260,
-  deadZoneCenterRatio = 0.18,   // 중앙 데드존 18%
-  intentDx = 12,                // 가로 의도 임계값
-  cancelDy = 10,                // 세로 의도 취소 임계값(의도 확정 전)
-  maxDy = 90,                   // 전체 세로 허용치
-  maxMs = 700,                  // 최대 제스처 시간
-  minDx = 70,                   // 최소 거리 트리거
-  minVx = 0.6                   // 최소 속도(px/ms) 트리거
+  deadZoneCenterRatio = 0.18, // 중앙 데드존 18%
+  intentDx = 12,              // 가로 의도 임계값
+  cancelDy = 10,              // 의도 확정 전 세로 취소
+  maxDy = 90,                 // 전체 세로 허용치
+  maxMs = 700,                // 최대 제스처 시간
+  minDx = 70,                 // 최소 거리 트리거
+  minVx = 0.6                 // 최소 속도(px/ms) 트리거
 } = {}) {
-  let sx=0, sy=0, t0=0, tracking=false, horizontalIntent=false, multiTouch=false;
+  let sx=0, sy=0, t0=0, tracking=false, horizontalIntent=false;
+  let pointerId = null;
 
-  const getPt = (e) => e.touches?.[0] || e.changedTouches?.[0] || e;
+  const getXY = (e)=>{
+    if (e instanceof PointerEvent) return { x: e.clientX, y: e.clientY, target: e.target };
+    // 폴백(구형 브라우저)
+    const t = e.touches?.[0] || e.changedTouches?.[0] || e;
+    return { x: t.clientX, y: t.clientY, target: t.target };
+  };
 
   function isInteractiveEl(el){
-    return !!el.closest('button, a, [role="button"], input, select, textarea, label, .no-swipe');
+    return !!el.closest('button, a, [role="button"], input, select, textarea, label, .no-swipe, #dropdownMenu');
   }
 
-  function onStart(e){
+  function onPointerDown(e){
+    // 마우스 오른쪽/중간 버튼 제외
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
     if (window.__swipeNavigating) return;
-    if (e.touches && e.touches.length > 1) return; // 멀티터치/핀치 무시
 
-    const p = getPt(e); if(!p) return;
-    if (isInteractiveEl(p.target)) return;
+    const { x, y, target } = getXY(e);
+    if (isInteractiveEl(target)) return;
 
+    // 중앙 데드존
     const vw = Math.max(document.documentElement.clientWidth, window.innerWidth || 0);
     const dz = Math.max(0, Math.min(0.9, deadZoneCenterRatio));
     const L  = vw * (0.5 - dz/2);
     const R  = vw * (0.5 + dz/2);
-    if (p.clientX >= L && p.clientX <= R) return; // 중앙 데드존
+    if (x >= L && x <= R) return;
 
-    sx = p.clientX; sy = p.clientY; t0 = performance.now();
+    pointerId = e.pointerId ?? 'fallback';
+    sx = x; sy = y; t0 = performance.now();
     tracking = true; horizontalIntent = false;
   }
 
-  function onMove(e){
+  function onPointerMove(e){
     if (!tracking) return;
-    const p = getPt(e); if(!p) return;
+    if (pointerId != null && e.pointerId != null && e.pointerId !== pointerId) return;
 
-    const dx = p.clientX - sx;
-    const dy = p.clientY - sy;
+    const { x, y } = getXY(e);
+    const dx = x - sx;
+    const dy = y - sy;
 
-    // 의도 확정 전: 세로가 먼저 커지면 스크롤 우선
     if (!horizontalIntent){
-      if (Math.abs(dy) > 10) { tracking=false; return; }
-      if (Math.abs(dx) >= 12) horizontalIntent = true;
+      if (Math.abs(dy) > cancelDy) { tracking=false; return; } // 스크롤 의도
+      if (Math.abs(dx) >= intentDx) horizontalIntent = true;
     } else {
-      if (Math.abs(dy) > 90) { tracking=false; return; }
+      if (Math.abs(dy) > maxDy) { tracking=false; return; }
     }
-
-    if (e.touches && e.touches.length > 1){ tracking=false; return; }
   }
 
-  function onEnd(e){
+  function onPointerUp(e){
     if (!tracking) return;
-    tracking = false;
+    if (pointerId != null && e.pointerId != null && e.pointerId !== pointerId) return;
+    tracking = false; pointerId = null;
 
-    const p = getPt(e); if(!p) return;
-    const dx = p.clientX - sx;
-    const dy = p.clientY - sy;
+    const { x, y } = getXY(e);
+    const dx = x - sx;
+    const dy = y - sy;
     const dt = performance.now() - t0;
 
     if (!horizontalIntent) return;
-    if (Math.abs(dy) > 90) return;
-    if (dt > 700) return;
+    if (Math.abs(dy) > maxDy) return;
+    if (dt > maxMs) return;
 
     const vx = Math.abs(dx) / Math.max(1, dt); // px/ms
-    const passDistance = Math.abs(dx) >= 70;
-    const passVelocity = vx >= 0.6;
+    const passDistance = Math.abs(dx) >= minDx;
+    const passVelocity = vx >= minVx;
 
     if (!(passDistance || passVelocity)) return;
     if (window.__swipeNavigating) return;
 
-    if (dx <= -70 || (dx < 0 && passVelocity)) {
-      if (!'/upload.html') return;
+    // 방향 판정 및 이동
+    if (dx <= -minDx || (dx < 0 && passVelocity)) {
+      if (!goLeftHref) return;
       window.__swipeNavigating = true;
       document.documentElement.classList.add('slide-out-left');
-      setTimeout(()=> location.href = '/upload.html', animateMs);
-    } else if (dx >= 70 || (dx > 0 && passVelocity)) {
-      if (!'/list.html') return;
+      setTimeout(()=> location.href = goLeftHref, animateMs);
+    } else if (dx >= minDx || (dx > 0 && passVelocity)) {
+      if (!goRightHref) return;
       window.__swipeNavigating = true;
       document.documentElement.classList.add('slide-out-right');
-      setTimeout(()=> location.href = '/list.html', animateMs);
+      setTimeout(()=> location.href = goRightHref, animateMs);
     }
   }
 
-  document.addEventListener('touchstart', onStart, { passive:true });
-  document.addEventListener('touchmove',  onMove,  { passive:true });
-  document.addEventListener('touchend',   onEnd,   { passive:true });
+  function onPointerCancel(){
+    tracking = false; pointerId = null;
+  }
+
+  // Pointer Events (터치/마우스/스타일러스 통합)
+  document.addEventListener('pointerdown', onPointerDown, { passive:true });
+  document.addEventListener('pointermove', onPointerMove, { passive:true });
+  document.addEventListener('pointerup', onPointerUp, { passive:true });
+  document.addEventListener('pointercancel', onPointerCancel, { passive:true });
 
   // 애니메이션 스타일 주입
   const styleId = 'swipe-anim-advanced';
