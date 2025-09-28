@@ -1,4 +1,4 @@
-// /js/index.js  (ArkTube Index — CATEGORY_MODEL only, series resume, 15% deadzone)
+// /js/index.js  (ArkTube Index — CATEGORY_MODEL only, series resume, 18% deadzone + v1.5 dropdown)
 import { CATEGORY_GROUPS, CATEGORY_MODEL } from './categories.js';
 import { auth } from './firebase-init.js';
 import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
@@ -26,10 +26,7 @@ const btnAbout     = document.getElementById('btnAbout');
 const btnOrder     = document.getElementById('btnOrder');
 const btnList      = document.getElementById('btnList');
 const brandHome    = document.getElementById('brandHome');
-
-let isMenuOpen=false;
-function openDropdown(){ isMenuOpen=true; dropdown.classList.remove('hidden'); requestAnimationFrame(()=> dropdown.classList.add('show')); }
-function closeDropdown(){ isMenuOpen=false; dropdown.classList.remove('show'); setTimeout(()=> dropdown.classList.add('hidden'),180); }
+const btnDropdown  = document.getElementById('btnDropdown'); // v1.5 드롭다운 토글 버튼
 
 onAuthStateChanged(auth, (user)=>{
   const loggedIn = !!user;
@@ -38,14 +35,6 @@ onAuthStateChanged(auth, (user)=>{
   nickWrap?.classList.toggle('hidden', !loggedIn);
 });
 
-document.addEventListener('click', (e)=>{
-  const t = e.target;
-  if (t.closest('#btnDropdown')) {
-    if (isMenuOpen) closeDropdown(); else openDropdown();
-  } else if (!t.closest('#dropdownMenu')) {
-    if (isMenuOpen) closeDropdown();
-  }
-});
 btnSignOut?.addEventListener('click', async ()=>{
   try{ await fbSignOut(); }catch{}
   location.reload();
@@ -65,6 +54,72 @@ btnList?.addEventListener('click', ()=> {
   }catch{}
   location.href='/list.html';
 });
+
+/* ========= Dropdown (CopyTube v1.5 스타일로 통일) ========= */
+// 규격: hidden+open 클래스, opacity/transform 트랜지션, aria-expanded/aria-hidden 동기화,
+// pointerdown 외부클릭 닫기, Escape/Tab 포커스 트랩.
+(function initDropdownV15(){
+  const menu = dropdown; // id="dropdownMenu"
+  let ddOpen = false;
+  let offPointer = null, offKey = null;
+
+  function setOpen(open){
+    ddOpen = !!open;
+    if (!menu || !btnDropdown) return;
+
+    btnDropdown.setAttribute('aria-expanded', String(ddOpen));
+    menu.setAttribute('aria-hidden', String(!ddOpen));
+
+    if (ddOpen){
+      menu.classList.remove('hidden');
+      requestAnimationFrame(()=> menu.classList.add('open'));
+      const first = menu.querySelector('a,button,[tabindex]:not([tabindex="-1"])');
+      if (first) first.focus({ preventScroll:true });
+      bindDoc();
+    } else {
+      menu.classList.remove('open');
+      setTimeout(()=> menu.classList.add('hidden'), 150);
+      btnDropdown.focus?.({ preventScroll:true });
+      unbindDoc();
+    }
+  }
+  function toggle(){ setOpen(!ddOpen); }
+
+  function bindDoc(){
+    if (offPointer || offKey) return;
+    const onPointer = (e)=>{
+      const t = e.target;
+      if (t.closest('#dropdownMenu') || t.closest('#btnDropdown')) return;
+      setOpen(false);
+    };
+    const onKey = (e)=>{
+      if (e.key === 'Escape') setOpen(false);
+      if (e.key === 'Tab' && ddOpen){
+        const nodes = menu.querySelectorAll('a,button,[tabindex]:not([tabindex="-1"])');
+        if (!nodes.length) return;
+        const first = nodes[0], last = nodes[nodes.length-1];
+        if (e.shiftKey && document.activeElement === first){ e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last){ e.preventDefault(); first.focus(); }
+      }
+    };
+    document.addEventListener('pointerdown', onPointer, { passive:true });
+    document.addEventListener('keydown', onKey);
+    offPointer = ()=> document.removeEventListener('pointerdown', onPointer, { passive:true });
+    offKey     = ()=> document.removeEventListener('keydown', onKey);
+  }
+  function unbindDoc(){ if (offPointer){ offPointer(); offPointer=null; } if (offKey){ offKey(); offKey=null; } }
+
+  btnDropdown?.addEventListener('click', (e)=>{ e.preventDefault(); toggle(); });
+  menu?.addEventListener('click', (e)=>{ if (e.target.closest('a,button,[role="menuitem"]')) setOpen(false); });
+  window.addEventListener('beforeunload', ()=> setOpen(false));
+
+  // 초기 상태 aria 동기화
+  if (menu && btnDropdown){
+    const initiallyHidden = menu.classList.contains('hidden');
+    btnDropdown.setAttribute('aria-expanded', String(!initiallyHidden));
+    menu.setAttribute('aria-hidden', String(initiallyHidden));
+  }
+})();
 
 /* ========= CTA/토글/렌더 ========= */
 const catsBox      = document.getElementById('cats');
@@ -337,7 +392,6 @@ document.addEventListener('keydown',(e)=>{
   }
 });
 
-/* ========= 스와이프 내비 (중앙 15% 데드존) ========= */
 /* ========= 스와이프 내비 (고급형, 중앙 18% 데드존) ========= */
 window.__swipeNavigating = window.__swipeNavigating || false;
 
@@ -354,7 +408,6 @@ function initSwipeNavAdvanced({
   minVx = 0.6                   // 최소 속도(px/ms) 트리거
 } = {}) {
   let sx=0, sy=0, t0=0, tracking=false, horizontalIntent=false, multiTouch=false;
-  let lastX=0, lastT=0;
 
   const getPt = (e) => e.touches?.[0] || e.changedTouches?.[0] || e;
 
@@ -364,8 +417,7 @@ function initSwipeNavAdvanced({
 
   function onStart(e){
     if (window.__swipeNavigating) return;
-    multiTouch = (e.touches && e.touches.length > 1);
-    if (multiTouch) return;
+    if (e.touches && e.touches.length > 1) return; // 멀티터치/핀치 무시
 
     const p = getPt(e); if(!p) return;
     if (isInteractiveEl(p.target)) return;
@@ -376,72 +428,61 @@ function initSwipeNavAdvanced({
     const R  = vw * (0.5 + dz/2);
     if (p.clientX >= L && p.clientX <= R) return; // 중앙 데드존
 
-    sx = lastX = p.clientX; sy = p.clientY; t0 = lastT = performance.now();
+    sx = p.clientX; sy = p.clientY; t0 = performance.now();
     tracking = true; horizontalIntent = false;
   }
 
   function onMove(e){
-    if (!tracking || multiTouch) return;
+    if (!tracking) return;
     const p = getPt(e); if(!p) return;
 
     const dx = p.clientX - sx;
     const dy = p.clientY - sy;
-    const dt = performance.now() - t0;
 
-    // 의도 확정 전: 세로가 먼저 커지면 스크롤 의도로 보고 취소
+    // 의도 확정 전: 세로가 먼저 커지면 스크롤 우선
     if (!horizontalIntent){
-      if (Math.abs(dy) > cancelDy) { tracking=false; return; }
-      if (Math.abs(dx) >= intentDx) horizontalIntent = true;
+      if (Math.abs(dy) > 10) { tracking=false; return; }
+      if (Math.abs(dx) >= 12) horizontalIntent = true;
     } else {
-      // 의도 확정 후: 과도한 세로 흔들림이면 취소
-      if (Math.abs(dy) > maxDy) { tracking=false; return; }
+      if (Math.abs(dy) > 90) { tracking=false; return; }
     }
 
-    // 핀치/멀티 방지
     if (e.touches && e.touches.length > 1){ tracking=false; return; }
-
-    lastX = p.clientX; lastT = performance.now();
   }
 
   function onEnd(e){
-    if (!tracking || multiTouch) return;
+    if (!tracking) return;
     tracking = false;
 
     const p = getPt(e); if(!p) return;
     const dx = p.clientX - sx;
     const dy = p.clientY - sy;
-    const t1 = performance.now();
-    const dt = t1 - t0;
+    const dt = performance.now() - t0;
 
     if (!horizontalIntent) return;
-    if (Math.abs(dy) > maxDy) return;
-    if (dt > maxMs) return;
+    if (Math.abs(dy) > 90) return;
+    if (dt > 700) return;
 
     const vx = Math.abs(dx) / Math.max(1, dt); // px/ms
-
-    const passDistance = Math.abs(dx) >= minDx;
-    const passVelocity = vx >= minVx;
+    const passDistance = Math.abs(dx) >= 70;
+    const passVelocity = vx >= 0.6;
 
     if (!(passDistance || passVelocity)) return;
     if (window.__swipeNavigating) return;
 
-    // 방향 판정
-    if (dx <= -minDx || (dx < 0 && vx >= minVx)) {
-      // 왼쪽으로 밀기(→) = goLeftHref
-      if (!goLeftHref) return;
+    if (dx <= -70 || (dx < 0 && passVelocity)) {
+      if (!'/upload.html') return;
       window.__swipeNavigating = true;
       document.documentElement.classList.add('slide-out-left');
-      setTimeout(()=> location.href = goLeftHref, animateMs);
-    } else if (dx >= minDx || (dx > 0 && vx >= minVx)) {
-      // 오른쪽으로 밀기(←) = goRightHref
-      if (!goRightHref) return;
+      setTimeout(()=> location.href = '/upload.html', animateMs);
+    } else if (dx >= 70 || (dx > 0 && passVelocity)) {
+      if (!'/list.html') return;
       window.__swipeNavigating = true;
       document.documentElement.classList.add('slide-out-right');
-      setTimeout(()=> location.href = goRightHref, animateMs);
+      setTimeout(()=> location.href = '/list.html', animateMs);
     }
   }
 
-  // 수동 스크롤과 충돌 최소화: passive=true
   document.addEventListener('touchstart', onStart, { passive:true });
   document.addEventListener('touchmove',  onMove,  { passive:true });
   document.addEventListener('touchend',   onEnd,   { passive:true });
@@ -470,4 +511,3 @@ initSwipeNavAdvanced({
   goRightHref: '/list.html',
   deadZoneCenterRatio: 0.18
 });
-
