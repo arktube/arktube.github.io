@@ -32,7 +32,7 @@ function setStatusHTML(html){
   if(top) top.innerHTML = html || '';
   if(bottom) bottom.innerHTML = html || '';
 }
-function getOrder(){ return document.querySelector('input[name="order"]:checked')?.value || 'bottom'; }
+// (삭제됨) getOrder(): 아래/위 등록 토글 기능 제거
 function enableButtons(on=true){
   $('#btnSubmitTop')   && ($('#btnSubmitTop').disabled   = !on);
   $('#btnSubmitBottom')&& ($('#btnSubmitBottom').disabled= !on);
@@ -302,16 +302,16 @@ function renderCategories(){
 renderCategories();
 
 //function getChosenCats(){
- // return Array.from($cats?.querySelectorAll('input[type="checkbox"]:checked')||[]).map(b=> b.value);
+//  return Array.from($cats?.querySelectorAll('input[type="checkbox"]:checked')||[]).map(b=> b.value);
 //}
- function getChosenCats(){
-   const raw = Array.from(
-     $cats?.querySelectorAll('input[type="checkbox"]:checked') || []
-   ).map(el => String(el?.value ?? '').trim());
-   // 공백 제거, 빈값 제거, 중복 제거, 3개 제한
-   const uniq = Array.from(new Set(raw)).filter(Boolean).slice(0, 3);
-   return uniq;
- }
+function getChosenCats(){
+  const raw = Array.from(
+    $cats?.querySelectorAll('input[type="checkbox"]:checked') || []
+  ).map(el => String(el?.value ?? '').trim());
+  // 공백 제거, 빈값 제거, 중복 제거, 3개 제한
+  const uniq = Array.from(new Set(raw)).filter(Boolean).slice(0, 3);
+  return uniq;
+}
 /* ---------- 폼 초기화 유틸 ---------- */
 function resetFormAfterSubmit(){
   try{
@@ -348,12 +348,11 @@ async function submitAll(){
   const raw = ($urls?.value || '').trim();
   if(!raw){ setStatusHTML('<span class="danger">URL을 입력해주세요.</span>'); return; }
 
- // const cats = getChosenCats();
   const catsRaw = getChosenCats();
- // 최후 보루: 항상 "문자열 배열(≤3)" 보장
- const cats = Array.isArray(catsRaw)
-   ? Array.from(new Set(catsRaw.map(v => String(v).trim()).filter(Boolean))).slice(0, 3)
-   : [];
+  // 최후 보루: 항상 "문자열 배열(≤3)" 보장
+  const cats = Array.isArray(catsRaw)
+    ? Array.from(new Set(catsRaw.map(v => String(v).trim()).filter(Boolean))).slice(0, 3)
+    : [];
   if(!cats.length){ setStatusHTML('<span class="danger">카테고리를 선택해주세요.</span>'); return; }
   if(cats.length > 3 && !cats.every(CATIDX.isPersonalVal)){ setStatusHTML('<span class="danger">카테고리는 최대 3개까지 선택할 수 있습니다.</span>'); return; }
 
@@ -364,7 +363,7 @@ async function submitAll(){
 
   let lines = raw.split(/\r?\n/).map(s=> s.trim()).filter(Boolean);
   if(!lines.length){ setStatusHTML('<span class="danger">유효한 URL이 없습니다.</span>'); return; }
-  if(getOrder()==='bottom') lines = lines.reverse();
+  // (삭제됨) 아래부터/위부터 옵션. 항상 '위에서부터' 순서로 진행.
 
   // 파싱
   const entries = [];
@@ -396,10 +395,9 @@ async function submitAll(){
     const now=Date.now();
     good.forEach(g=> arr.push({ url:g.url, title:'', savedAt:now }));
     try{ localStorage.setItem(key, JSON.stringify(arr)); }catch{}
-      setStatusHTML(`<span class="ok">개인자료(${esc(personalLabel(slot))})에 ${good.length}건 저장 완료</span>`);
-  resetFormAfterSubmit();   // ← 추가
-  return;
-
+    setStatusHTML(`<span class="ok">개인자료(${esc(personalLabel(slot))})에 ${good.length}건 저장 완료</span>`);
+    resetFormAfterSubmit();
+    return;
   }
 
   // 서버 모드
@@ -439,7 +437,6 @@ async function submitAll(){
       payload = {
         uid: user.uid,
         url: e.url,
-      //  cats: cats.slice(),
         cats,
         ytid: e.id,
         type: e.type,
@@ -477,14 +474,13 @@ async function submitAll(){
     }
   }
 
-enableButtons(true);
-setStatusHTML(`<span class="ok">완료</span> · 성공 ${ok} · 중복 ${dup} · 실패 ${fail} · 무시(비유튜브/파싱실패) ${bad}`);
+  enableButtons(true);
+  setStatusHTML(`<span class="ok">완료</span> · 성공 ${ok} · 중복 ${dup} · 실패 ${fail} · 무시(비유튜브/파싱실패) ${bad}`);
 
-if (ok > 0) {
-  // 최소 1건 이상 정상 등록된 경우에만 초기화
-  resetFormAfterSubmit();
-}
-
+  if (ok > 0) {
+    // 최소 1건 이상 정상 등록된 경우에만 초기화
+    resetFormAfterSubmit();
+  }
 }
 
 /* 버튼 이벤트 */
