@@ -1,284 +1,397 @@
-// /js/index.js — ArkTube Index (정정 완료본)
+// /js/index.js  (ArkTube Index — CATEGORY_MODEL only, series resume, 15% deadzone)
+import { CATEGORY_GROUPS, CATEGORY_MODEL } from './categories.js';
+import { auth } from './firebase-init.js';
+import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
 
-import { auth } from './auth.js';
-import { CATEGORY_MODEL } from './categories.js';
-import { getAutoNext, setAutoNext, loadResume } from './resume.js';
+/* ========= 유틸 ========= */
+const isPersonalVal = (v)=> v && v.startsWith('personal');
+const isSeriesGroup = (key)=> typeof key === 'string' && key.startsWith('series_');
 
-const $ = (sel) => document.querySelector(sel);
+const GROUP_ORDER_KEY   = 'groupOrderV1';              // 카테고리 순서
+const SELECTED_CATS_KEY = 'selectedCats';              // 선택 저장 (ALL | string[])
+const AUTONEXT_KEY      = 'autonext';                  // 연속재생 on/off
+const VIEW_TYPE_KEY     = 'arktube:view:type';         // all | shorts | video
+const LIST_SNAPSHOT_KEY = 'arktube:list:snapshot';     // list 상태 복원용 (index는 저장만)
 
-const catsRoot   = $('#cats');
-const rbAll      = $('#type_all');
-const rbShorts   = $('#type_shorts');
-const rbVideo    = $('#type_video');
-const cbToggleAll= $('#cbToggleAll');
-const btnWatch   = $('#btnWatch');
-const btnList    = $('#btnList');
-const btnHelp    = $('#btnHelp');
-const helpOverlay= $('#helpOverlay');
-const dropdown   = $('#dropdownMenu');
-const menuBtn    = $('#menuBtn');
-const cbAuto     = $('#cbAutoNext');
-const welcomeEl  = $('#welcome');
+/* ========= 상단바 ========= */
+const topbar       = document.getElementById('topbar');
+const dropdown     = document.getElementById('dropdownMenu');
+const signupLink   = document.getElementById('signupLink');
+const signinLink   = document.getElementById('signinLink');
+const nickWrap     = document.getElementById('nickWrap');
+const btnSignOut   = document.getElementById('btnSignOut');
+const btnGoUpload  = document.getElementById('btnGoUpload');
+const btnMyUploads = document.getElementById('btnMyUploads');
+const btnAbout     = document.getElementById('btnAbout');
+const btnOrder     = document.getElementById('btnOrder');
+const btnList      = document.getElementById('btnList');
+const brandHome    = document.getElementById('brandHome');
 
-if (welcomeEl) welcomeEl.textContent = 'Welcome!';
+let isMenuOpen=false;
+function openDropdown(){ isMenuOpen=true; dropdown.classList.remove('hidden'); requestAnimationFrame(()=> dropdown.classList.add('show')); }
+function closeDropdown(){ isMenuOpen=false; dropdown.classList.remove('show'); setTimeout(()=> dropdown.classList.add('hidden'),180); }
 
-if (menuBtn && dropdown) {
-  menuBtn.addEventListener('click', () => {
-    dropdown.classList.toggle('hidden');
-    dropdown.classList.toggle('show');
-  });
-  document.addEventListener('click', (e) => {
-    if (!dropdown.contains(e.target) && e.target !== menuBtn) {
-      dropdown.classList.add('hidden');
-      dropdown.classList.remove('show');
-    }
-  });
-}
+onAuthStateChanged(auth, (user)=>{
+  const loggedIn = !!user;
+  signupLink?.classList.toggle('hidden', loggedIn);
+  signinLink?.classList.toggle('hidden', loggedIn);
+  nickWrap?.classList.toggle('hidden', !loggedIn);
+});
 
-const LS = typeof localStorage !== 'undefined' ? localStorage : null;
-const KEY_SELECTED_TYPE = 'selectedType';
-const KEY_SELECTED_CATS = 'selectedCats';
-
-function currentType() {
-  if (rbShorts?.checked) return 'shorts';
-  if (rbVideo?.checked)  return 'video';
-  return 'all';
-}
-function loadSelectedType() {
-  try { return LS.getItem(KEY_SELECTED_TYPE) || ''; } catch { return ''; }
-}
-function saveSelectedType(v) {
-  try { LS.setItem(KEY_SELECTED_TYPE, v); } catch {}
-}
-function applySavedTypeOrDefault() {
-  const v = loadSelectedType() || 'all';
-  if (rbShorts) rbShorts.checked = (v === 'shorts');
-  if (rbVideo)  rbVideo.checked  = (v === 'video');
-  if (rbAll)    rbAll.checked    = (v !== 'shorts' && v !== 'video');
-}
-if ($('#typeToggle')) {
-  $('#typeToggle').addEventListener('click', () => saveSelectedType(currentType()));
-}
-applySavedTypeOrDefault();
-
-if (cbAuto) {
-  cbAuto.checked = getAutoNext();
-  cbAuto.addEventListener('change', () => setAutoNext(cbAuto.checked));
-}
-
-function ensureCategoryModelValid() {
-  if (!Array.isArray(CATEGORY_MODEL) || CATEGORY_MODEL.length === 0) {
-    console.warn('[Index] CATEGORY_MODEL 비어있음 또는 잘못된 형식');
-    if (catsRoot) {
-      catsRoot.innerHTML = '<div style="color:#f66; padding:8px;">카테고리 정보를 불러오지 못했습니다. categories.js를 확인해 주세요.</div>';
-    }
-    return false;
+document.addEventListener('click', (e)=>{
+  const t = e.target;
+  if (t.closest('#btnDropdown')) {
+    if (isMenuOpen) closeDropdown(); else openDropdown();
+  } else if (!t.closest('#dropdownMenu')) {
+    if (isMenuOpen) closeDropdown();
   }
-  for (const g of CATEGORY_MODEL) {
-    if (!g || typeof g !== 'object' || !g.key || !g.label || !Array.isArray(g.children)) {
-      console.warn('[Index] CATEGORY_MODEL 그룹 형식 오류:', g);
-      if (catsRoot) {
-        catsRoot.innerHTML = '<div style="color:#f66; padding:8px;">카테고리 데이터 형식이 올바르지 않습니다.</div>';
+});
+btnSignOut?.addEventListener('click', async ()=>{
+  try{ await fbSignOut(); }catch{}
+  location.reload();
+});
+brandHome?.addEventListener('click', ()=> location.href='/index.html');
+btnGoUpload?.addEventListener('click', ()=> location.href='/upload.html');
+btnMyUploads?.addEventListener('click', ()=> location.href='/manage-uploads.html');
+btnAbout?.addEventListener('click', ()=> location.href='/about.html');
+btnOrder?.addEventListener('click', ()=> location.href='/category-order.html');
+btnList?.addEventListener('click', ()=> {
+  // index → list 이동 시 현재 선택/형식/연속재생 상태 스냅샷 저장
+  const cats = Array.from(document.querySelectorAll('.cat:checked')).map(c=>c.value);
+  const type = document.querySelector('#typeToggle input:checked')?.value || 'all';
+  const auto = document.getElementById('cbAutoNext')?.checked ? 1 : 0;
+  try{
+    sessionStorage.setItem(LIST_SNAPSHOT_KEY, JSON.stringify({ cats, type, auto }));
+  }catch{}
+  location.href='/list.html';
+});
+
+/* ========= CTA/토글/렌더 ========= */
+const catsBox      = document.getElementById('cats');
+const cbToggleAll  = document.getElementById('cbToggleAll');
+const btnWatch     = document.getElementById('btnWatch');
+const btnOpenOrder = document.getElementById('btnOpenOrder');
+const cbAutoNext   = document.getElementById('cbAutoNext');
+
+function applyGroupOrder(groups){
+  let saved = null;
+  try{ saved = JSON.parse(localStorage.getItem(GROUP_ORDER_KEY) || 'null'); }catch{}
+  const order = Array.isArray(saved) && saved.length ? saved : groups.map(g=>g.key);
+  const idx = new Map(order.map((k,i)=>[k,i]));
+  return groups.slice().sort((a,b)=>(idx.get(a.key)??999) - (idx.get(b.key)??999));
+}
+function getPersonalLabels(){
+  try { return JSON.parse(localStorage.getItem('personalLabels') || '{}'); }
+  catch { return {}; }
+}
+
+function renderGroups(){
+  const groups = applyGroupOrder(CATEGORY_GROUPS);
+  const personalLabels = getPersonalLabels();
+
+  const html = groups.map(g=>{
+    const isPersonalGroup = g.key==='personal';
+    const isSeries = isSeriesGroup(g.key);
+
+    // children (개인자료 라벨 덮어쓰기 + 시리즈 '이어보기' 미니버튼)
+    const kids = g.children.map(c=>{
+      const labelText = isPersonalGroup && personalLabels[c.value]
+        ? personalLabels[c.value] : c.label;
+
+      // ⬇︎ 이어보기 버튼: 반드시 groupKey + subKey 전달 (resume:{groupKey}:{subKey})
+      const resumeBtn = isSeries
+        ? `<button class="resume-mini" data-group="${g.key}" data-sub="${c.value}" title="이 시리즈 이어보기">이어보기</button>`
+        : '';
+
+      return `<label>
+                <input type="checkbox" class="cat" value="${c.value}"> 
+                <span>${labelText}</span>
+                ${resumeBtn}
+              </label>`;
+    }).join('');
+
+    const legendHTML = isPersonalGroup
+      ? `<legend><span style="font-weight:800;">${g.label}</span> <span class="subnote">(로컬저장소)</span></legend>`
+      : `<legend>
+           <label class="group-toggle">
+             <input type="checkbox" class="group-check" data-group="${g.key}" />
+             <span>${g.label}</span>
+           </label>
+         </legend>`;
+
+    return `
+      <fieldset class="group" data-key="${g.key}">
+        ${legendHTML}
+        <div class="child-grid">
+          ${kids}
+        </div>
+      </fieldset>
+    `;
+  }).join('');
+
+  catsBox.innerHTML = html;
+  bindGroupInteractions();
+  bindResumeButtons(); // 시리즈 이어보기
+}
+renderGroups();
+
+/* ========= parent/child 동기화 ========= */
+function setParentStateByChildren(groupEl){
+  const parent   = groupEl.querySelector('.group-check');
+  if (!parent) return;
+  const children = Array.from(groupEl.querySelectorAll('input.cat'));
+  const total = children.length;
+  const checked = children.filter(c => c.checked).length;
+  if (checked===0){ parent.checked=false; parent.indeterminate=false; }
+  else if (checked===total){ parent.checked=true; parent.indeterminate=false; }
+  else { parent.checked=false; parent.indeterminate=true; }
+}
+function setChildrenByParent(groupEl,on){ groupEl.querySelectorAll('input.cat').forEach(c=> c.checked = !!on); }
+function refreshAllParentStates(){ catsBox.querySelectorAll('.group').forEach(setParentStateByChildren); }
+
+function computeAllSelected(){
+  // '전체선택'은 개인자료 + 모든 시리즈 그룹 제외
+  const real = Array.from(catsBox.querySelectorAll('.group:not([data-key="personal"]) input.cat'))
+    .filter(el => !isSeriesGroup(el.closest('.group')?.dataset?.key));
+  return real.length>0 && real.every(c=>c.checked);
+}
+
+let allSelected=false;
+
+function bindGroupInteractions(){
+  // 전체 그룹 체크박스 → 자식 on/off (개인자료는 부모 없음)
+  catsBox.querySelectorAll('.group-check').forEach(parent=>{
+    const groupKey = parent.getAttribute('data-group');
+    if (groupKey === 'personal') return;
+    parent.addEventListener('change', ()=>{
+      const groupEl = parent.closest('.group');
+      setChildrenByParent(groupEl, parent.checked);
+      setParentStateByChildren(groupEl);
+      allSelected = computeAllSelected();
+      if (cbToggleAll) cbToggleAll.checked = allSelected;
+
+      // 개인자료는 단독 재생: 다른 체크 해제
+      catsBox.querySelectorAll('.group[data-key="personal"] input.cat:checked').forEach(c=> c.checked=false);
+    });
+  });
+
+  // 각 자식 체크
+  catsBox.querySelectorAll('input.cat').forEach(child=>{
+    child.addEventListener('change', ()=>{
+      const v = child.value;
+      const isPersonal = isPersonalVal(v);
+
+      if (isPersonal && child.checked){
+        // personal 단독 모드
+        catsBox.querySelectorAll('.group[data-key="personal"] input.cat').forEach(c=>{ if(c!==child) c.checked=false; });
+        catsBox.querySelectorAll('.group:not([data-key="personal"]) input.cat:checked').forEach(c=> c.checked=false);
       }
-      return false;
-    }
-    for (const c of g.children) {
-      if (!c || typeof c !== 'object' || !('value' in c) || !('label' in c)) {
-        console.warn('[Index] CATEGORY_MODEL 하위 항목 형식 오류:', c);
-        if (catsRoot) {
-          catsRoot.innerHTML = '<div style="color:#f66; padding:8px;">카테고리 하위 항목 데이터 형식이 올바르지 않습니다.</div>';
-        }
-        return false;
-      }
-    }
-  }
-  return true;
-}
-
-// ✅ series 판별(혼합재생 방지/정렬 기본값 계산용): 세부카테고리 value 기준 유지
-function isSeriesValue(subValue) { return String(subValue).startsWith('series_'); }
-
-function renderCategories() {
-  if (!catsRoot) return;
-  catsRoot.innerHTML = '';
-  if (!ensureCategoryModelValid()) return;
-
-  for (const group of CATEGORY_MODEL) {
-    const fs = document.createElement('fieldset');
-    fs.className = 'group';
-
-    const lg = document.createElement('legend');
-    lg.textContent = group.label;
-    fs.appendChild(lg);
-
-    const grid = document.createElement('div');
-    grid.className = 'child-grid';
-
-    for (const child of group.children) {
-      const id = `cat_${group.key}_${child.value}`;
-      const label = document.createElement('label');
-      label.setAttribute('for', id);
-
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.id = id;
-      cb.value = child.value;
-      cb.dataset.group = group.key;
-
-      const span = document.createElement('span');
-      span.textContent = child.label;
-
-      label.prepend(cb, span);
-
-      // ✅ 이어보기 버튼 노출 기준: "큰 카테고리 key가 series_로 시작"하면 child 전부에 표시
-      if (String(group.key).startsWith('series_')) {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'resume-mini';
-        btn.textContent = '이어보기';
-        btn.addEventListener('click', () => handleResumePlay(group.key, child.value));
-        label.appendChild(btn);
+      if (!isPersonal && child.checked){
+        // 일반/시리즈 선택 → personal 해제
+        catsBox.querySelectorAll('.group[data-key="personal"] input.cat:checked').forEach(c=> c.checked=false);
       }
 
-      grid.appendChild(label);
+      const groupEl = child.closest('.group');
+      setParentStateByChildren(groupEl);
+      refreshAllParentStates();
+
+      allSelected = computeAllSelected();
+      if (cbToggleAll) cbToggleAll.checked = allSelected;
+    });
+  });
+}
+
+/* ========= '이어보기' 미니버튼 (시리즈) ========= */
+function bindResumeButtons(){
+  catsBox.querySelectorAll('.resume-mini').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const groupKey = btn.getAttribute('data-group');
+      const subKey   = btn.getAttribute('data-sub');
+      if (!groupKey || !subKey) return;
+
+      // 항상 등록순(asc)으로 시리즈 큐를 만들고, 저장된 위치 있으면 거기로 진입
+      // resume 키 포맷: resume:{groupKey}:{subKey}  → resume.js는 내부 prefix를 더해 저장
+      const seriesKey = `${groupKey}:${subKey}`;
+
+      // watch가 이어보기를 인지할 수 있도록 sessionStorage에 명시
+      sessionStorage.setItem('resumeSeriesKey', seriesKey);
+
+      // 시리즈 단일 child로 큐를 만들 수 있게 선택 상태도 저장(혼합 방지)
+      localStorage.setItem(SELECTED_CATS_KEY, JSON.stringify([subKey]));
+
+      // 형식/연속재생 상태는 현 UI값을 그대로 전달
+      const vt = document.querySelector('#typeToggle input:checked')?.value || 'all';
+      localStorage.setItem(VIEW_TYPE_KEY, vt);
+      localStorage.setItem(AUTONEXT_KEY, document.getElementById('cbAutoNext')?.checked ? '1' : '0');
+
+      // 뒤로가기=인덱스 규칙: src 파라미터 없이 이동
+      location.href = '/watch.html';
+    });
+  });
+}
+
+/* ========= '전체선택' & 기존 선택 복원 ========= */
+function selectAll(on){
+  // 개인자료 + 모든 시리즈 그룹 제외, 일반만 전체선택
+  catsBox.querySelectorAll('.group input.cat').forEach(b=>{
+    const groupKey = b.closest('.group')?.dataset?.key || '';
+    const isPersonal = groupKey === 'personal';
+    const isSeries = isSeriesGroup(groupKey);
+    if (!isPersonal && !isSeries){ b.checked = !!on; } else { b.checked = false; }
+  });
+  refreshAllParentStates();
+  allSelected = !!on;
+  if (cbToggleAll) cbToggleAll.checked = allSelected;
+}
+
+function applySavedSelection(){
+  let saved = null;
+  try{ saved = JSON.parse(localStorage.getItem(SELECTED_CATS_KEY)||'null'); }catch{}
+  if (!saved || saved === 'ALL'){ selectAll(true); }
+  else{
+    selectAll(false);
+    const set = new Set(saved);
+    catsBox.querySelectorAll('.cat').forEach(ch=>{ if (set.has(ch.value)) ch.checked=true; });
+
+    // personal 단독성 유지
+    const personals = Array.from(catsBox.querySelectorAll('.group[data-key="personal"] input.cat:checked'));
+    const normals   = Array.from(catsBox.querySelectorAll('.group:not([data-key="personal"]) input.cat:checked'));
+    if (personals.length >= 1 && normals.length >= 1){
+      personals.forEach(c=> c.checked=false);
+    }else if (personals.length >= 2){
+      personals.slice(1).forEach(c=> c.checked=false);
     }
-
-    fs.appendChild(grid);
-    catsRoot.appendChild(fs);
+    refreshAllParentStates();
   }
 
-  applySavedCatsOrDefault();
-  syncToggleAllVisual();
-  catsRoot.addEventListener('change', onCatsChanged);
-}
-
-function onCatsChanged() {
-  saveSelectedCats(getSelectedCatTokens());
-  syncToggleAllVisual();
-}
-
-function getSelected() {
-  if (!catsRoot) return [];
-  const checked = [...catsRoot.querySelectorAll('input[type=checkbox]:checked')];
-  return checked.map(i => ({ groupKey: i.dataset.group, subKey: i.value }));
-}
-function getSelectedCatTokens() {
-  if (!catsRoot) return [];
-  const checked = [...catsRoot.querySelectorAll('input[type=checkbox]:checked')];
-  return checked.map(i => `${i.dataset.group}:${i.value}`);
-}
-function loadSelectedCats() {
-  try {
-    const raw = LS.getItem(KEY_SELECTED_CATS);
-    if (!raw) return [];
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr : [];
-  } catch { return []; }
-}
-function saveSelectedCats(tokens) {
-  try { LS.setItem(KEY_SELECTED_CATS, JSON.stringify(tokens || [])); } catch {}
-}
-function applySavedCatsOrDefault() {
-  const tokens = loadSelectedCats();
-  if (!tokens.length) return;
-  const set = new Set(tokens);
-  const inputs = catsRoot.querySelectorAll('input[type=checkbox]');
-  inputs.forEach(cb => {
-    const token = `${cb.dataset.group}:${cb.value}`;
-    cb.checked = set.has(token);
-  });
-}
-
-function syncToggleAllVisual() {
-  if (!catsRoot || !cbToggleAll) return;
-  const inputs = [...catsRoot.querySelectorAll('input[type=checkbox]')];
-  const all = inputs.length;
-  const checked = inputs.filter(i => i.checked).length;
-  cbToggleAll.indeterminate = checked > 0 && checked < all;
-  cbToggleAll.checked = checked === all;
-}
-if (cbToggleAll && catsRoot) {
-  cbToggleAll.addEventListener('change', () => {
-    const inputs = catsRoot.querySelectorAll('input[type=checkbox]');
-    inputs.forEach(i => { i.checked = cbToggleAll.checked; });
-    saveSelectedCats(getSelectedCatTokens());
-    syncToggleAllVisual();
-  });
-}
-
-function containsSeries(cats) { return cats.some(c => isSeriesValue(c.subKey)); }
-function containsNonSeries(cats) { return cats.some(c => !isSeriesValue(c.subKey)); }
-
-function validateSelectionForPlay(cats) {
-  if (cats.length === 0) { alert('카테고리를 하나 이상 선택해 주세요.'); return false; }
-  if (containsSeries(cats) && containsNonSeries(cats)) {
-    alert('시리즈와 일반/개인자료는 혼합 재생할 수 없습니다.\n시리즈만 또는 일반/개인만 선택해 주세요.');
-    return false;
+  // 형식 토글 기본값 복원 (기본 all)
+  const typeWrap = document.getElementById('typeToggle');
+  if (typeWrap){
+    const savedType = localStorage.getItem(VIEW_TYPE_KEY) || 'all';
+    const r = typeWrap.querySelector(`input[value="${savedType}"]`) || typeWrap.querySelector('input[value="all"]');
+    if (r) r.checked = true;
   }
-  return true;
+
+  // 연속재생 복원
+  const vv = (localStorage.getItem(AUTONEXT_KEY) || '').toLowerCase();
+  if (cbAutoNext) cbAutoNext.checked = (vv==='1' || vv==='true' || vv==='on');
 }
 
-function handleResumePlay(groupKey, subKey) {
-  const type = currentType();
-  const sort = 'createdAt-asc';
-  const r = loadResume({ type, groupKey, subKey });
+cbToggleAll?.addEventListener('change', ()=> selectAll(cbToggleAll.checked));
+btnOpenOrder?.addEventListener('click', ()=> location.href='/category-order.html');
 
-  const url = new URL('/watch.html', location.origin);
-  url.searchParams.set('from', 'index');
-  url.searchParams.set('type', type);
-  url.searchParams.set('cats', `${groupKey}:${subKey}`);
-  url.searchParams.set('sort', r?.sort || sort);
-  if (r?.index != null) url.searchParams.set('resumeIndex', String(r.index));
-  if (r?.t != null) url.searchParams.set('resumeT', String(Math.floor(r.t)));
-  location.href = url.toString();
+/* ========= index → watch ========= */
+btnWatch?.addEventListener('click', ()=>{
+  // index→watch: 잔여 큐 초기화
+  sessionStorage.removeItem('playQueue');
+  sessionStorage.removeItem('playIndex');
+  sessionStorage.removeItem('resumeSeriesKey');
+
+  const selected = Array.from(document.querySelectorAll('.cat:checked')).map(c=>c.value);
+  const personals = selected.filter(isPersonalVal);
+  const normals   = selected.filter(v=> !isPersonalVal(v));
+
+  // personal-only 선택
+  if (personals.length === 1 && normals.length === 0){
+    localStorage.setItem(SELECTED_CATS_KEY, JSON.stringify(personals));
+    localStorage.setItem(AUTONEXT_KEY, cbAutoNext?.checked ? '1' : '0');
+    // personal은 단독 재생 페이지 로직으로 watch가 처리
+    location.href = `/watch.html?cats=${encodeURIComponent(personals[0])}`;
+    return;
+  }
+
+  // 일반/시리즈: 'ALL' 또는 배열 저장
+  const isAll = computeAllSelected();
+  const valueToSave = (normals.length===0 || isAll) ? 'ALL' : normals;
+  localStorage.setItem(SELECTED_CATS_KEY, JSON.stringify(valueToSave));
+  localStorage.setItem(AUTONEXT_KEY, cbAutoNext?.checked ? '1' : '0');
+
+  // 형식 토글 저장
+  const vt = document.querySelector('#typeToggle input:checked')?.value || 'all';
+  localStorage.setItem(VIEW_TYPE_KEY, vt);
+
+  // 뒤로가기=인덱스 규칙: src 파라미터 없이 이동
+  location.href = '/watch.html';
+});
+
+/* ========= 초기화 ========= */
+applySavedSelection();
+
+/* ========= 도움말 플로팅 ========= */
+const helpBtn = document.getElementById('btnHelp');
+const helpOverlay = document.getElementById('helpOverlay');
+helpBtn?.addEventListener('click', ()=>{
+  helpOverlay?.classList.add('show');
+  helpOverlay?.setAttribute('aria-hidden','false');
+});
+helpOverlay?.addEventListener('click',(e)=>{
+  if (e.target === helpOverlay){ // 바깥 클릭
+    helpOverlay.classList.remove('show');
+    helpOverlay.setAttribute('aria-hidden','true');
+  }
+});
+document.addEventListener('keydown',(e)=>{
+  if (e.key === 'Escape' && helpOverlay?.classList.contains('show')){
+    helpOverlay.classList.remove('show');
+    helpOverlay.setAttribute('aria-hidden','true');
+  }
+});
+
+/* ========= 스와이프 내비 (중앙 15% 데드존) ========= */
+window.__swipeNavigating = window.__swipeNavigating || false;
+
+function initSwipeNav({ goLeftHref=null, goRightHref=null, animateMs=260, deadZoneCenterRatio=0.15 } = {}){
+  let sx=0, sy=0, t0=0, tracking=false;
+  const THRESH_X = 70;
+  const MAX_OFF_Y = 80;
+  const MAX_TIME  = 600;
+  const getPoint = (e) => e.touches?.[0] || e.changedTouches?.[0] || e;
+
+  function onStart(e){
+    const p = getPoint(e); if(!p) return;
+    const vw = Math.max(document.documentElement.clientWidth, window.innerWidth || 0);
+    const dz = Math.max(0, Math.min(0.9, deadZoneCenterRatio));
+    const L  = vw * (0.5 - dz/2);
+    const R  = vw * (0.5 + dz/2);
+    if (p.clientX >= L && p.clientX <= R) { tracking = false; return; } // 중앙 데드존 15%
+
+    sx = p.clientX; sy = p.clientY; t0 = Date.now(); tracking = true;
+  }
+  function onEnd(e){
+    if(!tracking) return; tracking = false;
+    if (window.__swipeNavigating) return;
+
+    const p = getPoint(e);
+    const dx = p.clientX - sx;
+    const dy = p.clientY - sy;
+    const dt = Date.now() - t0;
+    if (Math.abs(dy) > MAX_OFF_Y || dt > MAX_TIME) return;
+
+    if (dx <= -THRESH_X && goLeftHref){
+      window.__swipeNavigating = true;
+      document.documentElement.classList.add('slide-out-left');
+      setTimeout(()=> location.href = goLeftHref, animateMs);
+    } else if (dx >= THRESH_X && goRightHref){
+      window.__swipeNavigating = true;
+      document.documentElement.classList.add('slide-out-right');
+      setTimeout(()=> location.href = goRightHref, animateMs);
+    }
+  }
+
+  document.addEventListener('touchstart', onStart, { passive:true });
+  document.addEventListener('touchend', onEnd, { passive:true });
+
+  const style = document.createElement('style');
+  style.textContent = `
+@keyframes pageSlideLeft { from { transform: translateX(0); opacity:1; } to { transform: translateX(-22%); opacity:.92; } }
+@keyframes pageSlideRight{ from { transform: translateX(0); opacity:1; } to { transform: translateX(22%);  opacity:.92; } }
+:root.slide-out-left  body { animation: pageSlideLeft 0.26s ease forwards; }
+:root.slide-out-right body { animation: pageSlideRight 0.26s ease forwards; }
+@media (prefers-reduced-motion: reduce){
+  :root.slide-out-left  body,
+  :root.slide-out-right body { animation:none; }
+}`;
+  document.head.appendChild(style);
 }
-
-if (btnWatch) {
-  btnWatch.addEventListener('click', () => {
-    const cats = getSelected();
-    if (!validateSelectionForPlay(cats)) return;
-
-    const type = currentType();
-    const allSeries = cats.every(c => isSeriesValue(c.subKey));
-    const sort = allSeries ? 'createdAt-asc' : 'createdAt-desc';
-
-    saveSelectedType(type);
-    saveSelectedCats(getSelectedCatTokens());
-
-    const url = new URL('/watch.html', location.origin);
-    url.searchParams.set('from', 'index');
-    url.searchParams.set('type', type);
-    url.searchParams.set('cats', cats.map(c => `${c.groupKey}:${c.subKey}`).join(','));
-    url.searchParams.set('sort', sort);
-    location.href = url.toString();
-  });
-}
-
-if (btnList) {
-  btnList.addEventListener('click', () => {
-    const cats = getSelected();
-    if (cats.length === 0) { alert('목록을 보려면 카테고리를 선택해 주세요.'); return; }
-
-    const type = currentType();
-    const allSeries = cats.every(c => isSeriesValue(c.subKey));
-    const sort = allSeries ? 'createdAt-asc' : 'createdAt-desc';
-
-    saveSelectedType(type);
-    saveSelectedCats(getSelectedCatTokens());
-
-    const url = new URL('/list.html', location.origin);
-    url.searchParams.set('type', type);
-    url.searchParams.set('cats', cats.map(c => `${c.groupKey}:${c.subKey}`).join(','));
-    url.searchParams.set('sort', sort);
-    location.href = url.toString();
-  });
-}
-
-if (btnHelp && helpOverlay) {
-  btnHelp.addEventListener('click', () => helpOverlay.classList.add('show'));
-  helpOverlay.addEventListener('click', (e) => {
-    if (e.target.id === 'helpOverlay') helpOverlay.classList.remove('show');
-  });
-}
-
-renderCategories();
+// index: 좌→우 = list, 우→좌 = upload
+initSwipeNav({ goLeftHref: '/upload.html', goRightHref: '/list.html', deadZoneCenterRatio: 0.15 });
