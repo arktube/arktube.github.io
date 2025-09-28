@@ -1,446 +1,198 @@
-// /js/index.js  (ArkTube v0.1 — CATEGORY MODEL, series_ 규칙, 15% 데드존)
-import { CATEGORY_GROUPS, CATEGORY_MODEL } from './categories.js';
-import { auth } from './firebase-init.js';
-import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
+// /js/index.js — ArkTube index (카테고리 선택 + Watch/List로 이동 + series 이어보기)
+// 요구조건 반영:
+// - CATEGORY_MODEL 단일 소스
+// - 형식 토글: 모두/쇼츠만/일반만 (기본: 모두)
+// - 전체선택 체크는 "카테고리" 전체 선택과만 연동 (type과 분리)
+// - 혼합재생 불가(시리즈와 일반/개인 혼합 시 차단)
+// - '영상보기' → (시리즈면 등록순, 그 외 최신순) 기본 정렬로 watch 이동
+// - 드롭다운 '영상목록' 클릭 시 현재 선택/형식 상태를 들고 list로 이동
+// - 시리즈 세부카테고리 라벨 옆에 '이어보기' 항상 표시 (없으면 처음부터)
 
-/* ========= 유틸 ========= */
-const isPersonalVal = (v)=> v && v.startsWith('personal');
-const isSeriesGroup = (key)=> typeof key === 'string' && key.startsWith('series_');
+import { auth } from './auth.js';
+import { CATEGORY_MODEL } from './categories.js';
+import { getAutoNext, setAutoNext, loadResume } from './resume.js';
 
-const GROUP_ORDER_KEY = 'groupOrderV1';              // 카테고리 순서
-const SELECTED_CATS_KEY = 'selectedCats';            // 선택 저장 (ALL | string[])
-const AUTONEXT_KEY = 'autonext';                     // 연속재생 on/off
-const VIEW_TYPE_KEY = 'arktube:view:type';           // all | shorts | video
-const LIST_SNAPSHOT_KEY = 'arktube:list:snapshot';   // list 상태 복원용 (index는 저장만)
+// ---------- 상단바 환영 문구 ----------
+const welcomeEl = document.querySelector('#welcome');
+if (welcomeEl) welcomeEl.textContent = 'Welcome!';
 
-/* ========= 상단바 ========= */
-const signupLink   = document.getElementById('signupLink');
-const signinLink   = document.getElementById('signinLink');
-const welcome      = document.getElementById('welcome');
-const menuBtn      = document.getElementById('menuBtn');
-const dropdown     = document.getElementById('dropdownMenu');
-const btnSignOut   = document.getElementById('btnSignOut');
-const btnGoUpload  = document.getElementById('btnGoUpload');
-const btnMyUploads = document.getElementById('btnMyUploads');
-const btnAbout     = document.getElementById('btnAbout');
-const btnOrder     = document.getElementById('btnOrder');
-const btnList      = document.getElementById('btnList');
-const brandHome    = document.getElementById('brandHome');
-
-let isMenuOpen=false;
-function openDropdown(){ isMenuOpen=true; dropdown.classList.remove('hidden'); requestAnimationFrame(()=> dropdown.classList.add('show')); }
-function closeDropdown(){ isMenuOpen=false; dropdown.classList.remove('show'); setTimeout(()=> dropdown.classList.add('hidden'),180); }
-
-onAuthStateChanged(auth, (user)=>{
-  const loggedIn = !!user;
-  signupLink?.classList.toggle('hidden', loggedIn);
-  signinLink?.classList.toggle('hidden', loggedIn);
-  if (welcome) {
-    if (loggedIn) {
-      const name = user?.displayName || '회원';
-      welcome.textContent = `Welcome! ${name}님`;
-    } else {
-      welcome.textContent = '';
-    }
-  }
-  closeDropdown();
+// ---------- 로그인/메뉴(공통 최소) ----------
+const menuBtn = document.querySelector('#menuBtn');
+const dropdown = document.querySelector('#dropdownMenu');
+menuBtn?.addEventListener('click', () => {
+  dropdown?.classList.toggle('hidden');
+  dropdown?.classList.toggle('show');
 });
-
-menuBtn?.addEventListener('click',(e)=>{ e.stopPropagation(); dropdown.classList.contains('hidden') ? openDropdown() : closeDropdown(); });
-document.addEventListener('pointerdown',(e)=>{ if(dropdown.classList.contains('hidden')) return; if(!e.target.closest('#dropdownMenu, #menuBtn')) closeDropdown(); }, true);
-document.addEventListener('keydown',(e)=>{ if(e.key==='Escape') closeDropdown(); });
-dropdown?.addEventListener('click',(e)=> e.stopPropagation());
-
-btnMyUploads?.addEventListener('click', ()=>{ location.href = '/manage-uploads.html'; closeDropdown(); });
-btnGoUpload?.addEventListener('click', ()=>{ location.href = '/upload.html'; closeDropdown(); });
-btnAbout?.addEventListener('click', ()=>{ location.href = '/about.html'; closeDropdown(); });
-btnOrder?.addEventListener('click', ()=>{ location.href = '/category-order.html'; closeDropdown(); });
-btnSignOut?.addEventListener('click', async ()=>{ if(!auth.currentUser){ location.href='/signin.html'; return; } await fbSignOut(auth); closeDropdown(); });
-btnList?.addEventListener('click', ()=>{ location.href = '/list.html'; closeDropdown(); });
-brandHome?.addEventListener('click',(e)=>{ e.preventDefault(); window.scrollTo({top:0,behavior:'smooth'}); });
-
-/* ========= 도움말 플로팅 ========= */
-const helpBtn = document.getElementById('btnHelp');
-const helpOverlay = document.getElementById('helpOverlay');
-helpBtn?.addEventListener('click', ()=>{
-  helpOverlay?.classList.add('show');
-  helpOverlay?.setAttribute('aria-hidden','false');
-});
-helpOverlay?.addEventListener('click',(e)=>{
-  if (e.target === helpOverlay){ // 바깥 클릭
-    helpOverlay.classList.remove('show');
-    helpOverlay.setAttribute('aria-hidden','true');
-  }
-});
-document.addEventListener('keydown',(e)=>{
-  if (e.key === 'Escape' && helpOverlay?.classList.contains('show')){
-    helpOverlay.classList.remove('show');
-    helpOverlay.setAttribute('aria-hidden','true');
+document.addEventListener('click', (e) => {
+  if (!dropdown) return;
+  if (!dropdown.contains(e.target) && e.target !== menuBtn) {
+    dropdown.classList.add('hidden'); dropdown.classList.remove('show');
   }
 });
 
-/* ========= 연속재생 on/off (공통 포맷) ========= */
-const cbAutoNext = document.getElementById('cbAutoNext');
-(function initAutoNext(){
-  if (!cbAutoNext) return;
-  const read = () => {
-    const v = (localStorage.getItem(AUTONEXT_KEY) || '').toLowerCase();
-    return v==='1' || v==='true' || v==='on';
-  };
-  const write = (on) => localStorage.setItem(AUTONEXT_KEY, on ? '1' : '0');
-  const hasSaved = localStorage.getItem(AUTONEXT_KEY) != null;
-  if (hasSaved) cbAutoNext.checked = read(); else write(cbAutoNext.checked);
-  cbAutoNext.addEventListener('change', ()=> write(cbAutoNext.checked));
-  window.addEventListener('storage', (e)=>{ if (e.key===AUTONEXT_KEY) cbAutoNext.checked = read(); });
-})();
+// ---------- 형식 토글 (기본 모두 ON) ----------
+const typeToggle = document.getElementById('typeToggle');
+const rbAll = document.getElementById('type_all');
+const rbShorts = document.getElementById('type_shorts');
+const rbVideo = document.getElementById('type_video');
+rbAll.checked = true;
 
-/* ========= 형식 토글(all/shorts/video) ========= */
-const typeWrap = document.getElementById('typeToggle');
-(function initViewType(){
-  if (!typeWrap) return;
-  const saved = localStorage.getItem(VIEW_TYPE_KEY) || 'all';
-  const input = typeWrap.querySelector(`input[value="${saved}"]`) || typeWrap.querySelector('input[value="all"]');
-  if (input) input.checked = true;
-
-  typeWrap.addEventListener('change', (e)=>{
-    const t = e.target?.value;
-    if (!t) return;
-    localStorage.setItem(VIEW_TYPE_KEY, t);
-  });
-
-  // 다른 탭 동기화
-  window.addEventListener('storage', (e)=>{
-    if (e.key !== VIEW_TYPE_KEY) return;
-    const v = e.newValue || 'all';
-    const r = typeWrap.querySelector(`input[value="${v}"]`);
-    if (r){ r.checked = true; }
-  });
-})();
-
-/* ========= 카테고리 렌더 ========= */
-const catsBox      = document.getElementById('cats');
-const cbToggleAll  = document.getElementById('cbToggleAll');
-const btnWatch     = document.getElementById('btnWatch');
-const btnOpenOrder = document.getElementById('btnOpenOrder');
-
-function applyGroupOrder(groups){
-  let saved = null;
-  try{ saved = JSON.parse(localStorage.getItem(GROUP_ORDER_KEY) || 'null'); }catch{}
-  const order = Array.isArray(saved) && saved.length ? saved : groups.map(g=>g.key);
-  const idx = new Map(order.map((k,i)=>[k,i]));
-  return groups.slice().sort((a,b)=>(idx.get(a.key)??999) - (idx.get(b.key)??999));
+function currentType() {
+  if (rbShorts.checked) return 'shorts';
+  if (rbVideo.checked) return 'video';
+  return 'all';
 }
 
-function getPersonalLabels(){
-  try { return JSON.parse(localStorage.getItem('personalLabels') || '{}'); }
-  catch { return {}; }
-}
+// ---------- 연속재생 토글 (index에만 있음) ----------
+const cbAuto = document.getElementById('cbAutoNext');
+cbAuto.checked = getAutoNext();
+cbAuto.addEventListener('change', () => setAutoNext(cbAuto.checked));
 
-function renderGroups(){
-  const groups = applyGroupOrder(CATEGORY_MODEL?.groups || CATEGORY_GROUPS);
-  const personalLabels = getPersonalLabels();
+// ---------- 카테고리 렌더 ----------
+const catsRoot = document.getElementById('cats');
+const cbToggleAll = document.getElementById('cbToggleAll');
 
-  const html = groups.map(g=>{
-    const isPersonalGroup = g.key==='personal';
-    const isSeries = isSeriesGroup(g.key);
+function isSeriesValue(v) { return String(v).startsWith('series_'); }
 
-    // children (개인자료 라벨 덮어쓰기 + 시리즈 '이어보기' 미니버튼)
-    const kids = g.children.map(c=>{
-      const labelText = isPersonalGroup && personalLabels[c.value]
-        ? personalLabels[c.value] : c.label;
+function renderCategories() {
+  catsRoot.innerHTML = '';
+  CATEGORY_MODEL.forEach(group => {
+    const fs = document.createElement('fieldset');
+    fs.className = 'group';
+    const lg = document.createElement('legend');
+    lg.textContent = group.label;
+    fs.appendChild(lg);
 
-      // 시리즈면 오른쪽에 '이어보기' 작은 버튼 추가
-      const resumeBtn = isSeries
-        ? `<button class="resume-mini" data-series-key="${c.value}" title="이 시리즈 이어보기">이어보기</button>`
-        : '';
+    const grid = document.createElement('div');
+    grid.className = 'child-grid';
 
-      return `<label>
-                <input type="checkbox" class="cat" value="${c.value}"> 
-                <span>${labelText}</span>
-                ${resumeBtn}
-              </label>`;
-    }).join('');
+    group.children.forEach(child => {
+      const id = `cat_${group.key}_${child.value}`;
+      const label = document.createElement('label');
+      label.setAttribute('for', id);
 
-    const legendHTML = isPersonalGroup
-      ? `<legend><span style="font-weight:800;">${g.label}</span> <span class="subnote">(로컬저장소)</span></legend>`
-      : `<legend>
-           <label class="group-toggle">
-             <input type="checkbox" class="group-check" data-group="${g.key}" />
-             <span>${g.label}</span>
-           </label>
-         </legend>`;
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.id = id;
+      cb.value = child.value;
+      cb.dataset.group = group.key;
+      cb.checked = false; // 기본 미선택 (유저가 선택해서 진행)
 
-    const noteHTML = isPersonalGroup
-      ? `<div class="subnote" style="margin:6px 4px 2px;">개인자료는 <b>단독 재생</b>만 가능합니다.</div>`
-      : '';
+      const span = document.createElement('span');
+      span.textContent = child.label;
 
-    return `
-      <fieldset class="group" data-key="${g.key}">
-        ${legendHTML}
-        <div class="child-grid">${kids}</div>
-        ${noteHTML}
-      </fieldset>
-    `;
-  }).join('');
+      label.prepend(cb, span);
 
-  catsBox.innerHTML = html;
-  bindGroupInteractions();
-  bindResumeButtons();
-}
-renderGroups();
-
-/* ========= parent/child 동기화 ========= */
-function setParentStateByChildren(groupEl){
-  const parent   = groupEl.querySelector('.group-check');
-  if (!parent) return;
-  const children = Array.from(groupEl.querySelectorAll('input.cat'));
-  const total = children.length;
-  const checked = children.filter(c => c.checked).length;
-  if (checked===0){ parent.checked=false; parent.indeterminate=false; }
-  else if (checked===total){ parent.checked=true; parent.indeterminate=false; }
-  else { parent.checked=false; parent.indeterminate=true; }
-}
-function setChildrenByParent(groupEl,on){ groupEl.querySelectorAll('input.cat').forEach(c=> c.checked = !!on); }
-function refreshAllParentStates(){ catsBox.querySelectorAll('.group').forEach(setParentStateByChildren); }
-
-function computeAllSelected(){
-  // '전체선택'은 개인자료 + 모든 시리즈 그룹 제외
-  const real = Array.from(catsBox.querySelectorAll('.group:not([data-key="personal"]) input.cat'))
-    .filter(el => !isSeriesGroup(el.closest('.group')?.dataset?.key));
-  return real.length>0 && real.every(c=>c.checked);
-}
-
-let allSelected=false;
-
-function bindGroupInteractions(){
-  // 전체 그룹 체크박스 → 자식 on/off (개인자료는 부모 없음)
-  catsBox.querySelectorAll('.group-check').forEach(parent=>{
-    const groupKey = parent.getAttribute('data-group');
-    if (groupKey === 'personal') return;
-    parent.addEventListener('change', ()=>{
-      const groupEl = parent.closest('.group');
-      setChildrenByParent(groupEl, parent.checked);
-      setParentStateByChildren(groupEl);
-      allSelected = computeAllSelected();
-      if (cbToggleAll) cbToggleAll.checked = allSelected;
-
-      // 개인자료는 단독 재생: 다른 체크 해제
-      catsBox.querySelectorAll('.group[data-key="personal"] input.cat:checked').forEach(c=> c.checked=false);
-    });
-  });
-
-  // 각 자식 체크
-  catsBox.querySelectorAll('input.cat').forEach(child=>{
-    child.addEventListener('change', ()=>{
-      const v = child.value;
-      const isPersonal = isPersonalVal(v);
-
-      if (isPersonal && child.checked){
-        // personal 단독 모드
-        catsBox.querySelectorAll('.group[data-key="personal"] input.cat').forEach(c=>{ if(c!==child) c.checked=false; });
-        catsBox.querySelectorAll('.group:not([data-key="personal"]) input.cat:checked').forEach(c=> c.checked=false);
-      }
-      if (!isPersonal && child.checked){
-        // 일반/시리즈 선택 → personal 해제
-        catsBox.querySelectorAll('.group[data-key="personal"] input.cat:checked').forEach(c=> c.checked=false);
+      // series 이어보기 버튼 (항상 노출)
+      if (isSeriesValue(child.value)) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'resume-mini';
+        btn.textContent = '이어보기';
+        btn.addEventListener('click', () => handleResumePlay(group.key, child.value));
+        label.appendChild(btn);
       }
 
-      const groupEl = child.closest('.group');
-      setParentStateByChildren(groupEl);
-      refreshAllParentStates();
-
-      allSelected = computeAllSelected();
-      if (cbToggleAll) cbToggleAll.checked = allSelected;
+      grid.appendChild(label);
     });
+
+    fs.appendChild(grid);
+    catsRoot.appendChild(fs);
   });
 }
+renderCategories();
 
-/* ========= '이어보기' 미니버튼 (시리즈) ========= */
-function bindResumeButtons(){
-  catsBox.querySelectorAll('.resume-mini').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const seriesKey = btn.getAttribute('data-series-key'); // child value 사용(요청사항)
-      if (!seriesKey) return;
-
-      // watch로 이동. index에서 진입 → src 없음(뒤로가기=인덱스)
-      // 이어보기 의도 표시는 sessionStorage로 전달 (watch에서 처리)
-      sessionStorage.setItem('resumeSeriesKey', seriesKey);
-      sessionStorage.removeItem('playQueue');
-      sessionStorage.removeItem('playIndex');
-      location.href = '/watch.html';
-    });
-  });
-}
-
-/* ========= '전체선택' & 기존 선택 복원 ========= */
-function selectAll(on){
-  // 개인자료 + 모든 시리즈 그룹 제외, 일반만 전체선택
-  catsBox.querySelectorAll('.group input.cat').forEach(b=>{
-    const groupKey = b.closest('.group')?.dataset?.key || '';
-    const isPersonal = groupKey === 'personal';
-    const isSeries = isSeriesGroup(groupKey);
-    if (!isPersonal && !isSeries){ b.checked = !!on; } else { b.checked = false; }
-  });
-  refreshAllParentStates();
-  allSelected = !!on;
-  if (cbToggleAll) cbToggleAll.checked = allSelected;
-}
-
-function applySavedSelection(){
-  let saved = null;
-  try{ saved = JSON.parse(localStorage.getItem(SELECTED_CATS_KEY)||'null'); }catch{}
-  if (!saved || saved === 'ALL'){ selectAll(true); }
-  else{
-    selectAll(false);
-    const set = new Set(saved);
-    catsBox.querySelectorAll('.cat').forEach(ch=>{ if (set.has(ch.value)) ch.checked=true; });
-
-    // personal 단독성 유지
-    const personals = Array.from(catsBox.querySelectorAll('.group[data-key="personal"] input.cat:checked'));
-    const normals   = Array.from(catsBox.querySelectorAll('.group:not([data-key="personal"]) input.cat:checked'));
-    if (personals.length >= 1 && normals.length >= 1){
-      personals.forEach(c=> c.checked=false);
-    }else if (personals.length >= 2){
-      personals.slice(1).forEach(c=> c.checked=false);
-    }
-    refreshAllParentStates();
-  }
-
-  // 형식 토글 기본값 복원
-  const typeWrap = document.getElementById('typeToggle');
-  if (typeWrap){
-    const savedType = localStorage.getItem(VIEW_TYPE_KEY) || 'all';
-    const r = typeWrap.querySelector(`input[value="${savedType}"]`) || typeWrap.querySelector('input[value="all"]');
-    if (r) r.checked = true;
-  }
-
-  // 연속재생 복원
-  const vv = (localStorage.getItem(AUTONEXT_KEY) || '').toLowerCase();
-  if (cbAutoNext) cbAutoNext.checked = (vv==='1' || vv==='true' || vv==='on');
-}
-applySavedSelection();
-
-cbToggleAll?.addEventListener('change', ()=> selectAll(!!cbToggleAll.checked));
-
-/* ========= index → watch ========= */
-btnWatch?.addEventListener('click', ()=>{
-  // index→watch: 항상 최신 규칙으로 시작, 잔여 큐 초기화
-  sessionStorage.removeItem('playQueue');
-  sessionStorage.removeItem('playIndex');
-  sessionStorage.removeItem('resumeSeriesKey');
-
-  const selected = Array.from(document.querySelectorAll('.cat:checked')).map(c=>c.value);
-  const personals = selected.filter(isPersonalVal);
-  const normals   = selected.filter(v=> !isPersonalVal(v));
-
-  // personal-only 선택
-  if (personals.length === 1 && normals.length === 0){
-    localStorage.setItem(SELECTED_CATS_KEY, JSON.stringify(personals));
-    localStorage.setItem(AUTONEXT_KEY, cbAutoNext?.checked ? '1' : '0');
-    // personal은 단독 재생 페이지 로직으로 watch가 처리
-    location.href = `/watch.html?cats=${encodeURIComponent(personals[0])}`;
-    return;
-  }
-
-  // 일반/시리즈 혼합 가능: 'ALL' 또는 배열
-  const isAll = computeAllSelected();
-  const valueToSave = (normals.length===0 || isAll) ? 'ALL' : normals;
-  localStorage.setItem(SELECTED_CATS_KEY, JSON.stringify(valueToSave));
-  localStorage.setItem(AUTONEXT_KEY, cbAutoNext?.checked ? '1' : '0');
-
-  // 형식 토글 저장 (혼합에서도 일반처럼 적용)
-  const vt = document.querySelector('#typeToggle input:checked')?.value || 'all';
-  localStorage.setItem(VIEW_TYPE_KEY, vt);
-
-  // index에서 watch로 → src 없음(뒤로가기=인덱스)
-  location.href = '/watch.html';
+// 전체선택: 카테고리 전체 선택/해제 (type과 무관)
+cbToggleAll.addEventListener('change', () => {
+  const inputs = catsRoot.querySelectorAll('input[type=checkbox]');
+  inputs.forEach(i => { i.checked = cbToggleAll.checked; });
 });
 
-/* ========= index → list 직전: 선택 상태 저장 ========= */
-function persistSelectedCatsForList(){
-  const selected = Array.from(document.querySelectorAll('.cat:checked')).map(c=>c.value);
-  const personals = selected.filter(isPersonalVal);
-  const normals   = selected.filter(v=> !isPersonalVal(v));
-
-  if (personals.length === 1 && normals.length === 0) {
-    localStorage.setItem(SELECTED_CATS_KEY, JSON.stringify(personals));
-    return;
-  }
-  const isAll = computeAllSelected();
-  const valueToSave = (normals.length===0 || isAll) ? 'ALL' : normals;
-  localStorage.setItem(SELECTED_CATS_KEY, JSON.stringify(valueToSave));
-}
-
-/* ========= 스토리지 변화에 따른 재렌더 ========= */
-window.addEventListener('storage', (e)=>{
-  if (e.key === 'personalLabels' || e.key === GROUP_ORDER_KEY) {
-    renderGroups();
-    applySavedSelection();
-  }
+// 카테고리 변경 시 전체선택 상태 업데이트
+catsRoot.addEventListener('change', () => {
+  const inputs = [...catsRoot.querySelectorAll('input[type=checkbox]')];
+  const all = inputs.length;
+  const checked = inputs.filter(i => i.checked).length;
+  cbToggleAll.indeterminate = checked > 0 && checked < all;
+  cbToggleAll.checked = checked === all;
 });
 
-/* ========= 스와이프 내비 (중앙 15% 데드존) ========= */
-window.__swipeNavigating = window.__swipeNavigating || false;
+// ---------- 현재 선택 수집 ----------
+function getSelected() {
+  const checked = [...catsRoot.querySelectorAll('input[type=checkbox]:checked')];
+  const cats = checked.map(i => ({ groupKey: i.dataset.group, subKey: i.value }));
+  return cats;
+}
+function containsSeries(cats) { return cats.some(c => isSeriesValue(c.subKey)); }
+function containsNonSeries(cats) { return cats.some(c => !isSeriesValue(c.subKey)); }
 
-function initSwipeNav({ goLeftHref=null, goRightHref=null, animateMs=260, deadZoneCenterRatio=0.15 } = {}){
-  let sx=0, sy=0, t0=0, tracking=false;
-  const THRESH_X = 70;
-  const MAX_OFF_Y = 80;
-  const MAX_TIME  = 600;
-  const getPoint = (e) => e.touches?.[0] || e.changedTouches?.[0] || e;
-
-  function onStart(e){
-    const p = getPoint(e); if(!p) return;
-    const vw = Math.max(document.documentElement.clientWidth, window.innerWidth || 0);
-    const dz = Math.max(0, Math.min(0.9, deadZoneCenterRatio));
-    const L  = vw * (0.5 - dz/2);
-    const R  = vw * (0.5 + dz/2);
-    if (p.clientX >= L && p.clientX <= R) { tracking = false; return; } // 중앙 데드존 15%
-
-    sx = p.clientX; sy = p.clientY; t0 = Date.now(); tracking = true;
+// ---------- 혼합재생 방지 ----------
+function validateSelectionForPlay(cats) {
+  if (cats.length === 0) { alert('카테고리를 하나 이상 선택해 주세요.'); return false; }
+  if (containsSeries(cats) && containsNonSeries(cats)) {
+    alert('시리즈와 일반/개인자료는 혼합 재생할 수 없습니다.\n시리즈만 또는 일반/개인만 선택해 주세요.');
+    return false;
   }
-  function onEnd(e){
-    if(!tracking) return; tracking = false;
-    if (window.__swipeNavigating) return;
-
-    const p = getPoint(e);
-    const dx = p.clientX - sx;
-    const dy = p.clientY - sy;
-    const dt = Date.now() - t0;
-    if (Math.abs(dy) > MAX_OFF_Y || dt > MAX_TIME) return;
-
-    if (dx <= -THRESH_X && goLeftHref){
-      window.__swipeNavigating = true;
-      document.documentElement.classList.add('slide-out-left');
-      setTimeout(()=> location.href = goLeftHref, animateMs);
-    } else if (dx >= THRESH_X && goRightHref){
-      window.__swipeNavigating = true;
-      persistSelectedCatsForList(); // list 가기 전 선택 저장
-      document.documentElement.classList.add('slide-out-right');
-      setTimeout(()=> location.href = goRightHref, animateMs);
-    }
-  }
-  document.addEventListener('touchstart', onStart, { passive:true });
-  document.addEventListener('touchend',   onEnd,   { passive:true });
-  document.addEventListener('pointerdown',onStart, { passive:true });
-  document.addEventListener('pointerup',  onEnd,   { passive:true });
+  return true;
 }
 
-(function injectSlideCSS(){
-  if (document.getElementById('slide-css-arktube')) return;
-  const style = document.createElement('style');
-  style.id = 'slide-css-arktube';
-  style.textContent = `
-@keyframes pageSlideLeft { from { transform: translateX(0); opacity:1; } to { transform: translateX(-22%); opacity:.92; } }
-@keyframes pageSlideRight{ from { transform: translateX(0); opacity:1; } to { transform: translateX(22%);  opacity:.92; } }
-:root.slide-out-left  body { animation: pageSlideLeft 0.26s ease forwards; }
-:root.slide-out-right body { animation: pageSlideRight 0.26s ease forwards; }
-@media (prefers-reduced-motion: reduce){
-  :root.slide-out-left  body,
-  :root.slide-out-right body { animation:none; }
-}`;
-  document.head.appendChild(style);
-})();
+// ---------- 이어보기 처리 ----------
+function handleResumePlay(groupKey, subKey) {
+  const type = currentType(); // 사용자가 type을 어떤 걸로 두었든 그대로
+  // 기본 정렬: 시리즈는 등록순
+  const sort = 'createdAt-asc';
+  // 로컬에 저장된 위치 확인
+  const r = loadResume({ type, groupKey, subKey });
+  const url = new URL('/watch.html', location.origin);
+  url.searchParams.set('from', 'index');
+  url.searchParams.set('type', type);
+  url.searchParams.set('cats', `${groupKey}:${subKey}`);
+  url.searchParams.set('sort', r?.sort || sort);
+  if (r?.index != null) url.searchParams.set('resumeIndex', String(r.index));
+  if (r?.t != null) url.searchParams.set('resumeT', String(Math.floor(r.t)));
+  location.href = url.toString();
+}
 
-// index: 좌→우 = list, 우→좌 = upload
-initSwipeNav({ goLeftHref: '/upload.html', goRightHref: '/list.html', deadZoneCenterRatio: 0.15 });
+// ---------- '영상보기' 버튼 ----------
+document.getElementById('btnWatch').addEventListener('click', () => {
+  const cats = getSelected();
+  if (!validateSelectionForPlay(cats)) return;
+
+  const type = currentType();
+  // 기본 정렬: 시리즈면 등록순, 그 외 최신순
+  const allSeries = cats.every(c => isSeriesValue(c.subKey));
+  const sort = allSeries ? 'createdAt-asc' : 'createdAt-desc';
+
+  const url = new URL('/watch.html', location.origin);
+  url.searchParams.set('from', 'index');
+  url.searchParams.set('type', type);
+  url.searchParams.set('cats', cats.map(c => `${c.groupKey}:${c.subKey}`).join(','));
+  url.searchParams.set('sort', sort);
+  location.href = url.toString();
+});
+
+// ---------- 드롭다운 '영상목록'은 현재 선택/형식 들고 list로 ----------
+document.getElementById('btnList')?.addEventListener('click', () => {
+  const cats = getSelected();
+  if (cats.length === 0) { alert('목록을 보려면 카테고리를 선택해 주세요.'); return; }
+  // 시리즈/일반 혼합 목록은 허용(시청만 제한) — 명시 없으므로 목록은 허용
+  const allSeries = cats.every(c => isSeriesValue(c.subKey));
+  const sort = allSeries ? 'createdAt-asc' : 'createdAt-desc';
+
+  const url = new URL('/list.html', location.origin);
+  url.searchParams.set('type', currentType());
+  url.searchParams.set('cats', cats.map(c => `${c.groupKey}:${c.subKey}`).join(','));
+  url.searchParams.set('sort', sort); // list 기본 정렬
+  location.href = url.toString();
+});
+
+// ---------- 도움말/헤더 홈 ----------
+document.getElementById('btnHelp')?.addEventListener('click', () => {
+  document.getElementById('helpOverlay')?.classList.add('show');
+});
+document.getElementById('helpOverlay')?.addEventListener('click', (e) => {
+  if (e.target.id === 'helpOverlay') e.currentTarget.classList.remove('show');
+});
+document.getElementById('brandHome')?.addEventListener('click', (e) => {
+  e.preventDefault(); window.scrollTo({ top: 0, behavior: 'smooth' });
+});
