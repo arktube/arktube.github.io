@@ -73,7 +73,7 @@
   }
   #topbar.autohide{ transition: transform .25s ease, opacity .25s ease; }
   #topbar.hide{ transform: translateY(-100%); opacity:0; pointer-events:none; }
-  #topbar .right{ display:flex; align-items:center; gap:12px; }
+  #topbar .right{ display:flex; align-items:center; gap:12px; position:relative; }
 
   .brand a{
     color:var(--fg); text-decoration:none; font-weight:700; font-size:16px;
@@ -92,24 +92,23 @@
   .icon:hover{ background:var(--bg-3); }
   .hidden{ display:none !important; }
 
-  /* 드롭다운 */
+  /* 드롭다운 (CopyTube v1.5 규격) */
   .dropdown{
     position:absolute; right:0; top:100%;
     background:var(--bg-2); border:1px solid var(--border); border-radius:8px;
     display:flex; flex-direction:column; min-width:200px; padding:6px 0;
-    opacity:0; transform:translateY(-8px); pointer-events:none;
-    transition:opacity .18s ease, transform .18s ease;
   }
-  .dropdown.show{ opacity:1; transform:translateY(0); pointer-events:auto; }
+  /* 기본/열림 트랜지션 */
+  #dropdownMenu { opacity:0; transform:translateY(-6px); pointer-events:none; transition:opacity .15s ease, transform .15s ease; }
+  #dropdownMenu.open { opacity:1; transform:translateY(0); pointer-events:auto; }
+
   .dropdown button{
     background:none; border:0; color:var(--fg); text-align:left;
     padding:10px 16px; cursor:pointer; font-size:14px; line-height:1.25;
   }
   .dropdown button:hover{ background:var(--bg-3); }
   .dropdown .menu-strong{ font-size:16px; font-weight:700; }
- /* 드롭다운 기본/열림 트랜지션 (선택사항) */
-  #dropdownMenu { opacity:0; transform:translateY(-6px); pointer-events:none; transition:opacity .15s ease, transform .15s ease; }
-  #dropdownMenu.open { opacity:1; transform:translateY(0); pointer-events:auto; }
+
   /* 인트로 (헤더 높이 보정: 상단 여백 56px) */
   .intro{
     min-height:100vh;
@@ -141,10 +140,10 @@
   }
   .inline-check input{ width:16px; height:16px; margin:0; accent-color:#4ea1ff; }
 
-  /* 형식 토글 (모두/쇼츠만/일반만) — */ 
+  /* 형식 토글 (모두/쇼츠만/일반만) */
   .type-toggle{
-    display:inline-flex; align-items:center; gap:0px;
-    background:#151515; border:1px solid #2a2a2a; padding:0px;
+    display:inline-flex; align-items:center; gap:0;
+    background:#151515; border:1px solid #2a2a2a; padding:0;
     border-radius:999px;
   }
   .type-toggle input{ display:none; }
@@ -183,15 +182,15 @@
   }
   .group .subnote{ font-size:12px; color:#9aa0a6; margin-left:6px; }
   .group .group-toggle{
-    display:inline-flex; align-items:center; gap:2px; /*0으로실험 */
+    display:inline-flex; align-items:center; gap:2px;
     padding:4px 8px; border-radius:8px;
     background:#101010; border:1px solid #2a2a2a; color:#e5e7eb; cursor:pointer; font-weight:800;
   }
   .group .group-toggle input{ accent-color:#4ea1ff; }
 
   .child-grid{
-    margin-top:-2px;/*0*/
-    display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:2px; /*2*/
+    margin-top:-2px;
+    display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:2px;
   }
   @media (min-width:900px){
     .child-grid{ grid-template-columns:repeat(4, minmax(0,1fr)); }
@@ -227,25 +226,25 @@
         <img class="brand-logo" src="/image/arktube_side.png" alt="ArkTube"/>
       </a>
     </div>
-    <div class="right" style="position:relative;">
+    <div class="right">
       <a id="signupLink" class="link" href="/signup.html">Sign up</a>
       <a id="signinLink" class="link" href="/signin.html">Sign in</a>
-      <span id="welcome" class="welcome"></span>
-      <button id="menuBtn" class="icon" aria-label="menu">三</button>
+      <span id="welcome" class="welcome">Welcome!</span>
+      <!-- ▼ 드롭다운: v1.5 사양 — 버튼 id는 btnDropdown 여야 JS와 연결됩니다 -->
+      <button id="btnDropdown" class="icon" aria-label="menu" aria-expanded="false">三</button>
       <div id="dropdownMenu" class="dropdown hidden" role="menu" aria-hidden="true">
-        <button id="btnAbout" class="menu-strong" type="button">ArkTube는…</button>
-        <button id="btnOrder" type="button">카테고리순서</button>
-        <button id="btnMyUploads" type="button">내영상관리</button>
-        <button id="btnSignOut" type="button">Sign out</button>
-        <button id="btnList" type="button">영상목록</button>
-        <button id="btnGoUpload" class="menu-strong" type="button">추천영상등록</button>
+        <button id="btnAbout" class="menu-strong" type="button" role="menuitem">ArkTube는…</button>
+        <button id="btnOrder" type="button" role="menuitem">카테고리순서</button>
+        <button id="btnMyUploads" type="button" role="menuitem">내영상관리</button>
+        <button id="btnSignOut" type="button" role="menuitem">Sign out</button>
+        <button id="btnList" type="button" role="menuitem">영상목록</button>
+        <button id="btnGoUpload" class="menu-strong" type="button" role="menuitem">추천영상등록</button>
       </div>
     </div>
   </header>
 
   <section class="intro">
     <div style="width:100%; max-width:980px; margin:0 auto;">
-      <!-- ✨ 문구는 요청대로 유지/교체됨 -->
       <p class="lead">영상보기를 눌러 영상을 시청하세요.</p>
       <p class="sublead">
         <button id="btnHelp" class="icon" aria-label="ArkTube 도움말 열기"
@@ -262,7 +261,7 @@
         </label>
       </div>
 
-      <!-- 형식 토글: 모두/쇼츠만/일반만 (유지) -->
+      <!-- 형식 토글: 모두/쇼츠만/일반만 -->
       <div class="type-toggle" id="typeToggle" title="재생 형식 선택">
         <input type="radio" id="type_all"    name="vtype" value="all">
         <label for="type_all">모두</label>
@@ -301,7 +300,7 @@
     </div>
   </div>
 
-  <!-- 스크립트 (기능 변경 없음) -->
+  <!-- 스크립트 -->
   <script type="module" src="/js/firebase-init.js"></script>
   <script type="module" src="/js/auth.js"></script>
   <script type="module" src="/js/categories.js"></script>
