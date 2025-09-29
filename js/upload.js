@@ -363,7 +363,7 @@ async function submitAll(){
 
   let lines = raw.split(/\r?\n/).map(s=> s.trim()).filter(Boolean);
   if(!lines.length){ setStatusHTML('<span class="danger">유효한 URL이 없습니다.</span>'); return; }
-  // (삭제됨) 아래부터/위부터 옵션. 항상 '위에서부터' 순서로 진행.
+  // 항상 "위에서부터" 순서로 처리 (역순 처리 없음)
 
   // 파싱
   const entries = [];
