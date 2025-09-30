@@ -1,4 +1,4 @@
-// /js/index.js  (ArkTube Index — CATEGORY_MODEL only, series resume, 18% deadzone + v1.5 dropdown)
+// /js/index.js  (ArkTube Index — CATEGORY_MODEL only, series resume, v1.5 dropdown, Hybrid Swipe, Snapshot on swipe→List)
 import { CATEGORY_GROUPS, CATEGORY_MODEL } from './categories.js';
 import { auth } from './firebase-init.js';
 import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
@@ -18,7 +18,7 @@ const topbar       = document.getElementById('topbar');
 const dropdown     = document.getElementById('dropdownMenu');
 const signupLink   = document.getElementById('signupLink');
 const signinLink   = document.getElementById('signinLink');
-const nickWrap     = document.getElementById('nickWrap');
+const nickWrap     = document.getElementById('nickWrap');      // 없으면 무시됨
 const btnSignOut   = document.getElementById('btnSignOut');
 const btnGoUpload  = document.getElementById('btnGoUpload');
 const btnMyUploads = document.getElementById('btnMyUploads');
@@ -26,13 +26,20 @@ const btnAbout     = document.getElementById('btnAbout');
 const btnOrder     = document.getElementById('btnOrder');
 const btnList      = document.getElementById('btnList');
 const brandHome    = document.getElementById('brandHome');
-const btnDropdown  = document.getElementById('btnDropdown'); // v1.5 드롭다운 토글 버튼
+const btnDropdown  = document.getElementById('btnDropdown');   // v1.5 드롭다운 토글 버튼
+const welcomeEl    = document.getElementById('welcome');
+const nickNameEl   = document.getElementById('nickName');      // 선택적 표시용
 
+// 페이지 인사말 규칙: index = "Welcome!"
+if (welcomeEl) welcomeEl.textContent = 'Welcome!';
+
+// 로그인 상태 표시 + 닉네임(있을 때만)
 onAuthStateChanged(auth, (user)=>{
   const loggedIn = !!user;
   signupLink?.classList.toggle('hidden', loggedIn);
   signinLink?.classList.toggle('hidden', loggedIn);
   nickWrap?.classList.toggle('hidden', !loggedIn);
+  if (nickNameEl) nickNameEl.textContent = loggedIn ? (user?.displayName || 'User') : '';
 });
 
 btnSignOut?.addEventListener('click', async ()=>{
@@ -44,16 +51,6 @@ btnGoUpload?.addEventListener('click', ()=> location.href='/upload.html');
 btnMyUploads?.addEventListener('click', ()=> location.href='/manage-uploads.html');
 btnAbout?.addEventListener('click', ()=> location.href='/about.html');
 btnOrder?.addEventListener('click', ()=> location.href='/category-order.html');
-btnList?.addEventListener('click', ()=> {
-  // index → list 이동 시 현재 선택/형식/연속재생 상태 스냅샷 저장
-  const cats = Array.from(document.querySelectorAll('.cat:checked')).map(c=>c.value);
-  const type = document.querySelector('#typeToggle input:checked')?.value || 'all';
-  const auto = document.getElementById('cbAutoNext')?.checked ? 1 : 0;
-  try{
-    sessionStorage.setItem(LIST_SNAPSHOT_KEY, JSON.stringify({ cats, type, auto }));
-  }catch{}
-  location.href='/list.html';
-});
 
 /* ========= Dropdown (CopyTube v1.5 스타일로 통일) ========= */
 // 규격: hidden+open 클래스, opacity/transform 트랜지션, aria-expanded/aria-hidden 동기화,
@@ -127,6 +124,9 @@ const cbToggleAll  = document.getElementById('cbToggleAll');
 const btnWatch     = document.getElementById('btnWatch');
 const btnOpenOrder = document.getElementById('btnOpenOrder');
 const cbAutoNext   = document.getElementById('cbAutoNext');
+const typeWrap     = document.getElementById('typeToggle');
+
+btnOpenOrder?.addEventListener('click', ()=> location.href='/category-order.html');
 
 function applyGroupOrder(groups){
   let saved = null;
@@ -291,14 +291,13 @@ function selectAll(on){
   catsBox.querySelectorAll('.group input.cat').forEach(b=>{
     const groupKey = b.closest('.group')?.dataset?.key || '';
     const isPersonal = groupKey === 'personal';
-    const isSeries = isSeriesGroup(groupKey);
+    const isSeries   = isSeriesGroup(groupKey);
     if (!isPersonal && !isSeries){ b.checked = !!on; } else { b.checked = false; }
   });
   refreshAllParentStates();
   allSelected = !!on;
   if (cbToggleAll) cbToggleAll.checked = allSelected;
 }
-
 function applySavedSelection(){
   let saved = null;
   try{ saved = JSON.parse(localStorage.getItem(SELECTED_CATS_KEY)||'null'); }catch{}
@@ -320,7 +319,6 @@ function applySavedSelection(){
   }
 
   // 형식 토글 기본값 복원 (기본 all)
-  const typeWrap = document.getElementById('typeToggle');
   if (typeWrap){
     const savedType = localStorage.getItem(VIEW_TYPE_KEY) || 'all';
     const r = typeWrap.querySelector(`input[value="${savedType}"]`) || typeWrap.querySelector('input[value="all"]');
@@ -330,10 +328,27 @@ function applySavedSelection(){
   // 연속재생 복원
   const vv = (localStorage.getItem(AUTONEXT_KEY) || '').toLowerCase();
   if (cbAutoNext) cbAutoNext.checked = (vv==='1' || vv==='true' || vv==='on');
+
+  // 전체선택 체크박스 상태 동기화 (누락 보완)
+  if (cbToggleAll) cbToggleAll.checked = computeAllSelected();
+}
+cbToggleAll?.addEventListener('change', ()=> selectAll(cbToggleAll.checked));
+
+/* ========= list 이동 스냅샷 공통 함수 ========= */
+function saveListSnapshot(){
+  const cats = Array.from(document.querySelectorAll('.cat:checked')).map(c=>c.value);
+  const type = document.querySelector('#typeToggle input:checked')?.value || 'all';
+  const auto = document.getElementById('cbAutoNext')?.checked ? 1 : 0;
+  try{
+    sessionStorage.setItem(LIST_SNAPSHOT_KEY, JSON.stringify({ cats, type, auto }));
+  }catch{}
 }
 
-cbToggleAll?.addEventListener('change', ()=> selectAll(cbToggleAll.checked));
-btnOpenOrder?.addEventListener('click', ()=> location.href='/category-order.html');
+/* ========= index → list 버튼 ========= */
+btnList?.addEventListener('click', ()=>{
+  saveListSnapshot();
+  location.href='/list.html';
+});
 
 /* ========= index → watch ========= */
 btnWatch?.addEventListener('click', ()=>{
@@ -392,77 +407,70 @@ document.addEventListener('keydown',(e)=>{
   }
 });
 
-/* ========= 스와이프 내비 (고급형, 중앙 18% 데드존 / Pointer Events) ========= */
+/* ========= 스와이프 내비 (하이브리드: Pointer Events 우선, 미지원 시 Touch fallback) ========= */
 window.__swipeNavigating = window.__swipeNavigating || false;
 
-function initSwipeNavAdvanced({
-  goLeftHref = null,    // ←로 넘길 때 이동할 URL (좌로 미는 제스처)
-  goRightHref = null,   // →로 넘길 때 이동할 URL (우로 미는 제스처)
+function initSwipeNavHybrid({
+  goLeftHref = null,   // 좌로 미는 제스처(→) 결과 URL
+  goRightHref = null,  // 우로 미는 제스처(←) 결과 URL
   animateMs = 260,
-  deadZoneCenterRatio = 0.18, // 중앙 데드존 18%
-  intentDx = 12,              // 가로 의도 임계값
-  cancelDy = 10,              // 의도 확정 전 세로 취소
-  maxDy = 90,                 // 전체 세로 허용치
-  maxMs = 700,                // 최대 제스처 시간
-  minDx = 70,                 // 최소 거리 트리거
-  minVx = 0.6                 // 최소 속도(px/ms) 트리거
+  deadZoneCenterRatio = 0.18,   // 중앙 데드존 18%
+  intentDx = 12,                // 가로 의도 임계값
+  cancelDy = 10,                // 세로 의도 취소 임계값(의도 확정 전)
+  maxDy = 90,                   // 전체 세로 허용치
+  maxMs = 700,                  // 최대 제스처 시간
+  minDx = 70,                   // 최소 거리 트리거
+  minVx = 0.6                   // 최소 속도(px/ms) 트리거
 } = {}) {
-  let sx=0, sy=0, t0=0, tracking=false, horizontalIntent=false;
+  let sx=0, sy=0, t0=0;
+  let tracking=false, horizontalIntent=false, multiTouch=false;
   let pointerId = null;
 
-  const getXY = (e)=>{
-    if (e instanceof PointerEvent) return { x: e.clientX, y: e.clientY, target: e.target };
-    // 폴백(구형 브라우저)
-    const t = e.touches?.[0] || e.changedTouches?.[0] || e;
-    return { x: t.clientX, y: t.clientY, target: t.target };
+  const getXYPointer = (e)=> ({ x: e.clientX, y: e.clientY, target: e.target });
+  const getXYTouch   = (e)=> {
+    const t = e.touches?.[0] || e.changedTouches?.[0];
+    return t ? { x: t.clientX, y: t.clientY, target: t.target } : null;
   };
 
   function isInteractiveEl(el){
     return !!el.closest('button, a, [role="button"], input, select, textarea, label, .no-swipe, #dropdownMenu');
   }
 
-  function onPointerDown(e){
-    // 마우스 오른쪽/중간 버튼 제외
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
-    if (window.__swipeNavigating) return;
-
-    const { x, y, target } = getXY(e);
-    if (isInteractiveEl(target)) return;
-
-    // 중앙 데드존
+  function inDeadZone(x){
     const vw = Math.max(document.documentElement.clientWidth, window.innerWidth || 0);
     const dz = Math.max(0, Math.min(0.9, deadZoneCenterRatio));
     const L  = vw * (0.5 - dz/2);
     const R  = vw * (0.5 + dz/2);
-    if (x >= L && x <= R) return;
-
-    pointerId = e.pointerId ?? 'fallback';
-    sx = x; sy = y; t0 = performance.now();
-    tracking = true; horizontalIntent = false;
+    return x >= L && x <= R;
   }
 
-  function onPointerMove(e){
-    if (!tracking) return;
-    if (pointerId != null && e.pointerId != null && e.pointerId !== pointerId) return;
+  function startCommon(x, y, target){
+    if (window.__swipeNavigating) return false;
+    if (isInteractiveEl(target))  return false;
+    if (inDeadZone(x))            return false;
+    sx = x; sy = y; t0 = performance.now();
+    tracking = true; horizontalIntent = false;
+    return true;
+  }
 
-    const { x, y } = getXY(e);
+  function moveCommon(x, y){
+    if (!tracking) return false;
     const dx = x - sx;
     const dy = y - sy;
 
     if (!horizontalIntent){
-      if (Math.abs(dy) > cancelDy) { tracking=false; return; } // 스크롤 의도
+      if (Math.abs(dy) > cancelDy) { tracking=false; return false; } // 스크롤 의도
       if (Math.abs(dx) >= intentDx) horizontalIntent = true;
     } else {
-      if (Math.abs(dy) > maxDy) { tracking=false; return; }
+      if (Math.abs(dy) > maxDy) { tracking=false; return false; }
     }
+    return true;
   }
 
-  function onPointerUp(e){
+  function endCommon(x, y){
     if (!tracking) return;
-    if (pointerId != null && e.pointerId != null && e.pointerId !== pointerId) return;
-    tracking = false; pointerId = null;
+    tracking = false;
 
-    const { x, y } = getXY(e);
     const dx = x - sx;
     const dy = y - sy;
     const dt = performance.now() - t0;
@@ -478,31 +486,74 @@ function initSwipeNavAdvanced({
     if (!(passDistance || passVelocity)) return;
     if (window.__swipeNavigating) return;
 
-    // 방향 판정 및 이동
+    const go = (href, dirClass)=>{
+      if (!href) return;
+      window.__swipeNavigating = true;
+      document.documentElement.classList.add(dirClass);
+      // ★ list 이동 전 스냅샷 저장(버튼 이동과 동등하게 유지)
+      if (href.includes('/list.html')) {
+        try { saveListSnapshot(); } catch {}
+      }
+      setTimeout(()=> location.href = href, animateMs);
+    };
+
     if (dx <= -minDx || (dx < 0 && passVelocity)) {
-      if (!goLeftHref) return;
-      window.__swipeNavigating = true;
-      document.documentElement.classList.add('slide-out-left');
-      setTimeout(()=> location.href = goLeftHref, animateMs);
+      // 좌로 밀기: goLeftHref
+      go(goLeftHref, 'slide-out-left');
     } else if (dx >= minDx || (dx > 0 && passVelocity)) {
-      if (!goRightHref) return;
-      window.__swipeNavigating = true;
-      document.documentElement.classList.add('slide-out-right');
-      setTimeout(()=> location.href = goRightHref, animateMs);
+      // 우로 밀기: goRightHref
+      go(goRightHref, 'slide-out-right');
     }
   }
 
-  function onPointerCancel(){
-    tracking = false; pointerId = null;
+  // Pointer Events 우선
+  if (window.PointerEvent){
+    const onPointerDown = (e)=>{
+      // 마우스 오른쪽/중간 버튼 제외
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      pointerId = e.pointerId ?? 'fallback';
+      startCommon(e.clientX, e.clientY, e.target);
+    };
+    const onPointerMove = (e)=>{
+      if (pointerId != null && e.pointerId != null && e.pointerId !== pointerId) return;
+      moveCommon(e.clientX, e.clientY);
+    };
+    const onPointerUp = (e)=>{
+      if (pointerId != null && e.pointerId != null && e.pointerId !== pointerId) return;
+      endCommon(e.clientX, e.clientY);
+      pointerId = null;
+    };
+    const onPointerCancel = ()=>{ tracking=false; pointerId=null; };
+
+    document.addEventListener('pointerdown', onPointerDown, { passive:true });
+    document.addEventListener('pointermove', onPointerMove,   { passive:true });
+    document.addEventListener('pointerup',   onPointerUp,     { passive:true });
+    document.addEventListener('pointercancel', onPointerCancel, { passive:true });
+  } else {
+    // Touch fallback
+    const onStart = (e)=>{
+      multiTouch = (e.touches && e.touches.length > 1);
+      if (multiTouch) return;
+      const t = e.touches?.[0]; if (!t) return;
+      startCommon(t.clientX, t.clientY, t.target);
+    };
+    const onMove = (e)=>{
+      if (multiTouch) return;
+      const t = e.touches?.[0]; if (!t) return;
+      moveCommon(t.clientX, t.clientY);
+    };
+    const onEnd = (e)=>{
+      if (multiTouch) { multiTouch=false; return; }
+      const t = e.changedTouches?.[0]; if (!t) return;
+      endCommon(t.clientX, t.clientY);
+    };
+
+    document.addEventListener('touchstart', onStart, { passive:true });
+    document.addEventListener('touchmove',  onMove,  { passive:true });
+    document.addEventListener('touchend',   onEnd,   { passive:true });
   }
 
-  // Pointer Events (터치/마우스/스타일러스 통합)
-  document.addEventListener('pointerdown', onPointerDown, { passive:true });
-  document.addEventListener('pointermove', onPointerMove, { passive:true });
-  document.addEventListener('pointerup', onPointerUp, { passive:true });
-  document.addEventListener('pointercancel', onPointerCancel, { passive:true });
-
-  // 애니메이션 스타일 주입
+  // 애니메이션 스타일 주입 (한 번만)
   const styleId = 'swipe-anim-advanced';
   if (!document.getElementById(styleId)){
     const style = document.createElement('style');
@@ -521,7 +572,7 @@ function initSwipeNavAdvanced({
 }
 
 // index: 좌→우 = list, 우→좌 = upload (중앙 18% 데드존)
-initSwipeNavAdvanced({
+initSwipeNavHybrid({
   goLeftHref: '/upload.html',
   goRightHref: '/list.html',
   deadZoneCenterRatio: 0.18
