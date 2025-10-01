@@ -1,108 +1,129 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ko">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>ArkTube - 시청</title>
-
-  <!-- 상단바/레이아웃 기본 스타일 (원본 헤더 유지 전제) -->
-  <link rel="stylesheet" href="/css/style.css"/>
-
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>ArkTube — Watch</title>
   <style>
-    :root {
-      --brand-pad: 8px;
-      --btn-radius: 12px;
+    /* ===== 화면/플레이어 전체화면 & 테두리 제거 ===== */
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #000;
+      height: 100%;
+      width: 100%;
+      overflow: hidden;
+      -webkit-tap-highlight-color: transparent;
     }
-    header#topbar { position: sticky; top:0; z-index:20; }
-    .watch-wrap { max-width: 1100px; margin: 0 auto; padding: 10px; }
-    .player-box { position: relative; background:#000; aspect-ratio: 16 / 9; border-radius: 10px; overflow: hidden; }
-    .player-box iframe { width: 100%; height: 100%; border:0; }
-
-    .watch-ctrl {
-      display: grid;
-      grid-template-columns: 1fr auto auto auto auto;
-      gap: 8px;
+    #topbar {
+      position: fixed;
+      z-index: 10;
+      top: 0; left: 0; right: 0;
+      height: 44px;
+      display: flex;
       align-items: center;
-      padding: 8px 0;
-    }
-    .title-line { font-weight: 700; line-height: 1.3; }
-    .muted { color:#888; font-size: 13px; }
-    .badge { display:inline-block; font-size:12px; padding:2px 8px; border-radius:999px; background:#222; color:#eee; margin-right:6px; }
-
-    .btn {
-      border: 1px solid #2a2a2a;
-      padding: 8px 12px;
-      border-radius: var(--btn-radius);
-      background: #151515;
-      cursor: pointer;
+      gap: 8px;
+      padding: 0 12px;
+      background: rgba(0,0,0,.55);
+      backdrop-filter: blur(6px);
+      color: #fff;
       user-select: none;
     }
-    .btn:disabled { opacity: .6; cursor: default; }
-    .btn-ghost { background: transparent; }
-    .btn-primary { background:#1f1f1f; }
-    .btn-danger { background:#2a1515; }
-    .ctrl-right { display:flex; gap:6px; align-items:center; }
+    #brandHome { cursor: pointer; font-weight: 800; letter-spacing: 0.2px; }
+    .spacer { flex: 1 1 auto; }
+    .hidden { display: none !important; }
 
-    #dropdownMenu.hidden { display:none; opacity:0; transform:scale(.98); }
-    #dropdownMenu.open   { opacity:1; transform:scale(1); transition:opacity .12s ease, transform .12s ease; }
-
-    /* 스와이프 애니메이션 */
-    @keyframes pageSlideLeft { from { transform: translateX(0); opacity:1; } to { transform: translateX(-22%); opacity:.92; } }
-    @keyframes pageSlideRight{ from { transform: translateX(0); opacity:1; } to { transform: translateX(22%);  opacity:.92; } }
-    :root.slide-out-left  body { animation: pageSlideLeft 0.26s ease forwards; }
-    :root.slide-out-right body { animation: pageSlideRight 0.26s ease forwards; }
-
-    @media (max-width: 480px){
-      .watch-ctrl { grid-template-columns: 1fr auto auto; grid-auto-rows: auto; }
-      .ctrl-right { grid-column: 1 / -1; justify-content: flex-end; }
+    /* 닉네임/버튼 */
+    #nickWrap { display: inline-flex; align-items: center; gap: 8px; }
+    #btnDropdown { cursor: pointer; border: 0; background: transparent; color: #fff; font-size: 18px; }
+    #btnSignOut, #btnGoUpload, #btnMyUploads, #btnAbout, #btnOrder, #btnList, #signinLink, #signupLink {
+      color: inherit; text-decoration: none; cursor: pointer; font-size: 14px;
+      border: 0; background: transparent; padding: 4px 8px;
     }
-  </style>
+    #signinLink, #signupLink { opacity: 0.9; }
+    #nickName { font-weight: 600; }
 
-  <script defer src="/js/watch.js"></script>
-  <script async src="https://www.youtube.com/iframe_api"></script>
+    /* 드롭다운 (v1.5 규격) */
+    #dropdownMenu {
+      position: fixed;
+      top: 44px; right: 12px;
+      min-width: 200px;
+      background: rgba(20,20,20,.96);
+      color: #fff;
+      border-radius: 10px;
+      padding: 8px;
+      transform: translateY(-6px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .15s ease, transform .15s ease;
+    }
+    #dropdownMenu.open {
+      transform: translateY(0);
+      opacity: 1;
+      pointer-events: auto;
+    }
+    #dropdownMenu.hidden { display: none; }
+    #dropdownMenu a, #dropdownMenu button {
+      display: block; width: 100%; text-align: left;
+      color: #fff; text-decoration: none; padding: 8px 10px; border-radius: 8px;
+      border: 0; background: transparent; cursor: pointer; font-size: 14px;
+    }
+    #dropdownMenu a:hover, #dropdownMenu button:hover { background: rgba(255,255,255,.08); }
+
+    /* 플레이어 */
+    #playerWrap, #player {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      background: #000;
+    }
+    iframe, #player, #player * {
+      border: 0 !important;
+      outline: none !important;
+      box-shadow: none !important;
+    }
+
+    /* 스와이프 피드백 (수직 nudge) */
+    @keyframes nudgeUp   { from{ transform: translateY(0)} to{ transform: translateY(-18%)} }
+    @keyframes nudgeDown { from{ transform: translateY(0)} to{ transform: translateY( 18%)} }
+    .nudge-up   { animation: nudgeUp   .18s ease }
+    .nudge-down { animation: nudgeDown .18s ease }
+  </style>
 </head>
 <body>
-  <!-- 상단바 (원본 유지) -->
-  <header id="topbar">
-    <div class="bar">
-      <a id="brandHome" class="brand" href="/index.html" aria-label="홈">
-        <img class="brand-logo" src="/image/arktube_side.png" alt="ArkTube" />
-      </a>
-      <div class="spacer"></div>
-      <button id="btnDropdown" class="btn btn-ghost" aria-haspopup="true" aria-expanded="false">메뉴</button>
-    </div>
-    <nav id="dropdownMenu" class="hidden" aria-hidden="true">
-      <button id="btnGoUpload" class="btn">업로드</button>
-      <button id="btnList" class="btn">리스트</button>
-      <button id="btnOrder" class="btn">카테고리 순서</button>
-      <button id="btnMyUploads" class="btn">내 업로드</button>
-      <button id="btnAbout" class="btn">소개</button>
-      <button id="btnSignOut" class="btn">로그아웃</button>
-    </nav>
-  </header>
+  <!-- 상단바 (index와 동일 톤) -->
+  <div id="topbar">
+    <div id="brandHome" title="ArkTube 홈">ArkTube</div>
+    <div class="spacer"></div>
 
-  <main class="watch-wrap">
-    <div class="watch-ctrl">
-      <div>
-        <span id="badgeMode" class="badge" hidden>MODE</span>
-        <div id="title" class="title-line">제목</div>
-        <div class="muted"><span id="pos">0</span>/<span id="total">0</span> · <span id="typeMark">all</span></div>
-      </div>
-      <div class="ctrl-right">
-        <button id="btnPrev" class="btn">이전</button>
-        <button id="btnNext" class="btn">다음</button>
-        <label class="btn btn-ghost" title="연속재생">
-          <input id="cbAutoNext" type="checkbox" style="vertical-align:middle; margin-right:6px;"> 연속
-        </label>
-        <button id="btnFull" class="btn">전체화면</button>
-      </div>
+    <a id="signupLink" href="/signup.html">가입</a>
+    <a id="signinLink" href="/signin.html">로그인</a>
+
+    <div id="nickWrap" class="hidden">
+      <span id="nickName"></span>
+      <button id="btnSignOut" title="로그아웃">로그아웃</button>
     </div>
 
-    <div id="playerBox" class="player-box">
-      <div id="playerMount" style="width:100%;height:100%;"></div>
-    </div>
+    <button id="btnDropdown" aria-expanded="false" aria-controls="dropdownMenu" title="메뉴">☰</button>
+  </div>
 
-    <p id="msg" class="muted" style="padding-top:8px;"></p>
-  </main>
+  <!-- 드롭다운 (v1.5) -->
+  <div id="dropdownMenu" class="hidden" aria-hidden="true" role="menu">
+    <button id="btnList"      role="menuitem">리스트 보기</button>
+    <button id="btnGoUpload"  role="menuitem">업로드</button>
+    <button id="btnMyUploads" role="menuitem">내 업로드</button>
+    <hr style="border:0;border-top:1px solid rgba(255,255,255,.12);margin:6px 4px;">
+    <button id="btnOrder"     role="menuitem">카테고리 정렬</button>
+    <button id="btnAbout"     role="menuitem">About</button>
+  </div>
+
+  <!-- 플레이어 -->
+  <div id="playerWrap">
+    <div id="player" aria-label="YouTube Player"></div>
+  </div>
+
+  <!-- JS -->
+  <script type="module" src="/js/watch.v15.arktube.js"></script>
 </body>
 </html>
