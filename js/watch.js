@@ -1,43 +1,142 @@
-// watch.v15.arktube.js — ArkTube Watch (no overlay UI, vertical swipe next/prev, PC arrows)
+// watch.v15.arktube.js — ArkTube Watch
+// 요구사항: 오버레이 UI 없음, 수직 스와이프(위=다음/아래=이전), PC 화살표(←/→),
+//           개인자료엔 type 필터 미적용, 시리즈 이어보기 asc + t 자동 seek, 테두리 제거 유지,
+//           상단바/드롭다운(v1.5) 포함 (index 톤 재사용)
+
 import { auth, db } from './firebase-init.js';
+import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
 import { CATEGORY_GROUPS } from './categories.js';
 import { getAutoNext, makeKey, loadResume, saveResume } from './resume.js';
 import {
   collection, query, where, orderBy, limit, getDocs
 } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
 
-/* ===================== 공통 상태 & 키 ===================== */
-const SELECTED_CATS_KEY = 'selectedCats';            // "ALL" | string[]
-const VIEW_TYPE_KEY     = 'arktube:view:type';       // 'all' | 'shorts' | 'video'
-const AUTONEXT_KEY_OLD  = 'autonext';                // '1' | '0' (index에서 저장)
-const RESUME_SERIES_SS  = 'resumeSeriesKey';         // `${seriesGroupKey}:${subCatValue}`
+/* ===================== 상단바 / 드롭다운 (v1.5) ===================== */
+const signupLink   = document.getElementById('signupLink');
+const signinLink   = document.getElementById('signinLink');
+const nickWrap     = document.getElementById('nickWrap');
+const nickNameEl   = document.getElementById('nickName');
+const btnSignOut   = document.getElementById('btnSignOut');
 
-// 재생 세션(옵션 캐시)
-const SS_QUEUE_KEY = 'playQueue';
-const SS_INDEX_KEY = 'playIndex';
+const brandHome    = document.getElementById('brandHome');
+const btnDropdown  = document.getElementById('btnDropdown');
+const dropdown     = document.getElementById('dropdownMenu');
 
-// 재생 큐: { id, url, title, type, cats[] }[]
-let PLAY_QUEUE = [];
-let CUR = 0; // index in queue
+const btnAbout     = document.getElementById('btnAbout');
+const btnOrder     = document.getElementById('btnOrder');
+const btnList      = document.getElementById('btnList');
+const btnGoUpload  = document.getElementById('btnGoUpload');
+const btnMyUploads = document.getElementById('btnMyUploads');
+
+// 공통 네비
+brandHome?.addEventListener('click', ()=> location.href='/index.html');
+btnAbout    ?.addEventListener('click', ()=> location.href='/about.html');
+btnOrder    ?.addEventListener('click', ()=> location.href='/category-order.html');
+btnList     ?.addEventListener('click', ()=> location.href='/list.html');
+btnGoUpload ?.addEventListener('click', ()=> location.href='/upload.html');
+btnMyUploads?.addEventListener('click', ()=> location.href= auth.currentUser ? '/manage-uploads.html' : '/signin.html');
+
+btnSignOut?.addEventListener('click', async ()=>{
+  try{ await fbSignOut(); }catch{}
+  location.reload();
+});
+
+// 로그인/닉네임 표시
+onAuthStateChanged(auth, (user)=>{
+  const loggedIn = !!user;
+  signupLink?.classList.toggle('hidden', loggedIn);
+  signinLink?.classList.toggle('hidden', loggedIn);
+  nickWrap ?.classList.toggle('hidden', !loggedIn);
+  if (nickNameEl) nickNameEl.textContent = loggedIn ? (user?.displayName || 'User') : '';
+});
+
+// 드롭다운 v1.5
+(function initDropdownV15(){
+  const menu = dropdown;
+  const trigger = btnDropdown;
+  let open = false; let offPointer=null; let offKey=null;
+
+  function setOpen(v){
+    open = !!v;
+    if (!menu || !trigger) return;
+    trigger.setAttribute('aria-expanded', String(open));
+    menu.setAttribute('aria-hidden', String(!open));
+    if (open){
+      menu.classList.remove('hidden');
+      requestAnimationFrame(()=> menu.classList.add('open'));
+      const first = menu.querySelector('a,button,[tabindex]:not([tabindex="-1"])');
+      first?.focus?.({preventScroll:true});
+      bindDoc();
+    }else{
+      menu.classList.remove('open');
+      setTimeout(()=> menu.classList.add('hidden'), 150);
+      trigger.focus?.({preventScroll:true});
+      unbindDoc();
+    }
+  }
+  function toggle(){ setOpen(!open); }
+
+  function bindDoc(){
+    if (offPointer || offKey) return;
+    const onPointer = (e)=>{
+      const t = e.target;
+      if (t.closest('#dropdownMenu') || t.closest('#btnDropdown')) return;
+      setOpen(false);
+    };
+    const onKey = (e)=>{
+      if (e.key === 'Escape') setOpen(false);
+      if (e.key === 'Tab' && open){
+        const nodes = menu.querySelectorAll('a,button,[tabindex]:not([tabindex="-1"])');
+        if (!nodes.length) return;
+        const first = nodes[0], last = nodes[nodes.length-1];
+        if (e.shiftKey && document.activeElement === first){ e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last){ e.preventDefault(); first.focus(); }
+      }
+    };
+    document.addEventListener('pointerdown', onPointer, { passive:true });
+    document.addEventListener('keydown', onKey);
+    offPointer = ()=> document.removeEventListener('pointerdown', onPointer, { passive:true });
+    offKey     = ()=> document.removeEventListener('keydown', onKey);
+  }
+  function unbindDoc(){ if(offPointer){ offPointer(); offPointer=null; } if(offKey){ offKey(); offKey=null; } }
+
+  trigger?.addEventListener('click', (e)=>{ e.preventDefault(); toggle(); });
+  menu?.addEventListener('click', (e)=>{ if (e.target.closest('a,button,[role="menuitem"]')) setOpen(false); });
+  window.addEventListener('beforeunload', ()=> setOpen(false));
+
+  // 초기 aria 동기화
+  if (menu && trigger){
+    const initiallyHidden = menu.classList.contains('hidden');
+    trigger.setAttribute('aria-expanded', String(!initiallyHidden));
+    menu.setAttribute('aria-hidden', String(initiallyHidden));
+  }
+})();
+
+/* ===================== 재생 컨텍스트/큐 ===================== */
+const SELECTED_CATS_KEY = 'selectedCats';    // "ALL" | string[]
+const VIEW_TYPE_KEY     = 'arktube:view:type';
+const AUTONEXT_KEY_OLD  = 'autonext';
+const RESUME_SERIES_SS  = 'resumeSeriesKey';
+
+const SS_QUEUE_KEY      = 'playQueue';
+const SS_INDEX_KEY      = 'playIndex';
+
+let PLAY_QUEUE = []; // { id, url, title, type, cats[] }[]
+let CUR = 0;
 let PLAYER = null;
 let AUTONEXT = false;
 
-// 시리즈 이어보기 컨텍스트(있을 때만 사용)
 let resumeCtx = null; // { groupKey, subKey, typeForKey }
 
-/* ===================== 도우미 ===================== */
 const sleep = (ms)=> new Promise(r=> setTimeout(r, ms));
-
-function parseJSON(s, fallback=null){ try{ return JSON.parse(s); }catch{ return fallback; } }
+function parseJSON(s, fb=null){ try{ return JSON.parse(s); }catch{ return fb; } }
+function clamp(n,min,max){ return Math.max(min, Math.min(max, n)); }
 
 function seriesCatSet() {
-  // series_* 그룹의 자식 value만 모아 집합 생성
   const set = new Set();
   for (const g of CATEGORY_GROUPS || []) {
-    const isSeries = g?.isSeries === true || String(g?.key||'').startsWith('series_');
-    if (isSeries) {
-      for (const c of (g.children || [])) set.add(c.value);
-    }
+    const isSeries = g?.isSeries===true || String(g?.key||'').startsWith('series_');
+    if (isSeries) for (const c of (g.children||[])) set.add(c.value);
   }
   return set;
 }
@@ -48,11 +147,9 @@ function getPersonalSlotFromQS(){
   const cats = p.get('cats') || '';
   return /^personal[1-4]$/.test(cats) ? cats : null;
 }
-
 function readAutoNext(){
   const s = (localStorage.getItem(AUTONEXT_KEY_OLD)||'').toLowerCase();
   if (s==='1' || s==='true' || s==='on') return true;
-  // resume.js 네임스페이스 값도 fallback
   return !!getAutoNext();
 }
 
@@ -61,7 +158,7 @@ function loadQueueFromSession(){
   const i = Number(sessionStorage.getItem(SS_INDEX_KEY));
   if (Array.isArray(q) && q.length > 0) {
     PLAY_QUEUE = q;
-    CUR = Number.isFinite(i) && i >= 0 && i < q.length ? i : 0;
+    CUR = Number.isFinite(i) && i>=0 && i<q.length ? i : 0;
     return true;
   }
   return false;
@@ -73,30 +170,23 @@ function saveQueueToSession(){
   } catch {}
 }
 
-function clamp(n,min,max){ return Math.max(min, Math.min(max, n)); }
-
-/* ===================== 큐 구성 로직 ===================== */
-async function buildQueue() {
-  // 개인자료 우선 판정
+async function buildQueue(){
   const personalSlot = getPersonalSlotFromQS();
   const selType = (localStorage.getItem(VIEW_TYPE_KEY) || 'all'); // watch에서 토글 없음
   AUTONEXT = readAutoNext();
 
   const resumeKey = sessionStorage.getItem(RESUME_SERIES_SS) || '';
   if (resumeKey) {
-    // `${groupKey}:${subKey}` → 시리즈 이어보기 모드
     const [groupKey, subKey] = resumeKey.split(':');
-    resumeCtx = { groupKey, subKey, typeForKey: 'video' }; // 키 스킴상의 type — 단일로 고정
+    resumeCtx = { groupKey, subKey, typeForKey: 'video' };
   }
 
-  // 세션 캐시가 있고, 이어보기/개인자료 요구가 바뀌지 않았다면 그대로 복원
   if (loadQueueFromSession()) return;
 
-  if (personalSlot) {
-    // 개인자료 모드 (type 필터 적용 안 함)
+  if (personalSlot){
+    // 개인자료: type 필터 미적용
     const storeKey = `personal_${personalSlot}`;
     const arr = parseJSON(localStorage.getItem(storeKey), []);
-    // URL → id 추출(간단한 정규식)
     const idOf = (u)=>{
       try{
         const m = String(u).match(/[?&]v=([A-Za-z0-9_-]{11})/) || String(u).match(/youtu\.be\/([A-Za-z0-9_-]{11})/);
@@ -105,33 +195,25 @@ async function buildQueue() {
     };
     PLAY_QUEUE = arr.map(x=>{
       const id = idOf(x.url);
-      return id ? { id, url: x.url, title: x.title || '', type: 'video', cats: [personalSlot] } : null;
+      return id ? { id, url:x.url, title:x.title||'', type:'video', cats:[personalSlot] } : null;
     }).filter(Boolean);
-
     CUR = 0;
     saveQueueToSession();
     return;
   }
 
   // 서버 모드
-  // 선택 카테고리
   let sel = parseJSON(localStorage.getItem(SELECTED_CATS_KEY), 'ALL');
-  let catFilter = null; // null이면 ALL
-
-  if (Array.isArray(sel) && sel.length) {
-    catFilter = sel.slice(0, 10); // array-contains-any 는 최대 10
-  }
-  // type 필터 (all이면 미적용)
+  let catFilter = null;
+  if (Array.isArray(sel) && sel.length) catFilter = sel.slice(0,10);
   const typeFilter = (selType==='shorts' || selType==='video') ? selType : null;
 
   const col = collection(db, 'videos');
-
   let q;
   if (resumeCtx) {
-    // 이어보기: 해당 시리즈 cat만 asc 정렬
     q = query(
       col,
-      where('cats', 'array-contains', resumeCtx.subKey),
+      where('cats','array-contains', resumeCtx.subKey),
       ...(typeFilter ? [where('type','==',typeFilter)] : []),
       orderBy('createdAt','asc'),
       limit(200)
@@ -139,13 +221,12 @@ async function buildQueue() {
   } else if (catFilter) {
     q = query(
       col,
-      where('cats', 'array-contains-any', catFilter),
+      where('cats','array-contains-any', catFilter),
       ...(typeFilter ? [where('type','==',typeFilter)] : []),
       orderBy('createdAt','desc'),
       limit(200)
     );
   } else {
-    // ALL: 시리즈 카테고리 포함 항목은 클라이언트에서 제외
     q = query(
       col,
       ...(typeFilter ? [where('type','==',typeFilter)] : []),
@@ -158,14 +239,12 @@ async function buildQueue() {
   const rows = [];
   snap.forEach(doc=>{
     const d = doc.data()||{};
-    // ALL일 때는 series cats 포함이면 제외
     if (!catFilter && !resumeCtx) {
       const cats = Array.isArray(d.cats) ? d.cats : [];
-      const hasSeries = cats.some(c=> SERIES_CATS.has(c));
-      if (hasSeries) return;
+      if (cats.some(c=> SERIES_CATS.has(c))) return; // ALL일 때 series 제외
     }
     rows.push({
-      id: d.ytid, url: d.url, title: d.title || '', type: d.type || 'video',
+      id: d.ytid, url: d.url, title: d.title||'', type: d.type||'video',
       cats: Array.isArray(d.cats) ? d.cats : []
     });
   });
@@ -173,16 +252,12 @@ async function buildQueue() {
   PLAY_QUEUE = rows;
   CUR = 0;
 
-  // 이어보기라면 저장된 index/t 반영
   if (resumeCtx) {
-    const rk = makeKey({ type: resumeCtx.typeForKey, groupKey: resumeCtx.groupKey, subKey: resumeCtx.subKey });
     const saved = loadResume({ type: resumeCtx.typeForKey, groupKey: resumeCtx.groupKey, subKey: resumeCtx.subKey });
     if (saved && Number.isFinite(saved.index)) {
       CUR = clamp(saved.index, 0, Math.max(0, PLAY_QUEUE.length-1));
-      // t는 onPlayerReady에서 적용
     }
   }
-
   saveQueueToSession();
 }
 
@@ -190,60 +265,42 @@ async function buildQueue() {
 function loadYTAPI(){
   return new Promise((resolve)=>{
     if (window.YT && YT.Player) return resolve();
-    const tag = document.createElement('script');
-    tag.src = 'https://www.youtube.com/iframe_api';
-    tag.async = true;
-    tag.onload = ()=>{};
-    document.head.appendChild(tag);
+    const s = document.createElement('script');
+    s.src = 'https://www.youtube.com/iframe_api';
+    s.async = true;
+    document.head.appendChild(s);
     window.onYouTubeIframeAPIReady = ()=> resolve();
   });
 }
-
-function currentVideoId(){
-  return (PLAY_QUEUE[CUR] && PLAY_QUEUE[CUR].id) || null;
-}
+function currentVideoId(){ return (PLAY_QUEUE[CUR] && PLAY_QUEUE[CUR].id) || null; }
 
 function playAt(index, seekSeconds=null){
   CUR = clamp(index, 0, Math.max(0, PLAY_QUEUE.length-1));
   saveQueueToSession();
   const v = currentVideoId();
   if (!v) return;
-
   if (PLAYER) {
     PLAYER.loadVideoById(v);
     if (seekSeconds!=null) {
-      const s = Math.max(0, Math.min(6*60*60, seekSeconds|0)); // 최대 6시간 가드
+      const s = Math.max(0, Math.min(6*60*60, seekSeconds|0));
       if (s >= 3) setTimeout(()=> { try{ PLAYER.seekTo(s, true); }catch{} }, 400);
     }
   }
 }
-
 function next(){ if (CUR < PLAY_QUEUE.length-1) playAt(CUR+1, 0); }
 function prev(){ if (CUR > 0)                 playAt(CUR-1, 0); }
 
 async function initPlayer(){
   await loadYTAPI();
   const firstId = currentVideoId();
-  const playerVars = {
-    autoplay: 1,
-    controls: 1,
-    rel: 0,
-    modestbranding: 1,
-    playsinline: 1
-  };
   PLAYER = new YT.Player('player', {
     width: '100%', height: '100%',
     videoId: firstId,
-    playerVars,
-    events: {
-      onReady: onReady,
-      onStateChange: onStateChange,
-      onError: onError
-    }
+    playerVars: { autoplay:1, controls:1, rel:0, modestbranding:1, playsinline:1 },
+    events: { onReady, onStateChange, onError }
   });
 
   function onReady(){
-    // 이어보기 t 적용
     if (resumeCtx) {
       const saved = loadResume({ type: resumeCtx.typeForKey, groupKey: resumeCtx.groupKey, subKey: resumeCtx.subKey });
       const t = Number(saved?.t||0);
@@ -254,71 +311,49 @@ async function initPlayer(){
     try { PLAYER.playVideo(); } catch {}
   }
 
-  let saveTicker = 0;
+  let ticker = 0;
   function onStateChange(e){
     const st = e?.data;
-    // 1 = playing, 0 = ended
     if (st === 1) {
-      // 5초마다 진행 상황 저장(시리즈일 때만)
       if (resumeCtx) {
-        clearInterval(saveTicker);
-        saveTicker = setInterval(()=>{
-          try {
+        clearInterval(ticker);
+        ticker = setInterval(()=>{
+          try{
             const t = Math.floor(PLAYER.getCurrentTime?.() || 0);
-            saveResume({
-              type: resumeCtx.typeForKey,
-              groupKey: resumeCtx.groupKey,
-              subKey: resumeCtx.subKey,
-              sort: 'createdAt-asc',
-              index: CUR,
-              t
-            });
-          } catch {}
+            saveResume({ type:resumeCtx.typeForKey, groupKey:resumeCtx.groupKey, subKey:resumeCtx.subKey,
+                         sort:'createdAt-asc', index:CUR, t });
+          }catch{}
         }, 5000);
       }
     } else if (st === 0) {
-      // 종료: 오토넥스트면 다음
       if (resumeCtx) {
-        try {
-          const t = 0;
-          saveResume({
-            type: resumeCtx.typeForKey,
-            groupKey: resumeCtx.groupKey,
-            subKey: resumeCtx.subKey,
-            sort: 'createdAt-asc',
-            index: Math.min(CUR+1, PLAY_QUEUE.length-1),
-            t
-          });
-        } catch {}
+        try{
+          saveResume({ type:resumeCtx.typeForKey, groupKey:resumeCtx.groupKey, subKey:resumeCtx.subKey,
+                       sort:'createdAt-asc', index:Math.min(CUR+1, PLAY_QUEUE.length-1), t:0 });
+        }catch{}
       }
       if (AUTONEXT) next();
     } else {
-      if (resumeCtx) clearInterval(saveTicker);
+      if (resumeCtx) clearInterval(ticker);
     }
   }
-
   function onError(err){
-    // 재생불가 → 다음으로 스킵
     console.warn('[watch] player error', err);
     next();
   }
 }
 
 /* ===================== 제스처 & 키보드 ===================== */
-// 요구: 모바일은 "위/아래 스와이프"로 이전/다음, PC는 화살표(←/→)
+// 모바일: 수직 스와이프 (위=다음, 아래=이전) — 기존 합의 유지
+// PC: 화살표키 ←/→로 이전/다음
 (function initGestures({
   deadZoneCenterRatio = 0.18,
-  intentDy = 14,    // 세로 의도 확정 임계
-  cancelDx = 12,    // 의도 확정 전 가로 취소
-  maxDx = 90,       // 전체 가로 허용치
-  maxMs = 700,
-  minDy = 70,
-  minVy = 0.6       // px/ms
+  intentDy = 14, cancelDx = 12, maxDx = 90, maxMs = 700, minDy = 70, minVy = 0.6
 } = {}) {
   let sy=0, sx=0, t0=0, tracking=false, verticalIntent=false;
   let pointerId = null;
 
-  const inDeadZone = (x)=>{
+  const inDead = (x)=>{
     const vw = Math.max(document.documentElement.clientWidth, window.innerWidth||0);
     const L = vw*(0.5-deadZoneCenterRatio/2), R = vw*(0.5+deadZoneCenterRatio/2);
     return x>=L && x<=R;
@@ -327,13 +362,13 @@ async function initPlayer(){
 
   function startCommon(x,y,target){
     if (isInteractive(target)) return false;
-    if (inDeadZone(x)) return false;
+    if (inDead(x)) return false;
     sx=x; sy=y; t0=performance.now(); tracking=true; verticalIntent=false;
     return true;
   }
   function moveCommon(x,y){
     if (!tracking) return;
-    const dx = x-sx, dy=y-sy;
+    const dx=x-sx, dy=y-sy;
     if (!verticalIntent){
       if (Math.abs(dx)>cancelDx){ tracking=false; return; }
       if (Math.abs(dy)>=intentDy) verticalIntent = true;
@@ -350,17 +385,14 @@ async function initPlayer(){
     if (dt>maxMs) return;
 
     const vy = Math.abs(dy)/Math.max(1, dt);
-    const passDist = Math.abs(dy)>=minDy;
-    const passVel  = vy>=minVy;
-    if (!(passDist || passVel)) return;
+    if (!((Math.abs(dy)>=minDy) || (vy>=minVy))) return;
 
-    // 위로 스와이프 → 다음, 아래로 스와이프 → 이전
-    if (dy <= -minDy || (dy<0 && passVel)) {
+    if (dy <= -minDy || (dy<0 && vy>=minVy)) {
       document.body.classList.remove('nudge-down');
       document.body.classList.add('nudge-up');
       setTimeout(()=> document.body.classList.remove('nudge-up'), 220);
       next();
-    } else if (dy >= minDy || (dy>0 && passVel)) {
+    } else if (dy >= minDy || (dy>0 && vy>=minVy)) {
       document.body.classList.remove('nudge-up');
       document.body.classList.add('nudge-down');
       setTimeout(()=> document.body.classList.remove('nudge-down'), 220);
@@ -368,7 +400,6 @@ async function initPlayer(){
     }
   }
 
-  // Pointer 우선
   if (window.PointerEvent) {
     document.addEventListener('pointerdown', (e)=>{
       if (e.pointerType==='mouse' && e.button!==0) return;
@@ -386,14 +417,12 @@ async function initPlayer(){
     }, { passive:true });
     document.addEventListener('pointercancel', ()=>{ tracking=false; pointerId=null; }, { passive:true });
   } else {
-    // Touch fallback
     const pt = (e)=> e.touches?.[0] || e.changedTouches?.[0] || e;
     document.addEventListener('touchstart', (e)=>{ const p=pt(e); if(!p) return; startCommon(p.clientX,p.clientY,e.target); }, { passive:true });
     document.addEventListener('touchmove',  (e)=>{ const p=pt(e); if(!p) return; moveCommon(p.clientX,p.clientY); }, { passive:true });
     document.addEventListener('touchend',   (e)=>{ const p=pt(e); if(!p) return; endCommon(p.clientX,p.clientY); }, { passive:true });
   }
 
-  // 키보드: ← 이전 / → 다음
   document.addEventListener('keydown', (e)=>{
     if (e.key === 'ArrowLeft')  { e.preventDefault(); prev(); }
     if (e.key === 'ArrowRight') { e.preventDefault(); next(); }
@@ -402,11 +431,10 @@ async function initPlayer(){
 
 /* ===================== 부트스트랩 ===================== */
 (async function main(){
-  try {
+  try{
     await buildQueue();
 
     if (!PLAY_QUEUE.length) {
-      // 빈 큐 처리 (간단한 리다이렉트 정책)
       const personalSlot = getPersonalSlotFromQS();
       if (personalSlot) {
         alert('개인자료가 비어있습니다. 먼저 업로드/저장을 해주세요.');
@@ -420,7 +448,6 @@ async function initPlayer(){
 
     await initPlayer();
 
-    // 첫 영상/이어보기 반영
     if (resumeCtx) {
       const saved = loadResume({ type: resumeCtx.typeForKey, groupKey: resumeCtx.groupKey, subKey: resumeCtx.subKey });
       const t = Number(saved?.t||0);
@@ -428,8 +455,8 @@ async function initPlayer(){
     } else {
       playAt(CUR, 0);
     }
-  } catch (e) {
-    console.error('[watch] fatal init error', e);
+  }catch(e){
+    console.error('[watch] init error', e);
     alert('재생을 시작할 수 없습니다. 네트워크 상태를 확인해주세요.');
     location.href = '/index.html';
   }
