@@ -1,16 +1,90 @@
-// /js/index.js — ArkTube Index (makelist 연계 + 플로팅 도움말 + 스와이프)
-// 키 규칙: selectedCats / view:type / aut o n e x t
-import * as Makelist from './makelist.js';
-import { CATEGORY_MODEL, CATEGORY_GROUPS } from './categories.js';
+// /js/index.js — ArkTube Index (완전판)
+// - admin-common 상단바 초기화(Welcome!), 로그인/닉네임 표시
+// - CATEGORY_GROUPS/MODEL 기반 카테고리 렌더 + parent/child 동기화 + 전체선택(일반만)
+// - 개인자료(personal_*) 단독 선택 강제 + 라벨 로컬 커스텀 표시
+// - 시리즈 서브키 옆 '이어보기' 즉시 재생 (등록순+resume 반영)
+// - view:type('both'|'shorts'|'video') / autonext('1'|'0') 로컬 저장/복원
+// - '영상보기'→ makelist.makeForWatchFromIndex → /watch.html?from=index
+// - '영상목록' 버튼/스와이프→ makelist.makeForListFromIndex → /list.html
+// - 드롭다운 접근성(ESC/포커스 트랩/외부클릭 닫기), 도움말 오버레이
+
+import { CATEGORY_GROUPS, CATEGORY_MODEL } from './categories.js';
 import { auth } from './firebase-init.js';
 import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
+import * as Makelist from './makelist.js';
 import { initHeader } from './admin-common.js';
+
+/* ========= 키 ========= */
+const GROUP_ORDER_KEY   = 'groupOrderV1';
+const SELECTED_CATS_KEY = 'selectedCats';
+const AUTONEXT_KEY      = 'autonext';
+const VIEW_TYPE_KEY     = 'view:type';        // both | shorts | video
+
+/* ========= 상단바 초기화 ========= */
 try { initHeader?.({ greeting: 'Welcome!' }); } catch {}
 
-const SELECTED_CATS_KEY = 'selectedCats';
-const VIEW_TYPE_KEY     = 'view:type';  // ← arktube: 접두사 제거
-const AUTONEXT_KEY      = 'autonext';
+/* ========= 엘리먼트 ========= */
+const topbar       = document.getElementById('topbar');
+const dropdown     = document.getElementById('dropdownMenu');
+const signupLink   = document.getElementById('signupLink');
+const signinLink   = document.getElementById('signinLink');
+const btnSignOut   = document.getElementById('btnSignOut');
+const btnGoUpload  = document.getElementById('btnGoUpload');
+const btnMyUploads = document.getElementById('btnMyUploads');
+const btnAbout     = document.getElementById('btnAbout');
+const btnOrder     = document.getElementById('btnOrder');
+const btnList      = document.getElementById('btnList');
+const brandHome    = document.getElementById('brandHome');
+const btnDropdown  = document.getElementById('btnDropdown');
 
+/* ========= 로그인 표시 ========= */
+onAuthStateChanged(auth, (user)=>{
+  const loggedIn = !!user;
+  signupLink?.classList.toggle('hidden', loggedIn);
+  signinLink?.classList.toggle('hidden', loggedIn);
+});
+
+/* ========= 라우팅 버튼 ========= */
+btnSignOut?.addEventListener('click', async ()=>{ try{ await fbSignOut(); }catch{} location.reload(); });
+btnGoUpload?.addEventListener('click', ()=> location.href='/upload.html');
+btnMyUploads?.addEventListener('click', ()=> location.href='/manage-uploads.html');
+btnAbout?.addEventListener('click', ()=> location.href='/about.html');
+btnOrder?.addEventListener('click', ()=> location.href='/category-order.html');
+brandHome?.addEventListener('click', (e)=>{ e.preventDefault(); location.href='/index.html'; });
+
+/* ========= 드롭다운 ========= */
+(function initDropdown(){
+  const menu = dropdown; let open=false;
+  function setOpen(v){
+    open=!!v;
+    btnDropdown?.setAttribute('aria-expanded', String(open));
+    if(!menu) return;
+    if(open){
+      menu.classList.remove('hidden'); requestAnimationFrame(()=> menu.classList.add('open'));
+      const first = menu.querySelector('button,[href],[tabindex]:not([tabindex="-1"])');
+      (first instanceof HTMLElement ? first : btnDropdown)?.focus();
+      bindDoc();
+    }else{
+      menu.classList.remove('open'); setTimeout(()=> menu.classList.add('hidden'), 120);
+      unbindDoc();
+    }
+  }
+  function toggle(){ setOpen(!open); }
+  btnDropdown?.addEventListener('click', (e)=>{ e.preventDefault(); toggle(); });
+  menu?.addEventListener('click', (e)=>{ if (e.target.closest('button,[role="menuitem"],a')) setOpen(false); });
+
+  let off1=null, off2=null;
+  function bindDoc(){
+    if(off1 || off2) return;
+    const onP=(e)=>{ if(e.target.closest('#dropdownMenu,#btnDropdown')) return; setOpen(false); };
+    const onK=(e)=>{ if(e.key==='Escape') setOpen(false); };
+    document.addEventListener('pointerdown', onP, {passive:true}); off1=()=>document.removeEventListener('pointerdown',onP,{passive:true});
+    document.addEventListener('keydown', onK); off2=()=>document.removeEventListener('keydown',onK);
+  }
+  function unbindDoc(){ off1?.(); off2?.(); off1=off2=null; }
+})();
+
+/* ========= 카테고리 렌더 ========= */
 const catsBox      = document.getElementById('cats');
 const cbToggleAll  = document.getElementById('cbToggleAll');
 const btnWatch     = document.getElementById('btnWatch');
@@ -18,358 +92,290 @@ const btnOpenOrder = document.getElementById('btnOpenOrder');
 const cbAutoNext   = document.getElementById('cbAutoNext');
 const typeWrap     = document.getElementById('typeToggle');
 
-// 드롭다운 항목
-const btnList      = document.getElementById('btnList');
-const btnDropdown  = document.getElementById('btnDropdown');
-const dropdown     = document.getElementById('dropdownMenu');
-const btnGoUpload  = document.getElementById('btnGoUpload');
-const brandHome    = document.getElementById('brandHome');
+const isSeriesGroup = key => typeof key==='string' && key.startsWith('series_');
+const isPersonalVal = v => typeof v==='string' && v.startsWith('personal');
 
-// 도움말
-const helpBtn = document.getElementById('btnHelp');
-const helpOverlay = document.getElementById('helpOverlay');
-
-const isSeriesGroupKey = (k)=> typeof k==='string' && k.startsWith('series_');
-const isPersonalVal    = (v)=> v && String(v).startsWith('personal');
-const isSeriesVal      = (v)=> v && String(v).startsWith('series_');
-
-// ===== Dropdown v1.5 토글 =====
-(function initDropdown(){
-  if (!btnDropdown || !dropdown) return;
-  let open=false;
-  function setOpen(x){
-    open=!!x;
-    btnDropdown.setAttribute('aria-expanded', open?'true':'false');
-    dropdown.setAttribute('aria-hidden', open?'false':'true');
-    if (open){
-      dropdown.classList.remove('hidden'); requestAnimationFrame(()=> dropdown.classList.add('open'));
-    } else {
-      dropdown.classList.remove('open'); setTimeout(()=> dropdown.classList.add('hidden'), 150);
-    }
-  }
-  btnDropdown.addEventListener('click', (e)=>{ e.preventDefault(); setOpen(!open); });
-  document.addEventListener('pointerdown', (e)=>{ if (!open) return; if (!e.target.closest('#dropdownMenu,#btnDropdown')) setOpen(false); }, true);
-  document.addEventListener('keydown', (e)=>{ if (e.key==='Escape') setOpen(false); });
-  dropdown.addEventListener('click', (e)=>{ if (e.target.closest('button,[role="menuitem"],a')) setOpen(false); });
-})();
-
-// ===== 도움말 플로팅 =====
-helpBtn?.addEventListener('click', ()=>{
-  helpOverlay?.classList.add('show');
-  helpOverlay?.setAttribute('aria-hidden','false');
-});
-helpOverlay?.addEventListener('click',(e)=>{
-  if (e.target === helpOverlay){
-    helpOverlay.classList.remove('show');
-    helpOverlay.setAttribute('aria-hidden','true');
-  }
-});
-document.addEventListener('keydown',(e)=>{
-  if (e.key==='Escape' && helpOverlay?.classList.contains('show')){
-    helpOverlay.classList.remove('show');
-    helpOverlay.setAttribute('aria-hidden','true');
-  }
-});
-
-// ===== 카테고리 모델(FALLBACK) =====
-function buildGroups(){
-  if (Array.isArray(CATEGORY_MODEL)) {
-    // New schema: [{label, key, children:[{label,value}]}]
-    return CATEGORY_MODEL.map(g=>({
-      key: g.key || g.label || '',
-      label: g.label || g.key || '',
-      isSeries: isSeriesGroupKey(g.key || ''),
-      isPersonal: (g.key==='personal'),
-      children: (g.children||[]).map(c=>({ value:c.value, label:c.label }))
-    }));
-  }
-  // Fallback to CATEGORY_GROUPS
-  const groups = Array.isArray(CATEGORY_GROUPS)? CATEGORY_GROUPS : (CATEGORY_MODEL?.groups||[]);
-  return groups.map(g=>({
-    key: g.key,
-    label: g.label,
-    isSeries: g.isSeries===true || isSeriesGroupKey(g.key||''),
-    isPersonal: g.personal===true || (g.key==='personal'),
-    children: (g.children||[]).map(c=>({ value:c.value, label:c.label }))
-  }));
-}
-const GROUPS = buildGroups();
-
-// 개인자료 라벨(12자) — 업로드 v15와 동일 규칙
 function getPersonalLabels(){ try{ return JSON.parse(localStorage.getItem('personalLabels')||'{}'); }catch{ return {}; } }
-function personalLabel(key){
-  const m=getPersonalLabels(); if (m[key]) return m[key];
-  const n=(key.match(/^personal(\d)$/)||[])[1]; return n ? `자료${n}` : key;
+
+function applyGroupOrder(groups){
+  let saved=null; try{ saved=JSON.parse(localStorage.getItem(GROUP_ORDER_KEY)||'null'); }catch{}
+  const order = Array.isArray(saved)&&saved.length ? saved : groups.map(g=>g.key);
+  const idx = new Map(order.map((k,i)=>[k,i]));
+  return groups.slice().sort((a,b)=>(idx.get(a.key)??999)-(idx.get(b.key)??999));
+}
+function modelGroups(){
+  // CATEGORY_MODEL 또는 CATEGORY_GROUPS 호환
+  const g = Array.isArray(CATEGORY_GROUPS) ? CATEGORY_GROUPS
+        : (Array.isArray(CATEGORY_MODEL?.groups) ? CATEGORY_MODEL.groups : CATEGORY_MODEL);
+  return Array.isArray(g) ? g : [];
 }
 
-// ===== 렌더 =====
-function renderCategories(){
-  if(!catsBox) return;
-  const labels = getPersonalLabels();
-  const frag = document.createDocumentFragment();
+function renderGroups(){
+  const groups = applyGroupOrder(modelGroups());
+  const personalLabels = getPersonalLabels();
 
-  GROUPS.forEach(g=>{
-    const fs = document.createElement('fieldset');
-    fs.className='group'; fs.dataset.key=g.key;
+  const html = groups.map(g=>{
+    const isSeries = isSeriesGroup(g.key);
+    const isPersonalGroup = g.key==='personal';
+    const kids = (g.children||[]).map(c=>{
+      const labelText = isPersonalGroup && personalLabels[c.value] ? personalLabels[c.value] : (c.label||c.value);
+      const resumeBtn = isSeries ? `<button class="resume-mini" data-group="${g.key}" data-sub="${c.value}" title="이 시리즈 이어보기">이어보기</button>` : '';
+      return `<label><input type="checkbox" class="cat" value="${c.value}"> <span>${labelText}</span> ${resumeBtn}</label>`;
+    }).join('');
+    const legendHTML = isPersonalGroup
+      ? `<legend><span style="font-weight:800;">${g.label}</span> <span class="subnote">(로컬저장소)</span></legend>`
+      : `<legend><label class="group-toggle"><input type="checkbox" class="group-check" data-group="${g.key}"/><span>${g.label}</span></label></legend>`;
+    return `<fieldset class="group" data-key="${g.key}">${legendHTML}<div class="child-grid">${kids}</div></fieldset>`;
+  }).join('');
 
-    const legend = document.createElement('legend');
-    if (g.isPersonal) {
-      legend.innerHTML = `<span style="font-weight:800;">${g.label}</span> <span class="subnote">(로컬저장소)</span>`;
-    } else {
-      const togg = document.createElement('label');
-      togg.className='group-toggle';
-      const chk = document.createElement('input'); chk.type='checkbox'; chk.className='group-check'; chk.dataset.group=g.key;
-      togg.appendChild(chk); togg.appendChild(document.createTextNode(g.label));
-      legend.appendChild(togg);
-    }
-    fs.appendChild(legend);
-
-    const grid=document.createElement('div'); grid.className='child-grid'; fs.appendChild(grid);
-    g.children.forEach(c=>{
-      const lab = document.createElement('label');
-      const inp = document.createElement('input'); inp.type='checkbox'; inp.className='cat'; inp.value=c.value;
-      const span= document.createElement('span');
-      span.textContent=' '+ (g.isPersonal ? (labels[c.value] || personalLabel(c.value)) : (c.label||c.value));
-      lab.appendChild(inp); lab.appendChild(span);
-
-      // 시리즈: 이어보기 미니버튼
-      if (g.isSeries){
-        const rb = document.createElement('button');
-        rb.type='button'; rb.className='resume-mini'; rb.textContent='이어보기';
-        rb.title='이 시리즈 이어보기';
-        rb.addEventListener('click', async (e)=>{
-          e.stopPropagation();
-          await Makelist.makeForWatchFromIndex({ cats:[c.value], type: currentViewType() });
-          location.href = '/watch.html?from=index';
-        });
-        lab.appendChild(rb);
-      }
-
-      grid.appendChild(lab);
-    });
-
-    if (g.isPersonal){
-      const note=document.createElement('div'); note.className='muted';
-      note.textContent='개인자료는 단독 선택/재생만 가능합니다.';
-      fs.appendChild(note);
-    }
-
-    frag.appendChild(fs);
-  });
-
-  catsBox.replaceChildren(frag);
+  catsBox.innerHTML = html;
   bindGroupInteractions();
-  applySavedSelectionToUI();
-  syncParents();
+  bindResumeButtons();
 }
-renderCategories();
+renderGroups();
 
-// ===== 선택/부모-자식 동기화 =====
-function syncParents(){
-  catsBox.querySelectorAll('.group').forEach(g=>{
-    const parent=g.querySelector('.group-check'); if (!parent) return;
-    const children=[...g.querySelectorAll('input.cat')];
-    const total=children.length; const checked=children.filter(c=>c.checked).length;
-    if (checked===0){ parent.checked=false; parent.indeterminate=false; }
-    else if (checked===total){ parent.checked=true; parent.indeterminate=false; }
-    else { parent.checked=false; parent.indeterminate=true; }
-  });
-  if (cbToggleAll) cbToggleAll.checked = computeAllSelected();
+function setParentStateByChildren(groupEl){
+  const parent = groupEl.querySelector('.group-check'); if(!parent) return;
+  const children = Array.from(groupEl.querySelectorAll('input.cat'));
+  const total = children.length; const checked = children.filter(c=>c.checked).length;
+  if (checked===0){ parent.checked=false; parent.indeterminate=false; }
+  else if (checked===total){ parent.checked=true; parent.indeterminate=false; }
+  else { parent.checked=false; parent.indeterminate=true; }
 }
+function setChildrenByParent(groupEl,on){ groupEl.querySelectorAll('input.cat').forEach(c=> c.checked=!!on); }
+function refreshAllParentStates(){ catsBox.querySelectorAll('.group').forEach(setParentStateByChildren); }
+
 function computeAllSelected(){
-  // 전체선택은 personal/series 그룹 제외
-  const normals=[...catsBox.querySelectorAll('.group:not([data-key="personal"])')]
-    .filter(g=> !isSeriesGroupKey(g.dataset.key));
-  if (!normals.length) return false;
-  return normals.every(g=> [...g.querySelectorAll('input.cat')].every(i=>i.checked));
+  // 일반 그룹만(개인/시리즈 제외)
+  const normals = Array.from(catsBox.querySelectorAll('.group')).filter(g=> !isSeriesGroup(g.dataset.key) && g.dataset.key!=='personal');
+  const kids = normals.flatMap(g=> Array.from(g.querySelectorAll('input.cat')));
+  return kids.length>0 && kids.every(c=>c.checked);
 }
+
 function bindGroupInteractions(){
-  // 부모 토글
   catsBox.querySelectorAll('.group-check').forEach(parent=>{
     parent.addEventListener('change', ()=>{
       const groupEl = parent.closest('.group');
-      groupEl.querySelectorAll('input.cat').forEach(c=> c.checked = parent.checked);
-      // personal 단독성: personal이 켜져 있으면 다른건 끄기
+      setChildrenByParent(groupEl, parent.checked);
+      setParentStateByChildren(groupEl);
+      // 개인/시리즈 선택 상충 정리
       if (groupEl.dataset.key!=='personal'){
         catsBox.querySelectorAll('.group[data-key="personal"] input.cat:checked').forEach(c=> c.checked=false);
       }
-      syncParents();
-      persistSelectionFromUI();
+      refreshAllParentStates();
+      cbToggleAll.checked = computeAllSelected();
     });
   });
-  // 자식 토글
+
   catsBox.querySelectorAll('input.cat').forEach(child=>{
     child.addEventListener('change', ()=>{
-      const v=child.value; const groupEl = child.closest('.group');
-      // personal 단독성
-      if (isPersonalVal(v) && child.checked){
-        catsBox.querySelectorAll('.group:not([data-key="personal"]) input.cat:checked').forEach(c=> c.checked=false);
+      const isPersonal = isPersonalVal(child.value);
+      if (isPersonal && child.checked){
+        // 개인자료 단일 선택 강제
         catsBox.querySelectorAll('.group[data-key="personal"] input.cat').forEach(c=>{ if(c!==child) c.checked=false; });
+        catsBox.querySelectorAll('.group:not([data-key="personal"]) input.cat:checked').forEach(c=> c.checked=false);
       }
-      if (!isPersonalVal(v) && child.checked){
+      if (!isPersonal && child.checked){
+        // 일반/시리즈 선택 → personal 해제
         catsBox.querySelectorAll('.group[data-key="personal"] input.cat:checked').forEach(c=> c.checked=false);
       }
-      // 부모 상태
-      const parent=groupEl.querySelector('.group-check'); if (parent) {
-        const kids=[...groupEl.querySelectorAll('input.cat')];
-        const total=kids.length; const checked=kids.filter(c=>c.checked).length;
-        if (checked===0){ parent.checked=false; parent.indeterminate=false; }
-        else if (checked===total){ parent.checked=true; parent.indeterminate=false; }
-        else { parent.checked=false; parent.indeterminate=true; }
-      }
-      syncParents();
-      persistSelectionFromUI();
+      setParentStateByChildren(child.closest('.group'));
+      refreshAllParentStates();
+      cbToggleAll.checked = computeAllSelected();
     });
   });
 }
 
-// ===== 전체선택 =====
-cbToggleAll?.addEventListener('change', ()=>{
-  const on=cbToggleAll.checked;
-  // personal/series 제외
-  catsBox.querySelectorAll('.group').forEach(g=>{
-    const key=g.dataset.key||'';
-    if (key==='personal' || isSeriesGroupKey(key)) {
-      g.querySelectorAll('input.cat').forEach(c=> c.checked=false);
-    } else {
-      g.querySelectorAll('input.cat').forEach(c=> c.checked=on);
-    }
-  });
-  syncParents();
-  persistSelectionFromUI();
-});
+function bindResumeButtons(){
+  catsBox.querySelectorAll('.resume-mini').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const groupKey = btn.getAttribute('data-group');
+      const subKey   = btn.getAttribute('data-sub');
+      if (!groupKey || !subKey) return;
 
-// ===== 형식/연속재생 =====
-function currentViewType(){
-  const r = typeWrap?.querySelector('input[name="vtype"]:checked');
-  return r?.value || 'both';
-}
-(function initTypeAndAutonext(){
-  // view:type (기본 both)
-  const savedType = localStorage.getItem(VIEW_TYPE_KEY) || 'both';
-  const radio = typeWrap?.querySelector(`input[value="${savedType}"]`) || typeWrap?.querySelector('#type_both');
-  if (radio) radio.checked = true;
-  typeWrap?.addEventListener('change', ()=>{
-    const v = currentViewType();
-    localStorage.setItem(VIEW_TYPE_KEY, v);
+      // 이어보기: 등록순+resume 반영
+      const type = getTypeValue();
+      try {
+        await Makelist.makeForWatchFromIndex({ cats:[subKey], type });
+        location.href = '/watch.html?from=index';
+      } catch(e){ console.error('[resume] make list failed', e); }
+    });
   });
+}
+
+function selectAll(on){
+  catsBox.querySelectorAll('.group').forEach(g=>{
+    const isPersonal = g.dataset.key==='personal';
+    const isSeries = isSeriesGroup(g.dataset.key);
+    const kids = g.querySelectorAll('input.cat');
+    kids.forEach(b=> b.checked = (!isPersonal && !isSeries) ? !!on : false);
+    setParentStateByChildren(g);
+  });
+  cbToggleAll.checked = !!on;
+}
+cbToggleAll?.addEventListener('change', ()=> selectAll(cbToggleAll.checked));
+
+/* ========= 상태 복원 ========= */
+function getTypeValue(){
+  const raw = document.querySelector('#typeToggle input:checked')?.value || 'all';
+  return (raw==='all') ? 'both' : raw; // makelist 규격
+}
+function restoreState(){
+  // 타입
+  const savedType = localStorage.getItem(VIEW_TYPE_KEY) || 'both';
+  const uiType = (savedType==='both') ? 'all' : savedType;
+  const r = typeWrap.querySelector(`input[value="${uiType}"]`) || typeWrap.querySelector('#type_all');
+  r && (r.checked = true);
 
   // 연속재생
-  const savedAuto = localStorage.getItem(AUTONEXT_KEY);
-  cbAutoNext.checked = (savedAuto==='1' || savedAuto==='true' || savedAuto==='on');
-  cbAutoNext.addEventListener('change', ()=>{
-    localStorage.setItem(AUTONEXT_KEY, cbAutoNext.checked ? '1':'0');
-  });
-})();
+  const v = (localStorage.getItem(AUTONEXT_KEY)||'').toLowerCase();
+  cbAutoNext.checked = (v==='1' || v==='true' || v==='on');
 
-// ===== 선택 상태 저장/복원 =====
-function persistSelectionFromUI(){
-  const chosen = [...catsBox.querySelectorAll('input.cat:checked')].map(c=>c.value);
-  const normals = chosen.filter(v=> !isPersonalVal(v));
-  const personals = chosen.filter(isPersonalVal);
-
-  if (personals.length===1 && normals.length===0) {
-    localStorage.setItem(SELECTED_CATS_KEY, JSON.stringify(personals));
-  } else if (normals.length===0) {
-    localStorage.setItem(SELECTED_CATS_KEY, 'ALL');
-  } else {
-    localStorage.setItem(SELECTED_CATS_KEY, JSON.stringify(normals));
+  // 선택
+  let saved=null; try{ saved=JSON.parse(localStorage.getItem(SELECTED_CATS_KEY)||'null'); }catch{}
+  if (!saved || saved==='ALL'){ selectAll(true); }
+  else{
+    selectAll(false);
+    const set=new Set(saved);
+    catsBox.querySelectorAll('.cat').forEach(ch=>{ if(set.has(ch.value)) ch.checked=true; });
+    // personal 단독성
+    const personals = Array.from(catsBox.querySelectorAll('.group[data-key="personal"] input.cat:checked'));
+    const normals   = Array.from(catsBox.querySelectorAll('.group:not([data-key="personal"]) input.cat:checked'));
+    if (personals.length>=1 && normals.length>=1) personals.forEach(c=> c.checked=false);
+    if (personals.length>=2) personals.slice(1).forEach(c=> c.checked=false);
+    refreshAllParentStates();
+    cbToggleAll.checked = computeAllSelected();
   }
 }
-function applySavedSelectionToUI(){
-  let raw = localStorage.getItem(SELECTED_CATS_KEY);
-  if (!raw || raw==='ALL'){
-    // 일반만 전체선택
-    catsBox.querySelectorAll('.group').forEach(g=>{
-      const key=g.dataset.key||'';
-      const check = !(key==='personal' || isSeriesGroupKey(key));
-      g.querySelectorAll('input.cat').forEach(c=> c.checked = check);
-    });
-  } else {
-    try {
-      const set = new Set(JSON.parse(raw));
-      catsBox.querySelectorAll('input.cat').forEach(c=> c.checked = set.has(c.value));
-      // personal 단독성 정리
-      const personals=[...catsBox.querySelectorAll('.group[data-key="personal"] input.cat:checked')];
-      const normals=[...catsBox.querySelectorAll('.group:not([data-key="personal"]) input.cat:checked')];
-      if (personals.length && normals.length) personals.forEach(c=> c.checked=false);
-      if (personals.length>1) personals.slice(1).forEach(c=> c.checked=false);
-    } catch {
-      // 복원 실패면 ALL
-      localStorage.setItem(SELECTED_CATS_KEY, 'ALL');
-      applySavedSelectionToUI();
-      return;
-    }
-  }
-  syncParents();
-}
+restoreState();
 
-// ===== 이동: 영상보기 / 목록 =====
+/* ========= 액션: 영상보기 / 목록 ========= */
 btnWatch?.addEventListener('click', async ()=>{
-  const type = currentViewType();
-  const selected = [...catsBox.querySelectorAll('input.cat:checked')].map(c=>c.value);
-  const personals = selected.filter(isPersonalVal);
-  const normals   = selected.filter(v=>!isPersonalVal(v));
-
-  // 저장
+  const { cats, type } = collectCurrentFilters();
+  // 연속재생/타입 저장
+  localStorage.setItem(AUTONEXT_KEY, cbAutoNext.checked ? '1' : '0');
   localStorage.setItem(VIEW_TYPE_KEY, type);
-  localStorage.setItem(AUTONEXT_KEY, cbAutoNext.checked?'1':'0');
-  if (personals.length===1 && normals.length===0) {
-    localStorage.setItem(SELECTED_CATS_KEY, JSON.stringify(personals));
-    await Makelist.makeForWatchFromIndex({ cats: personals, type });
-  } else {
-    const isAll = computeAllSelected();
-    const cats = (normals.length===0 || isAll) ? 'ALL' : normals;
-    localStorage.setItem(SELECTED_CATS_KEY, JSON.stringify(cats));
-    await Makelist.makeForWatchFromIndex({ cats, type });
-  }
-  location.href = '/watch.html?from=index';
-});
+  // 선택 저장(일반=ALL 처리)
+  localStorage.setItem(SELECTED_CATS_KEY, JSON.stringify(catsForSave(cats)));
 
-btnList?.addEventListener('click', async ()=>{
-  const type = currentViewType();
-  const raw = localStorage.getItem(SELECTED_CATS_KEY) || 'ALL';
-  const cats = (raw==='ALL') ? 'ALL' : JSON.parse(raw);
-  await Makelist.makeForListFromIndex({ cats, type });
-  location.href = '/list.html';
+  try{
+    await Makelist.makeForWatchFromIndex({ cats, type });
+    location.href = '/watch.html?from=index';
+  }catch(e){ console.error('[index→watch] fail', e); }
 });
 
 btnOpenOrder?.addEventListener('click', ()=> location.href='/category-order.html');
-btnGoUpload?.addEventListener('click', ()=> location.href='/upload.html');
-brandHome?.addEventListener('click', ()=> location.href='/index.html');
 
-// ===== 스와이프: 좌→우 = list (데드존 18%) =====
-(function initSwipeToList({ goRightHref='/list.html', deadZoneCenterRatio=0.18 }={}){
-  let sx=0, sy=0, t0=0, tracking=false;
-  const TH=70, MAX_OFF_Y=90, MAX_T=700;
-  const point=(e)=> e.touches?.[0] || e.changedTouches?.[0] || e;
+btnList?.addEventListener('click', async ()=>{
+  const { cats, type } = collectCurrentFilters();
+  localStorage.setItem(VIEW_TYPE_KEY, type);
+  localStorage.setItem(SELECTED_CATS_KEY, JSON.stringify(catsForSave(cats)));
+  try{
+    await Makelist.makeForListFromIndex({ cats, type });
+    location.href='/list.html';
+  }catch(e){ console.error('[index→list] fail', e); }
+});
 
-  function inDead(x){
-    const vw=Math.max(document.documentElement.clientWidth, window.innerWidth||0);
-    const L=vw*(0.5-deadZoneCenterRatio/2), R=vw*(0.5+deadZoneCenterRatio/2);
+/* ========= 현재 선택 수집 ========= */
+function collectCurrentFilters(){
+  const selected = Array.from(document.querySelectorAll('.cat:checked')).map(c=>c.value);
+  const personals = selected.filter(isPersonalVal);
+  const normals   = selected.filter(v=> !isPersonalVal(v));
+  const type = getTypeValue();
+
+  // 개인자료 단일 → 그 슬롯만, 그 외 → ALL 또는 normals 배열
+  const cats = (personals.length===1 && normals.length===0)
+    ? [personals[0]]
+    : (computeAllSelected() ? 'ALL' : normals);
+
+  return { cats, type };
+}
+function catsForSave(cats){
+  return (Array.isArray(cats) && cats.length) ? cats : 'ALL';
+}
+
+/* ========= 도움말 ========= */
+const helpBtn = document.getElementById('btnHelp');
+const helpOverlay = document.getElementById('helpOverlay');
+helpBtn?.addEventListener('click', ()=>{ helpOverlay?.classList.add('show'); helpOverlay?.setAttribute('aria-hidden','false'); });
+helpOverlay?.addEventListener('click',(e)=>{ if (e.target===helpOverlay){ helpOverlay.classList.remove('show'); helpOverlay.setAttribute('aria-hidden','true'); } });
+document.addEventListener('keydown',(e)=>{ if (e.key==='Escape' && helpOverlay?.classList.contains('show')){ helpOverlay.classList.remove('show'); helpOverlay.setAttribute('aria-hidden','true'); } });
+
+/* ========= 스와이프 내비 (좌=업로드 / 우=목록) ========= */
+(function initSwipeNavHybrid({
+  goLeftHref='/upload.html',
+  deadZoneCenterRatio=0.18,
+  animateMs=260, intentDx=12, cancelDy=10, maxDy=90, maxMs=700, minDx=70, minVx=0.6
+}={}){
+  let sx=0, sy=0, t0=0, tracking=false, horizontalIntent=false, pointerId=null;
+
+  function isInteractiveEl(el){ return !!el.closest('button,a,[role="button"],input,select,textarea,label,.no-swipe,#dropdownMenu'); }
+  function inDeadZone(x){
+    const vw = Math.max(document.documentElement.clientWidth, window.innerWidth||0);
+    const dz = Math.max(0, Math.min(0.9, deadZoneCenterRatio));
+    const L  = vw*(0.5-dz/2), R = vw*(0.5+dz/2);
     return x>=L && x<=R;
   }
-  function onStart(e){
-    const p=point(e); if(!p) return;
-    if (inDead(p.clientX)) return;
-    sx=p.clientX; sy=p.clientY; t0=Date.now(); tracking=true;
+  function startCommon(x,y,target){
+    if (isInteractiveEl(target) || inDeadZone(x)) return false;
+    sx=x; sy=y; t0=performance.now(); tracking=true; horizontalIntent=false; return true;
   }
-  async function onEnd(e){
-    if(!tracking) return; tracking=false;
-    const p=point(e); const dx=p.clientX-sx, dy=p.clientY-sy, dt=Date.now()-t0;
-    if(Math.abs(dy)>MAX_OFF_Y || dt>MAX_T) return;
-    if(dx>=TH && goRightHref){
-      // list 진입 전 상태 전달
-      const type = currentViewType();
-      const raw = localStorage.getItem(SELECTED_CATS_KEY) || 'ALL';
-      const cats = (raw==='ALL') ? 'ALL' : JSON.parse(raw);
-      await Makelist.makeForListFromIndex({ cats, type });
+  function moveCommon(x,y){
+    if (!tracking) return false;
+    const dx=x-sx, dy=y-sy;
+    if (!horizontalIntent){
+      if (Math.abs(dy)>cancelDy){ tracking=false; return false; }
+      if (Math.abs(dx)>=intentDx) horizontalIntent=true;
+    } else { if (Math.abs(dy)>maxDy){ tracking=false; return false; } }
+    return true;
+  }
+  async function endCommon(x,y){
+    if (!tracking) return; tracking=false;
+    const dx=x-sx, dy=y-sy, dt=performance.now()-t0;
+    if (!horizontalIntent || Math.abs(dy)>maxDy || dt>maxMs) return;
+
+    const vx=Math.abs(dx)/Math.max(1,dt); const passDist=Math.abs(dx)>=minDx; const passVel=vx>=minVx;
+    if (!(passDist||passVel)) return;
+
+    async function goRightToList(){
+      // list 진입 전 makelist 준비
+      const { cats, type } = collectCurrentFilters();
+      localStorage.setItem(VIEW_TYPE_KEY, type);
+      localStorage.setItem(SELECTED_CATS_KEY, JSON.stringify(catsForSave(cats)));
+      try{
+        await Makelist.makeForListFromIndex({ cats, type });
+      }catch(e){ console.error('[swipe→list] make list failed', e); }
       document.documentElement.classList.add('slide-out-right');
-      setTimeout(()=> location.href=goRightHref, 200);
+      setTimeout(()=> location.href='/list.html', animateMs);
+    }
+
+    if (dx >= minDx || (dx>0 && passVel)){
+      // 우로 당김 → 목록
+      await goRightToList();
+    } else if (dx <= -minDx || (dx<0 && passVel)){
+      // 좌로 밀기 → 업로드
+      document.documentElement.classList.add('slide-out-left');
+      setTimeout(()=> location.href=goLeftHref, animateMs);
     }
   }
-  document.addEventListener('touchstart', onStart, {passive:true});
-  document.addEventListener('touchend',   onEnd,   {passive:true});
-  document.addEventListener('pointerdown', onStart, {passive:true});
-  document.addEventListener('pointerup',   onEnd,   {passive:true});
+
+  const point = (e)=> e.touches?.[0] || e.changedTouches?.[0] || e;
+  document.addEventListener('pointerdown', e=>{ pointerId=e.pointerId??'p'; startCommon(e.clientX,e.clientY,e.target); }, {passive:true});
+  document.addEventListener('pointermove',  e=>{ if(pointerId!=null && e.pointerId!=null && e.pointerId!==pointerId) return; moveCommon(e.clientX,e.clientY); }, {passive:true});
+  document.addEventListener('pointerup',    e=>{ if(pointerId!=null && e.pointerId!=null && e.pointerId!==pointerId) return; endCommon(e.clientX,e.clientY); pointerId=null; }, {passive:true});
+  document.addEventListener('touchstart',   e=>{ const t=point(e); t&&startCommon(t.clientX,t.clientY,e.target); }, {passive:true});
+  document.addEventListener('touchmove',    e=>{ const t=point(e); t&&moveCommon(t.clientX,t.clientY); }, {passive:true});
+  document.addEventListener('touchend',     e=>{ const t=point(e); t&&endCommon(t.clientX,t.clientY); }, {passive:true});
+
+  // 애니메이션 CSS
+  if (!document.getElementById('swipe-anim-advanced')){
+    const style=document.createElement('style'); style.id='swipe-anim-advanced';
+    style.textContent=`
+@keyframes pageSlideLeft { from { transform: translateX(0); opacity:1; } to { transform: translateX(-22%); opacity:.92; } }
+@keyframes pageSlideRight{ from { transform: translateX(0); opacity:1; } to { transform: translateX(22%);  opacity:.92; } }
+:root.slide-out-left  body { animation: pageSlideLeft 0.26s ease forwards; }
+:root.slide-out-right body { animation: pageSlideRight 0.26s ease forwards; }
+@media (prefers-reduced-motion: reduce){ :root.slide-out-left body, :root.slide-out-right body { animation:none; } }`;
+    document.head.appendChild(style);
+  }
 })();
