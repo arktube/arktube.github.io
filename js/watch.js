@@ -1,7 +1,10 @@
-// watch.v15.arktube.js — ArkTube Watch
-// 요구사항: 오버레이 UI 없음, 수직 스와이프(위=다음/아래=이전), PC 화살표(←/→),
-//           개인자료엔 type 필터 미적용, 시리즈 이어보기 asc + t 자동 seek, 테두리 제거 유지,
-//           상단바/드롭다운(v1.5) 포함 (index 톤 재사용)
+// watch.v15.arktube.js — ArkTube Watch (최종)
+// - 상단바/드롭다운 v1.5
+// - 개인자료: type 필터 미적용 + shorts/embed 링크 ID 추출 대응
+// - 시리즈 이어보기: createdAt asc + index/t 자동 복원
+// - 오버레이 없음, 수직 스와이프(위=다음/아래=이전), PC 화살표
+// - autoplay 차단 환경 대비 onReady에서 mute 후 play
+// - 테두리/겹침 이슈 방지(z-index 명시)
 
 import { auth, db } from './firebase-init.js';
 import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
@@ -18,7 +21,6 @@ const nickWrap     = document.getElementById('nickWrap');
 const nickNameEl   = document.getElementById('nickName');
 const btnSignOut   = document.getElementById('btnSignOut');
 
-const brandHome    = document.getElementById('brandHome');
 const btnDropdown  = document.getElementById('btnDropdown');
 const dropdown     = document.getElementById('dropdownMenu');
 
@@ -29,7 +31,6 @@ const btnGoUpload  = document.getElementById('btnGoUpload');
 const btnMyUploads = document.getElementById('btnMyUploads');
 
 // 공통 네비
-brandHome?.addEventListener('click', ()=> location.href='/index.html');
 btnAbout    ?.addEventListener('click', ()=> location.href='/about.html');
 btnOrder    ?.addEventListener('click', ()=> location.href='/category-order.html');
 btnList     ?.addEventListener('click', ()=> location.href='/list.html');
@@ -184,15 +185,24 @@ async function buildQueue(){
   if (loadQueueFromSession()) return;
 
   if (personalSlot){
-    // 개인자료: type 필터 미적용
+    // 개인자료: type 필터 미적용 + 다형 URL ID 파싱
     const storeKey = `personal_${personalSlot}`;
     const arr = parseJSON(localStorage.getItem(storeKey), []);
-    const idOf = (u)=>{
-      try{
-        const m = String(u).match(/[?&]v=([A-Za-z0-9_-]{11})/) || String(u).match(/youtu\.be\/([A-Za-z0-9_-]{11})/);
+
+    const idOf = (u) => {
+      try {
+        const s = String(u);
+        const m =
+          s.match(/[?&]v=([A-Za-z0-9_-]{11})/) ||                // watch?v=ID
+          s.match(/youtu\.be\/([A-Za-z0-9_-]{11})(?:\?|&|$)/) || // youtu.be/ID
+          s.match(/\/shorts\/([A-Za-z0-9_-]{11})(?:\?|&|$)/) ||  // shorts/ID
+          s.match(/embed\/([A-Za-z0-9_-]{11})(?:\?|&|$)/);       // embed/ID
         return m ? m[1] : null;
-      }catch{ return null; }
+      } catch {
+        return null;
+      }
     };
+
     PLAY_QUEUE = arr.map(x=>{
       const id = idOf(x.url);
       return id ? { id, url:x.url, title:x.title||'', type:'video', cats:[personalSlot] } : null;
@@ -301,6 +311,8 @@ async function initPlayer(){
   });
 
   function onReady(){
+    // 자동재생 차단 회피: 초기 음소거 후 재생
+    try { PLAYER.mute(); } catch {}
     if (resumeCtx) {
       const saved = loadResume({ type: resumeCtx.typeForKey, groupKey: resumeCtx.groupKey, subKey: resumeCtx.subKey });
       const t = Number(saved?.t||0);
@@ -344,7 +356,7 @@ async function initPlayer(){
 }
 
 /* ===================== 제스처 & 키보드 ===================== */
-// 모바일: 수직 스와이프 (위=다음, 아래=이전) — 기존 합의 유지
+// 모바일: 수직 스와이프 (위=다음, 아래=이전) — 합의 유지
 // PC: 화살표키 ←/→로 이전/다음
 (function initGestures({
   deadZoneCenterRatio = 0.18,
