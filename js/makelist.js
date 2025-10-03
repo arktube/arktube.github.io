@@ -1,7 +1,8 @@
 // js/makelist.js — ArkTube 목록/재생 오케스트레이터 완성본
 // - index, list, watch 모든 동선을 단일 규약으로 연결
 // - Firestore 공개 읽기 + 클라이언트 필터/검색 + 정렬(desc/asc/random seeded)
-// - 추가 로드 40개 / watch에서 남은 ≤10 자동 확장
+// - (추가) 개인자료(personal_*) 로컬 저장소 기반 큐 생성 지원
+// - 추가 로드 40개 / watch에서 남은 ≤10 자동 확장(개인자료는 추가 로드 없음)
 // - 시리즈 단일 서브키면 resume 시작점 보정
 // - 세션 키: LIST_STATE, LIST_SNAPSHOT, playQueue, playIndex, playMeta
 
@@ -42,8 +43,8 @@ let state = {
   startIndex: 0,           // watch 시작 인덱스
 };
 
-const isSeries  = v => typeof v==='string' && v.startsWith('series_');
-const isPersonal= v => typeof v==='string' && v.startsWith('personal');
+const isSeries   = v => typeof v==='string' && v.startsWith('series_');
+const isPersonal = v => typeof v==='string' && v.startsWith('personal');
 
 /* =========================
  * 유틸
@@ -114,7 +115,70 @@ async function probePlayable(ytid, timeout=3800){
 }
 
 /* =========================
- * 1페이지 로드 (클라 필터/검색 적용)
+ * YouTube ID 파서 (개인자료용)
+ * ========================= */
+function parseYouTubeId(url=''){
+  try{
+    const u = new URL(url);
+    const h = u.hostname.replace(/^www\./,'');
+    if (h==='youtu.be') return u.pathname.slice(1);
+    if (h==='youtube.com' || h==='m.youtube.com' || h==='youtube-nocookie.com' || h==='www.youtube.com'){
+      if (u.pathname.startsWith('/watch'))  return u.searchParams.get('v') || '';
+      if (u.pathname.startsWith('/shorts/'))return u.pathname.split('/')[2] || '';
+      if (u.pathname.startsWith('/embed/')) return u.pathname.split('/')[2] || '';
+    }
+  } catch {}
+  const m = url.match(/[?&]v=([A-Za-z0-9_-]{6,})/) || url.match(/\/(?:shorts|embed)\/([A-Za-z0-9_-]{6,})/);
+  return m ? m[1] : '';
+}
+
+/* =========================
+ * 개인자료 1페이지 로드 (로컬스토리지)
+ * 키 규칙: personal_{slot}  예) slot='personal1' → key='personal_personal1'
+ * ========================= */
+function loadPersonalAll(){
+  // 단일 personal만 지원(요구사항)
+  if (!Array.isArray(state.cats) || state.cats.length!==1) return [];
+  const slot = String(state.cats[0]); // 'personal1', 'personal2' ...
+  const key  = `personal_${slot}`;    // 'personal_personal1' 등
+
+  let arr = [];
+  try { arr = JSON.parse(localStorage.getItem(key) || '[]'); } catch {}
+  // [{url,title?,savedAt?}] → QueueItem
+  let items = arr.map(it=>{
+    const id = parseYouTubeId(it.url||'');
+    return {
+      id,
+      url: it.url,
+      type: (String(it.url||'').includes('/shorts/')) ? 'shorts' : 'video',
+      title: it.title || '',
+      ownerName: '',               // 개인자료는 업로더 없음
+      cats: [slot],
+      createdAt: Number(it.savedAt||0) || Date.now(),
+      playable: !!id
+    };
+  }).filter(x=> !!x.id);
+
+  // 형식 필터 적용
+  if (state.type==='shorts') items = items.filter(it=> it.type==='shorts');
+  else if (state.type==='video') items = items.filter(it=> it.type==='video');
+
+  // 검색(제목만)
+  if (state.search && state.search.trim()){
+    const q = state.search.trim().toLowerCase();
+    items = items.filter(it=> String(it.title||'').toLowerCase().includes(q));
+  }
+
+  // 정렬
+  if (state.sort==='asc') items.sort((a,b)=> a.createdAt - b.createdAt);
+  else if (state.sort==='desc') items.sort((a,b)=> b.createdAt - a.createdAt);
+  else if (state.sort==='random') items = shuffleSeeded(items, state.seed);
+
+  return items;
+}
+
+/* =========================
+ * 1페이지 로드 (Firestore, 클라 필터/검색 포함)
  * ========================= */
 async function loadPage({ perPage=20 }){
   if (state._exhausted) return [];
@@ -160,6 +224,7 @@ async function loadPage({ perPage=20 }){
     url: doc.url,
     type: doc.type,
     title: doc.title,
+    ownerName: doc.ownerName || '',
     cats: doc.cats,
     createdAt: (doc.createdAt?.seconds? doc.createdAt.seconds*1000 : now),
     playable: true
@@ -174,15 +239,21 @@ async function buildQueue({ firstPage=20 }){
   state._exhausted = false;
   state.queue = [];
 
-  // 페이지 1장
-  const page = await loadPage({ perPage:firstPage });
-  state.queue.push(...page);
+  // 개인자료 단일 선택이면 로컬에서 전부 로드
+  const isPersonalSingle = Array.isArray(state.cats) && state.cats.length===1 && isPersonal(state.cats[0]);
+  if (isPersonalSingle){
+    state.queue = loadPersonalAll(); // 한 번에 모두 (개인자료는 페이징 없음)
+  } else {
+    // Firestore 1페이지
+    const page = await loadPage({ perPage:firstPage });
+    state.queue.push(...page);
 
-  // random → seed 셔플
-  if (state.sort==='random'){
-    const uniq = new Map();
-    state.queue.forEach(it=> { if (!uniq.has(it.id)) uniq.set(it.id, it); });
-    state.queue = shuffleSeeded([...uniq.values()], state.seed);
+    // random → seed 셔플(중복 제거 후)
+    if (state.sort==='random'){
+      const uniq = new Map();
+      state.queue.forEach(it=> { if (!uniq.has(it.id)) uniq.set(it.id, it); });
+      state.queue = shuffleSeeded([...uniq.values()], state.seed);
+    }
   }
 
   // 경량 사전 판정(선두 30개만, 비동기)
@@ -278,8 +349,7 @@ export async function makeForListFromIndex({ cats, type }){
   state.cats = cats ?? 'ALL';
   state.type = type ?? 'both';
 
-  // list의 디폴트 정렬: 시리즈 단일이라도 일단 최신(desc)로 시작해도 되지만,
-  // 요구에 맞춰 통일성 위해 시리즈 단일이면 asc, 그 외 desc로 통일
+  // list의 디폴트 정렬: 시리즈 단일이면 asc, 그 외 desc
   const onlySeriesSingle = Array.isArray(state.cats) && state.cats.length===1 && isSeries(state.cats[0]);
   state.sort = onlySeriesSingle ? 'asc' : 'desc';
   state.seed = 1;
@@ -334,6 +404,10 @@ export async function bumpRandomSeed(){
 
 // 7) 추가 로드 (list/ watch 공용: list는 스크롤, watch는 남은 ≤10에서 호출)
 export async function fetchMore(){
+  // 개인자료는 로컬 전량 메모리 → 추가 로드 없음
+  const isPersonalSingle = Array.isArray(state.cats) && state.cats.length===1 && isPersonal(state.cats[0]);
+  if (isPersonalSingle) return { appended: 0 };
+
   const more = await loadPage({ perPage: 40 });
   if (!more.length) return { appended: 0 };
 
