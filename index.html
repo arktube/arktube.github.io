@@ -5,9 +5,10 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>ArkTube - 카테고리 선택</title>
 
-  <!-- CSP (요청하신 셋 + Firebase/YouTube/GA) -->
+  <!-- CSP -->
   <meta http-equiv="Content-Security-Policy" content="
     default-src 'self';
+
     connect-src 'self'
       https://www.googleapis.com
       https://firestore.googleapis.com
@@ -16,107 +17,124 @@
       https://firebaseinstallations.googleapis.com
       https://firebase.googleapis.com
       https://www.gstatic.com
-      https://www.google-analytics.com
       https://www.youtube.com
-      https://i.ytimg.com;
+      https://i.ytimg.com
+      https://www.google-analytics.com;
+
     img-src 'self' data:
       https://i.ytimg.com
       https://www.google-analytics.com;
+
     frame-src
       https://www.youtube.com
       https://www.youtube-nocookie.com
       https://accounts.google.com
-      https://www.google.com
-      https://theark-3c896.firebaseapp.com
-      https://theark-3c896.web.app;
+      https://www.google.com;
+
     script-src 'self'
       https://www.gstatic.com
       https://apis.google.com
       https://www.googletagmanager.com
       'unsafe-inline';
+
     style-src 'self' 'unsafe-inline';
     object-src 'none';
     base-uri 'self';
   ">
 
-  <!-- PWA -->
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="theme-color" content="#000000">
   <link rel="icon" href="/favicon.ico">
 
-  <!-- CopyTube v1.5 톤 + ArkTube 구성요소 -->
+  <link rel="stylesheet" href="/css/style.css">
   <style>
-  :root{
-    --bg:#000; --bg-2:#111; --bg-3:#1b1b1b; --fg:#fff;
-    --muted:#9aa0a6; --accent:#4ea1ff; --border:#333;
-    --cta-width:168px;
-  }
-  *{box-sizing:border-box}
-  html,body{height:100%}
-  body{ margin:0; font-family:system-ui,Segoe UI,Apple SD Gothic Neo,'Noto Sans KR',Arial,sans-serif; background:var(--bg); color:var(--fg); }
+    :root{ --bg:#000; --bg-2:#111; --bg-3:#1b1b1b; --fg:#fff; --muted:#9aa0a6; --accent:#4ea1ff; --border:#333; --cta-width:168px; }
+    html,body{height:100%}
+    body{margin:0; font-family:system-ui,Segoe UI,Apple SD Gothic Neo,'Noto Sans KR',Arial,sans-serif; background:var(--bg); color:var(--fg);}
 
-  /* 헤더 */
-  #topbar{
-    position:fixed; top:0; left:0; right:0; z-index:20;
-    display:flex; align-items:center; justify-content:space-between;
-    height:52px; padding:0 16px;
-    background:var(--bg-2); border-bottom:1px solid var(--border);
-  }
-  .brand a{ color:var(--fg); text-decoration:none; font-weight:700; font-size:16px; display:inline-flex; align-items:center; gap:8px; line-height:1; }
-  .brand-logo{ height:48px; width:auto; object-fit:contain; display:block; }
-  .right{ display:flex; align-items:center; gap:12px; position:relative; }
-  .link{ color:var(--accent); text-decoration:none; font-size:14px; }
-  .welcome{ font-size:14px; color:var(--muted); }
-  .icon{ background:none; border:0; color:var(--fg); font-size:20px; cursor:pointer; padding:4px 6px; border-radius:6px; }
-  .icon:hover{ background:var(--bg-3); }
-  .hidden{ display:none !important; }
+    /* 헤더 */
+    #topbar{
+      position:fixed; inset:0 0 auto 0; z-index:20;
+      display:flex; align-items:center; justify-content:space-between;
+      height:52px; padding:0 16px; background:var(--bg-2); border-bottom:1px solid var(--border);
+      transition: transform .25s ease, opacity .25s ease;
+    }
+    #topbar.hide{ transform: translateY(-100%); opacity:0; pointer-events:none; }
+    .brand a{ color:var(--fg); text-decoration:none; font-weight:700; font-size:16px; display:inline-flex; align-items:center; gap:8px; line-height:1; }
+    .brand-logo{ height:48px; width:auto; object-fit:contain; display:block; }
+    @media (max-width:420px){ .brand-logo{ height:40px; } }
+    .right{ display:flex; align-items:center; gap:12px; position:relative; }
+    .welcome{ font-size:14px; color:var(--muted); }
+    .link{ color:var(--accent); text-decoration:none; font-size:14px; }
+    .icon{ background:none; border:0; color:var(--fg); font-size:20px; cursor:pointer; padding:4px 6px; border-radius:6px; }
+    .icon:hover{ background:var(--bg-3); }
+    .hidden{ display:none !important; }
 
-  /* 드롭다운 */
-  .dropdown{ position:absolute; right:0; top:100%; background:var(--bg-2); border:1px solid var(--border); border-radius:8px; display:flex; flex-direction:column; min-width:200px; padding:6px 0; }
-  #dropdownMenu{ opacity:0; transform:translateY(-6px); pointer-events:none; transition:opacity .15s ease, transform .15s ease; }
-  #dropdownMenu.open{ opacity:1; transform:translateY(0); pointer-events:auto; }
-  .dropdown button{ background:none; border:0; color:var(--fg); text-align:left; padding:10px 16px; cursor:pointer; font-size:14px; line-height:1.25; }
-  .dropdown button:hover{ background:var(--bg-3); }
-  .dropdown .menu-strong{ font-size:16px; font-weight:700; }
+    /* 드롭다운 */
+    .dropdown{
+      position:absolute; right:0; top:100%;
+      background:var(--bg-2); border:1px solid var(--border); border-radius:8px;
+      display:flex; flex-direction:column; min-width:200px; padding:6px 0;
+      opacity:0; transform:translateY(-6px); pointer-events:none;
+      transition: opacity .15s ease, transform .15s ease;
+    }
+    .dropdown.open{ opacity:1; transform:translateY(0); pointer-events:auto; }
 
-  /* 인트로/CTA */
-  .intro{ min-height:100vh; display:flex; align-items:center; justify-content:center; text-align:center; padding:56px 28px 24px; background:var(--bg-2); border-bottom:1px solid var(--border); }
-  .lead{ font-size:20px; color:#e6e6e6; margin:0 0 8px; }
-  .sublead{ font-size:14px; color:#9aa0a6; margin:0 0 16px; }
-  .cta-row{ display:grid; grid-template-columns:1fr var(--cta-width) auto 1fr; align-items:center; column-gap:21px; margin:2px 0; }
-  .btn-primary{ grid-column:2; padding:10px 14px; border:0; border-radius:10px; background:#4ea1ff; color:#fff; font-weight:800; cursor:pointer; font-size:18px; width:var(--cta-width); text-align:center; }
-  .inline-check{ display:inline-flex; align-items:center; gap:8px; font-size:13px; color:#ddd; user-select:none; line-height:1; }
-  .inline-check input{ width:16px; height:16px; margin:0; accent-color:#4ea1ff; }
+    .dropdown button{
+      background:none; border:0; color:var(--fg); text-align:left;
+      padding:10px 16px; cursor:pointer; font-size:14px; line-height:1.25;
+    }
+    .dropdown button:hover{ background:var(--bg-3); }
+    .menu-strong{ font-size:16px; font-weight:700; }
 
-  /* 형식 토글 */
-  .type-toggle{ display:inline-flex; align-items:center; gap:0; background:#151515; border:1px solid #2a2a2a; padding:0; border-radius:999px; }
-  .type-toggle input{ display:none; }
-  .type-toggle label{ padding:4px 6px; border-radius:999px; font-size:13px; cursor:pointer; color:#d0d0d0; }
-  .type-toggle input:checked + label{ background:#0f0f0f; border:1px solid #2a2a2a; color:#fff; font-weight:800; }
+    /* 본문 */
+    .intro{
+      min-height:100vh; display:flex; align-items:center; justify-content:center; text-align:center;
+      padding:56px 28px 24px; background:var(--bg-2); border-bottom:1px solid var(--border);
+    }
+    .lead{ font-size:20px; color:#e6e6e6; margin:0 0 8px; }
+    .sublead{ font-size:14px; color:#9aa0a6; margin:0 0 16px; }
 
-  /* 카테고리 */
-  .cat-head{ display:grid; grid-template-columns:1fr var(--cta-width) auto 1fr; align-items:center; column-gap:21px; margin:0; }
-  .cat-title{ grid-column:2; display:inline-block; width:var(--cta-width); margin:0; padding:8px 14px 4px; background:transparent; border:0; border-radius:8px; color:#fff; font-weight:800; font-size:20px; text-align:center; user-select:none; cursor:pointer; }
-  .group{ border:1px solid var(--border); border-radius:12px; background:var(--bg-3); padding:6px 6px 8px; margin:3px 0; text-align:left; max-width:900px; margin-left:auto; margin-right:auto; }
-  .group legend{ padding:0 4px; font-weight:800; font-size:15px; color:#eee; margin-bottom:0; line-height:1.05; display:inline-flex; gap:6px; align-items:center; }
-  .group .group-toggle{ display:inline-flex; align-items:center; gap:2px; padding:4px 8px; border-radius:8px; background:#101010; border:1px solid #2a2a2a; color:#e5e7eb; cursor:pointer; font-weight:800; }
-  .child-grid{ margin-top:-2px; display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:2px; }
-  @media (min-width:900px){ .child-grid{ grid-template-columns:repeat(4, minmax(0,1fr)); } }
-  .child-grid label{ background:#0f0f0f; border:1px solid #2a2a2a; border-radius:8px; padding:4px 6px; font-size:14px; line-height:1.1; display:flex; gap:4px; align-items:center; justify-content:flex-start; }
-  .resume-mini{ margin-left:auto; font-size:12px; padding:3px 8px; border-radius:999px; border:1px solid #2a2a2a; background:#0f0f0f; color:#ddd; cursor:pointer; }
-  .resume-mini:hover{ background:#141414; }
+    .cta-row{ display:grid; grid-template-columns:1fr var(--cta-width) auto 1fr; align-items:center; column-gap:21px; margin:2px 0; }
+    .btn-primary{ grid-column:2; padding:10px 14px; border:0; border-radius:10px; background:#4ea1ff; color:#fff; font-weight:800; cursor:pointer; font-size:18px; width:var(--cta-width); text-align:center; }
+    .inline-check{ display:inline-flex; align-items:center; gap:8px; font-size:13px; color:#ddd; user-select:none; line-height:1; }
+    .inline-check input{ width:16px; height:16px; margin:0; accent-color:#4ea1ff; }
 
-  /* 도움말 오버레이 */
-  .help-overlay{ position:fixed; inset:0; background:rgba(0,0,0,.65); display:none; z-index:40; }
-  .help-overlay.show{ display:block; }
-  .help-panel{ position:absolute; left:50%; top:56px; transform:translateX(-50%); width:min(920px, 92vw); max-height:72vh; overflow:auto; background:#0f0f0f; border:1px solid #2a2a2a; border-radius:12px; padding:16px; }
-  .help-panel h2{ margin:0 0 8px; }
-  .help-panel p{ color:#d0d0d0; line-height:1.6; font-size:14px; }
-  .help-panel .small{ font-size:12px; color:#9aa0a6; }
+    .type-toggle{
+      display:inline-flex; align-items:center; gap:0; background:#151515; border:1px solid #2a2a2a; padding:0; border-radius:999px;
+    }
+    .type-toggle input{ display:none; }
+    .type-toggle label{
+      padding:4px 6px; border-radius:999px; font-size:13px; cursor:pointer; color:#d0d0d0;
+    }
+    .type-toggle input:checked + label{ background:#0f0f0f; border:1px solid #2a2a2a; color:#fff; font-weight:800; }
+
+    .cat-head{ display:grid; grid-template-columns:1fr var(--cta-width) auto 1fr; align-items:center; column-gap:21px; margin:0; }
+    .cat-title{ grid-column:2; display:inline-block; width:var(--cta-width); margin:0; padding:8px 14px 4px; background:transparent; border:0; border-radius:8px; color:#fff; font-weight:800; font-size:20px; text-align:center; user-select:none; cursor:pointer; }
+    .cat-right{ grid-column:3; }
+
+    .group{ border:1px solid var(--border); border-radius:12px; background:var(--bg-3); padding:6px 6px 8px; margin:3px 0; text-align:left; max-width:900px; margin-left:auto; margin-right:auto; }
+    .group legend{ padding:0 4px; font-weight:800; font-size:15px; color:#eee; margin-bottom:0; line-height:1.05; display:inline-flex; gap:6px; align-items:center; }
+    .group .subnote{ font-size:12px; color:#9aa0a6; margin-left:6px; }
+    .group .group-toggle{ display:inline-flex; align-items:center; gap:2px; padding:4px 8px; border-radius:8px; background:#101010; border:1px solid #2a2a2a; color:#e5e7eb; cursor:pointer; font-weight:800; }
+    .group .group-toggle input{ accent-color:#4ea1ff; }
+
+    .child-grid{ margin-top:-2px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:2px; }
+    @media (min-width:900px){ .child-grid{ grid-template-columns:repeat(4,minmax(0,1fr)); } }
+    .child-grid label{ background:#0f0f0f; border:1px solid #2a2a2a; border-radius:8px; padding:4px 6px; font-size:14px; line-height:1.1; display:flex; gap:4px; align-items:center; justify-content:flex-start; }
+    .resume-mini{ margin-left:auto; font-size:12px; padding:3px 8px; border-radius:999px; border:1px solid #2a2a2a; background:#0f0f0f; color:#ddd; cursor:pointer; }
+    .resume-mini:hover{ background:#141414; }
+
+    /* 도움말 */
+    .help-overlay{ position:fixed; inset:0; background:rgba(0,0,0,.65); display:none; z-index:40; }
+    .help-overlay.show{ display:block; }
+    .help-panel{ position:absolute; left:50%; top:56px; transform:translateX(-50%); width:min(920px,92vw); max-height:72vh; overflow:auto; background:#0f0f0f; border:1px solid #2a2a2a; border-radius:12px; padding:16px; }
+    .help-panel h2{ margin:0 0 8px; }
+    .help-panel p{ color:#d0d0d0; line-height:1.6; font-size:14px; }
+    .help-panel .small{ font-size:12px; color:#9aa0a6; }
   </style>
 </head>
 <body>
-  <!-- 상단바 -->
   <header id="topbar">
     <div class="brand">
       <a id="brandHome" href="#" aria-label="ArkTube 홈으로">
@@ -139,13 +157,12 @@
     </div>
   </header>
 
-  <!-- 본문 -->
   <section class="intro">
     <div style="width:100%; max-width:980px; margin:0 auto;">
       <p class="lead">영상보기를 눌러 영상을 시청하세요.</p>
       <p class="sublead">
         <button id="btnHelp" class="icon" aria-label="ArkTube 도움말 열기"
-                style="border:1px solid #2a2a2a; border-radius:8px; padding:6px 10px; font-size:13px;">
+          style="border:1px solid #2a2a2a; border-radius:8px; padding:6px 10px; font-size:13px;">
           ArkTube 도움말
         </button>
       </p>
@@ -157,17 +174,12 @@
         </label>
       </div>
 
-      <!-- 형식 토글 -->
       <div class="type-toggle" id="typeToggle" title="재생 형식 선택">
-        <input type="radio" id="type_both"   name="vtype" value="both">
-        <label for="type_both">모두</label>
-        <input type="radio" id="type_shorts" name="vtype" value="shorts">
-        <label for="type_shorts">쇼츠만</label>
-        <input type="radio" id="type_video"  name="vtype" value="video">
-        <label for="type_video">일반만</label>
+        <input type="radio" id="type_all"    name="vtype" value="all"><label for="type_all">모두</label>
+        <input type="radio" id="type_shorts" name="vtype" value="shorts"><label for="type_shorts">쇼츠만</label>
+        <input type="radio" id="type_video"  name="vtype" value="video"><label for="type_video">일반만</label>
       </div>
 
-      <!-- 카테고리 헤더 -->
       <div class="cat-head">
         <button type="button" class="cat-title" id="btnOpenOrder" aria-label="카테고리 순서 설정 열기">카테고리</button>
         <div class="cat-right">
@@ -177,28 +189,27 @@
         </div>
       </div>
 
-      <!-- 카테고리 영역 -->
       <div id="cats"></div>
     </div>
   </section>
 
-  <!-- 플로팅 도움말(오버레이) -->
   <div id="helpOverlay" class="help-overlay" role="dialog" aria-modal="true" aria-hidden="true">
     <div class="help-panel" role="document">
       <h2>ArkTube 사용 도움말</h2>
       <p>영상보기를 눌러 선택된 카테고리의 영상을 시청하세요. <b>모두/쇼츠만/일반만</b>을 선택할 수 있습니다.</p>
       <p>일반 영상은 스마트폰/태블릿에서 자동회전을 사용하면 가로 전체화면을 볼 수 있습니다.</p>
-      <p>시리즈 카테고리는 <b>이어보기</b> 버튼으로 마지막 시청 위치에서 바로 재생합니다.</p>
-      <p>좌→우 스와이프로 <b>목록(list)</b>으로 이동할 수 있습니다.</p>
-      <p class="small">구글 로그인 시 <b>theark-3c896.firebaseapp.com</b> 서비스로 표시됩니다.</p>
+      <p>시리즈 카테고리는 이어보기를 사용하면 마지막 시청한 영상으로 바로 이동합니다.</p>
+      <p>첫 화면의 <b>카테고리</b>를 눌러 순서를 바꿀 수 있고, 영상목록 페이지 우측 상단에서 정렬을 바꿀 수 있습니다.</p>
+      <p class="small">구글 회원가입 시 <b>theark-3c896.firebaseapp.com</b> 서비스로 표시됩니다.</p>
     </div>
   </div>
 
   <!-- 스크립트 -->
   <script type="module" src="/js/firebase-init.js"></script>
+  <script type="module" src="/js/auth.js"></script>
   <script type="module" src="/js/categories.js"></script>
+  <script type="module" src="/js/admin-common.js"></script>
   <script type="module" src="/js/makelist.js"></script>
   <script type="module" src="/js/index.js"></script>
-  <script type="module" src="/js/admin-common.js"></script>
 </body>
 </html>
