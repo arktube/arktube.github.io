@@ -113,6 +113,7 @@ const btnMyUploads = $('#btnMyUploads');
 const btnSignOut   = $('#btnSignOut');
 const btnList      = $('#btnList');
 const btnUrlFind   = $('#btnUrlFind');
+const dlgUrlFind = document.getElementById('dlg-urlfind');
 
 function openDropdown(){ dropdown?.classList.remove('hidden'); requestAnimationFrame(()=> dropdown?.classList.add('show')); }
 function closeDropdown(){ dropdown?.classList.remove('show'); setTimeout(()=> dropdown?.classList.add('hidden'), 180); }
@@ -142,22 +143,20 @@ btnList     ?.addEventListener('click', ()=>{ location.href='/list.html'; closeD
 const urlfindModal = $('#urlfindModal');
 const urlfindBody  = $('#urlfindBody');
 const urlfindClose = $('#urlfindClose');
-btnUrlFind?.addEventListener('click', ()=>{ openUrlFindModal(); closeDropdown(); });
-urlfindClose?.addEventListener('click', closeUrlFindModal);
+btnUrlFind?.addEventListener('click', ()=>{
+  try { dlgUrlFind?.showModal(); } catch { /* dialog 미지원 브라우저 대응 */ dlgUrlFind?.setAttribute('open',''); }
+  closeDropdown();
+});
 urlfindModal?.addEventListener('pointerdown', (e)=>{ if(e.target === urlfindModal) closeUrlFindModal(); }, true);
 
-function openUrlFindModal(){
-  if(!urlfindModal){ location.href='/urlfind.html'; return; }
-  urlfindModal.classList.add('show');
-  urlfindModal.setAttribute('aria-hidden','false');
-  try{ if(window.UrlFind?.mount) window.UrlFind.mount(urlfindBody); }catch{}
-}
-function closeUrlFindModal(){
-  if(!urlfindModal) return;
-  urlfindModal.classList.remove('show');
-  urlfindModal.setAttribute('aria-hidden','true');
-  try{ if(window.UrlFind?.unmount) window.UrlFind.unmount(urlfindBody); }catch{}
-}
+// (선택) 결과 textarea 더블클릭 시 #urls로 반영 — CopyTube와 동작 동일
+document.getElementById('uf_result')?.addEventListener('dblclick', ()=>{
+  const ta = document.getElementById('urls');
+  const val = document.getElementById('uf_result')?.value || '';
+  if (!ta || !val.trim()) return;
+  ta.value = (ta.value.trim()? ta.value.replace(/\s*$/,'')+'\n':'') + val.trim();
+  ta.dispatchEvent(new Event('input', { bubbles:true }));
+});
 
 /* ---------- URL 텍스트박스 ---------- */
 const $urls = $('#urls');
