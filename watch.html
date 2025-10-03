@@ -15,6 +15,8 @@
       overflow: hidden;
       -webkit-tap-highlight-color: transparent;
     }
+
+    /* 상단바 */
     #topbar {
       position: fixed;
       z-index: 10;
@@ -29,21 +31,30 @@
       color: #fff;
       user-select: none;
     }
-    #brandHome { cursor: pointer; font-weight: 800; letter-spacing: 0.2px; }
+    #brandHome { display: inline-flex; align-items: center; height: 44px; }
+    .brand-logo {
+      display: block;
+      height: 44px;
+      width: auto;
+      border: 0 !important;
+      outline: none !important;
+      box-shadow: none !important;
+      image-rendering: -webkit-optimize-contrast;
+    }
+    @media (max-width: 480px) {
+      .brand-logo { height: 40px; }
+    }
     .spacer { flex: 1 1 auto; }
     .hidden { display: none !important; }
 
-    /* 닉네임/버튼 */
-    #nickWrap { display: inline-flex; align-items: center; gap: 8px; }
-    #btnDropdown { cursor: pointer; border: 0; background: transparent; color: #fff; font-size: 18px; }
-    #btnSignOut, #btnGoUpload, #btnMyUploads, #btnAbout, #btnOrder, #btnList, #signinLink, #signupLink {
+    /* 버튼/링크 */
+    #btnSignOut, #btnGoUpload, #btnMyUploads, #btnAbout, #btnOrder, #btnList, #signinLink, #signupLink, #btnDropdown {
       color: inherit; text-decoration: none; cursor: pointer; font-size: 14px;
       border: 0; background: transparent; padding: 4px 8px;
     }
-    #signinLink, #signupLink { opacity: 0.9; }
-    #nickName { font-weight: 600; }
+    #btnDropdown { font-size: 18px; }
 
-    /* 드롭다운 (v1.5 규격) */
+    /* 드롭다운 (v1.5) */
     #dropdownMenu {
       position: fixed;
       top: 44px; right: 12px;
@@ -78,6 +89,7 @@
       height: 100%;
       background: #000;
     }
+    #playerWrap { z-index: 0; }
     iframe, #player, #player * {
       border: 0 !important;
       outline: none !important;
@@ -94,7 +106,9 @@
 <body>
   <!-- 상단바 (index와 동일 톤) -->
   <div id="topbar">
-    <div id="brandHome" title="ArkTube 홈">ArkTube</div>
+    <a id="brandHome" href="/index.html" title="ArkTube 홈" aria-label="ArkTube 홈">
+      <img src="/image/arktube_side.png" alt="ArkTube" class="brand-logo">
+    </a>
     <div class="spacer"></div>
 
     <a id="signupLink" href="/signup.html">가입</a>
