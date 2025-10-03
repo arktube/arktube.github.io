@@ -2,6 +2,8 @@
 // 키 규칙: selectedCats / view:type / aut o n e x t
 import * as Makelist from './makelist.js';
 import { CATEGORY_MODEL, CATEGORY_GROUPS } from './categories.js';
+import { auth } from './firebase-init.js';
+import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
 import { initHeader } from './admin-common.js';
 try { initHeader?.({ greeting: 'Welcome!' }); } catch {}
 
