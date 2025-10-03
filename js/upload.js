@@ -115,9 +115,33 @@ const btnList      = $('#btnList');
 const btnUrlFind   = $('#btnUrlFind');
 const dlgUrlFind = document.getElementById('dlg-urlfind');
 
-function openDropdown(){ dropdown?.classList.remove('hidden'); requestAnimationFrame(()=> dropdown?.classList.add('show')); }
-function closeDropdown(){ dropdown?.classList.remove('show'); setTimeout(()=> dropdown?.classList.add('hidden'), 180); }
+function openDropdown(){
+  if(!dropdown) return;
+  dropdown.classList.remove('hidden');
+  dropdown.removeAttribute('aria-hidden');   // 🔧 열릴 때 숨김 해제
+  dropdown.removeAttribute('inert');
+  menuBtn?.setAttribute('aria-expanded','true');
 
+  requestAnimationFrame(()=>{
+    dropdown.classList.add('show');
+    // 첫 포커스 이동
+    const first = dropdown.querySelector('button, [href], [tabindex]:not([tabindex="-1"])');
+    (first instanceof HTMLElement ? first : menuBtn)?.focus();
+  });
+}
+
+function closeDropdown(){
+  if(!dropdown) return;
+  dropdown.classList.remove('show');
+  dropdown.setAttribute('aria-hidden','true'); // 🔧 닫힐 때 숨김 복원
+  dropdown.setAttribute('inert','');
+  menuBtn?.setAttribute('aria-expanded','false');
+
+  // 드롭다운 안에 포커스가 남아있으면 메뉴 버튼으로 복귀
+  if(dropdown.contains(document.activeElement)) menuBtn?.focus();
+
+  setTimeout(()=> dropdown.classList.add('hidden'), 180);
+}
 onAuthStateChanged(auth, (user)=>{
   const loggedIn = !!user;
   signupLink?.classList.toggle('hidden', loggedIn);
