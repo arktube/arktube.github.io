@@ -231,11 +231,6 @@ function renderCategories(){
     legend.textContent = g.label || g.key || '';
     fs.appendChild(legend);
 
-    const sub = document.createElement('span');
-    sub.className='subnote';
-    sub.textContent = g.isPersonal ? '개인자료 (로컬 저장)' : (g.isSeries ? '시리즈' : '일반');
-    fs.appendChild(sub);
-
     const grid = document.createElement('div');
     grid.className = 'child-grid';
     fs.appendChild(grid);
