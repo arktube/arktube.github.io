@@ -2,6 +2,8 @@
 // 키 규칙: selectedCats / view:type / aut o n e x t
 import * as Makelist from './makelist.js';
 import { CATEGORY_MODEL, CATEGORY_GROUPS } from './categories.js';
+import { initHeader } from './admin-common.js';
+try { initHeader?.({ greeting: 'Welcome!' }); } catch {}
 
 const SELECTED_CATS_KEY = 'selectedCats';
 const VIEW_TYPE_KEY     = 'view:type';  // ← arktube: 접두사 제거
