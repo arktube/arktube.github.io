@@ -195,16 +195,35 @@ https://www.youtube.com/watch?v=bbb...
     <div id="msg" class="msg"></div>
   </main>
 
-  <!-- UrlFind 모달 -->
-  <div id="urlfindModal" class="modal" aria-hidden="true">
-    <div class="sheet">
-      <header>
-        <strong>Playlist URL 추출</strong>
-        <button id="urlfindClose" class="btn" type="button" aria-label="닫기">닫기</button>
-      </header>
-      <div class="body" id="urlfindBody"></div>
+<!-- ===== Playlist URL 추출 모달 (CopyTube 방식) ===== -->
+<dialog id="dlg-urlfind" class="urlfind-dialog">
+  <form method="dialog" class="panel">
+    <header>
+      <strong>Playlist URL 추출</strong>
+      <button type="submit" class="icon close" aria-label="닫기">✕</button>
+    </header>
+
+    <label class="block">
+      <span>재생목록 전체 URL</span>
+      <input type="text" id="uf_playlistUrl" placeholder="https://www.youtube.com/playlist?list=..." />
+    </label>
+
+    <label class="inline">
+      <input type="checkbox" id="uf_useShortUrl" />
+      <span>youtu.be 공유 URL 형식으로 출력</span>
+    </label>
+
+    <div class="row">
+      <button type="button" id="uf_extractBtn" class="btn-primary">URL 추출 시작</button>
+      <button type="button" id="uf_copyBtn" class="btn">클립보드 복사</button>
+      <button type="button" id="uf_downloadBtn" class="btn">TXT 다운로드</button>
     </div>
-  </div>
+
+    <div id="uf_loading" class="muted hidden">추출 중입니다...</div>
+    <textarea id="uf_result" readonly placeholder="이곳에 동영상 URL 목록이 표시됩니다."></textarea>
+    <div class="muted" style="margin-top:6px;">Tip: 결과 상자를 더블클릭하면 업로드 입력칸(#urls)으로 자동 적용됩니다.</div>
+  </form>
+</dialog>
 
   <!-- 모듈 -->
   <script>/* API 키 합집합 지원 */ window.YT_DATA_API_KEY = window.YT_DATA_API_KEY || window.YT_API_KEY || null;</script>
