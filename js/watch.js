@@ -9,7 +9,7 @@
 
 import { auth, db } from './firebase-init.js';
 import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
-import { CATEGORY_GROUPS } from './categories.js';
+import { CATEGORY_MODEL } from './categories.js';
 import { getAutoNext, loadResume, saveResume } from './resume.js';
 import {
   collection, query, where, orderBy, limit, getDocs
