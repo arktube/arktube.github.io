@@ -300,9 +300,9 @@ function stashListState(){
   });
 }
  // (내부용이면) 이름 변경
- function _readListState(){
-   return readSession(K.LIST_STATE, null);
- }
+ //function _readListState(){
+ // return readSession(K.LIST_STATE, null);
+ //}
 function stashListSnapshot(){
   // list 렌더링은 스냅샷을 사용 (페이지 전환 없이 정렬/검색 시에도 일관)
   stashSession(K.LIST_SNAPSHOT, { items: state.queue });
