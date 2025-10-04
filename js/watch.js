@@ -1,15 +1,16 @@
-// watch.v15.arktube.js — ArkTube Watch (최종)
+// /js/watch.js — ArkTube Watch (최종 정합본)
 // - 상단바/드롭다운 v1.5
 // - 개인자료: type 필터 미적용 + shorts/embed 링크 ID 추출 대응
 // - 시리즈 이어보기: createdAt asc + index/t 자동 복원
 // - 오버레이 없음, 수직 스와이프(위=다음/아래=이전), PC 화살표
 // - autoplay 차단 환경 대비 onReady에서 mute 후 play
-// - 테두리/겹침 이슈 방지(z-index 명시)
+// - 저장키 통일: selectedCats, view:type, (autonext는 구키('autonext') 우선, 없으면 resume의 getAutoNext())
+// - z-index/겹침 이슈 회피
 
 import { auth, db } from './firebase-init.js';
 import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
 import { CATEGORY_GROUPS } from './categories.js';
-import { getAutoNext, makeKey, loadResume, saveResume } from './resume.js';
+import { getAutoNext, loadResume, saveResume } from './resume.js';
 import {
   collection, query, where, orderBy, limit, getDocs
 } from 'https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js';
@@ -37,12 +38,8 @@ btnList     ?.addEventListener('click', ()=> location.href='/list.html');
 btnGoUpload ?.addEventListener('click', ()=> location.href='/upload.html');
 btnMyUploads?.addEventListener('click', ()=> location.href= auth.currentUser ? '/manage-uploads.html' : '/signin.html');
 
-btnSignOut?.addEventListener('click', async ()=>{
-  try{ await fbSignOut(); }catch{}
-  location.reload();
-});
+btnSignOut?.addEventListener('click', async ()=>{ try{ await fbSignOut(); }catch{} location.reload(); });
 
-// 로그인/닉네임 표시
 onAuthStateChanged(auth, (user)=>{
   const loggedIn = !!user;
   signupLink?.classList.toggle('hidden', loggedIn);
@@ -53,9 +50,8 @@ onAuthStateChanged(auth, (user)=>{
 
 // 드롭다운 v1.5
 (function initDropdownV15(){
-  const menu = dropdown;
-  const trigger = btnDropdown;
-  let open = false; let offPointer=null; let offKey=null;
+  const menu = dropdown, trigger = btnDropdown;
+  let open = false, offPointer=null, offKey=null;
 
   function setOpen(v){
     open = !!v;
@@ -76,12 +72,10 @@ onAuthStateChanged(auth, (user)=>{
     }
   }
   function toggle(){ setOpen(!open); }
-
   function bindDoc(){
     if (offPointer || offKey) return;
     const onPointer = (e)=>{
-      const t = e.target;
-      if (t.closest('#dropdownMenu') || t.closest('#btnDropdown')) return;
+      if (e.target.closest('#dropdownMenu') || e.target.closest('#btnDropdown')) return;
       setOpen(false);
     };
     const onKey = (e)=>{
@@ -99,11 +93,10 @@ onAuthStateChanged(auth, (user)=>{
     offPointer = ()=> document.removeEventListener('pointerdown', onPointer, { passive:true });
     offKey     = ()=> document.removeEventListener('keydown', onKey);
   }
-  function unbindDoc(){ if(offPointer){ offPointer(); offPointer=null; } if(offKey){ offKey(); offKey=null; } }
+  function unbindDoc(){ offPointer?.(); offKey?.(); offPointer=offKey=null; }
 
   trigger?.addEventListener('click', (e)=>{ e.preventDefault(); toggle(); });
   menu?.addEventListener('click', (e)=>{ if (e.target.closest('a,button,[role="menuitem"]')) setOpen(false); });
-  window.addEventListener('beforeunload', ()=> setOpen(false));
 
   // 초기 aria 동기화
   if (menu && trigger){
@@ -114,9 +107,9 @@ onAuthStateChanged(auth, (user)=>{
 })();
 
 /* ===================== 재생 컨텍스트/큐 ===================== */
-const SELECTED_CATS_KEY = 'selectedCats';    // "ALL" | string[]
-const VIEW_TYPE_KEY     = 'arktube:view:type';
-const AUTONEXT_KEY_OLD  = 'autonext';
+const SELECTED_CATS_KEY = 'selectedCats'; // "ALL" | string[]
+const VIEW_TYPE_KEY     = 'view:type';    // 'both' | 'shorts' | 'video'  ← 통일
+const AUTONEXT_KEY_OLD  = 'autonext';     // 구키(인덱스에서 저장)
 const RESUME_SERIES_SS  = 'resumeSeriesKey';
 
 const SS_QUEUE_KEY      = 'playQueue';
@@ -130,8 +123,8 @@ let AUTONEXT = false;
 let resumeCtx = null; // { groupKey, subKey, typeForKey }
 
 const sleep = (ms)=> new Promise(r=> setTimeout(r, ms));
-function parseJSON(s, fb=null){ try{ return JSON.parse(s); }catch{ return fb; } }
-function clamp(n,min,max){ return Math.max(min, Math.min(max, n)); }
+const parseJSON = (s, fb=null)=>{ try{ return JSON.parse(s); }catch{ return fb; } };
+const clamp = (n,min,max)=> Math.max(min, Math.min(max, n));
 
 function seriesCatSet() {
   const set = new Set();
@@ -149,6 +142,7 @@ function getPersonalSlotFromQS(){
   return /^personal[1-4]$/.test(cats) ? cats : null;
 }
 function readAutoNext(){
+  // 인덱스에서 세팅하는 구키('autonext') 우선, 없으면 resume 모듈의 키 사용
   const s = (localStorage.getItem(AUTONEXT_KEY_OLD)||'').toLowerCase();
   if (s==='1' || s==='true' || s==='on') return true;
   return !!getAutoNext();
@@ -173,7 +167,7 @@ function saveQueueToSession(){
 
 async function buildQueue(){
   const personalSlot = getPersonalSlotFromQS();
-  const selType = (localStorage.getItem(VIEW_TYPE_KEY) || 'all'); // watch에서 토글 없음
+  const selType = (localStorage.getItem(VIEW_TYPE_KEY) || 'both'); // 통일: 기본 both
   AUTONEXT = readAutoNext();
 
   const resumeKey = sessionStorage.getItem(RESUME_SERIES_SS) || '';
@@ -198,9 +192,7 @@ async function buildQueue(){
           s.match(/\/shorts\/([A-Za-z0-9_-]{11})(?:\?|&|$)/) ||  // shorts/ID
           s.match(/embed\/([A-Za-z0-9_-]{11})(?:\?|&|$)/);       // embed/ID
         return m ? m[1] : null;
-      } catch {
-        return null;
-      }
+      } catch { return null; }
     };
 
     PLAY_QUEUE = arr.map(x=>{
@@ -282,7 +274,7 @@ function loadYTAPI(){
     window.onYouTubeIframeAPIReady = ()=> resolve();
   });
 }
-function currentVideoId(){ return (PLAY_QUEUE[CUR] && PLAY_QUEUE[CUR].id) || null; }
+const currentVideoId = ()=> (PLAY_QUEUE[CUR] && PLAY_QUEUE[CUR].id) || null;
 
 function playAt(index, seekSeconds=null){
   CUR = clamp(index, 0, Math.max(0, PLAY_QUEUE.length-1));
@@ -297,8 +289,8 @@ function playAt(index, seekSeconds=null){
     }
   }
 }
-function next(){ if (CUR < PLAY_QUEUE.length-1) playAt(CUR+1, 0); }
-function prev(){ if (CUR > 0)                 playAt(CUR-1, 0); }
+const next = ()=> { if (CUR < PLAY_QUEUE.length-1) playAt(CUR+1, 0); };
+const prev = ()=> { if (CUR > 0)                 playAt(CUR-1, 0); };
 
 async function initPlayer(){
   await loadYTAPI();
@@ -311,7 +303,6 @@ async function initPlayer(){
   });
 
   function onReady(){
-    // 자동재생 차단 회피: 초기 음소거 후 재생
     try { PLAYER.mute(); } catch {}
     if (resumeCtx) {
       const saved = loadResume({ type: resumeCtx.typeForKey, groupKey: resumeCtx.groupKey, subKey: resumeCtx.subKey });
@@ -332,16 +323,20 @@ async function initPlayer(){
         ticker = setInterval(()=>{
           try{
             const t = Math.floor(PLAYER.getCurrentTime?.() || 0);
-            saveResume({ type:resumeCtx.typeForKey, groupKey:resumeCtx.groupKey, subKey:resumeCtx.subKey,
-                         sort:'createdAt-asc', index:CUR, t });
+            saveResume({
+              type:resumeCtx.typeForKey, groupKey:resumeCtx.groupKey, subKey:resumeCtx.subKey,
+              sort:'createdAt-asc', index:CUR, t
+            });
           }catch{}
         }, 5000);
       }
     } else if (st === 0) {
       if (resumeCtx) {
         try{
-          saveResume({ type:resumeCtx.typeForKey, groupKey:resumeCtx.groupKey, subKey:resumeCtx.subKey,
-                       sort:'createdAt-asc', index:Math.min(CUR+1, PLAY_QUEUE.length-1), t:0 });
+          saveResume({
+            type:resumeCtx.typeForKey, groupKey:resumeCtx.groupKey, subKey:resumeCtx.subKey,
+            sort:'createdAt-asc', index:Math.min(CUR+1, PLAY_QUEUE.length-1), t:0
+          });
         }catch{}
       }
       if (AUTONEXT) next();
@@ -356,8 +351,8 @@ async function initPlayer(){
 }
 
 /* ===================== 제스처 & 키보드 ===================== */
-// 모바일: 수직 스와이프 (위=다음, 아래=이전) — 합의 유지
-// PC: 화살표키 ←/→로 이전/다음
+// 모바일: 수직 스와이프 (위=다음, 아래=이전) — CopyTube 합의 유지
+// PC: 화살표 ←/→
 (function initGestures({
   deadZoneCenterRatio = 0.18,
   intentDy = 14, cancelDx = 12, maxDx = 90, maxMs = 700, minDy = 70, minVy = 0.6
@@ -427,7 +422,7 @@ async function initPlayer(){
       endCommon(e.clientX, e.clientY);
       pointerId = null;
     }, { passive:true });
-    document.addEventListener('pointercancel', ()=>{ tracking=false; pointerId=null; }, { passive:true });
+    document.addEventListener('pointercancel', ()=>{ /* cleanup */ }, { passive:true });
   } else {
     const pt = (e)=> e.touches?.[0] || e.changedTouches?.[0] || e;
     document.addEventListener('touchstart', (e)=>{ const p=pt(e); if(!p) return; startCommon(p.clientX,p.clientY,e.target); }, { passive:true });
