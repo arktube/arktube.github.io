@@ -1,12 +1,13 @@
 // /js/index.js — CopyTube 스타일 ArkTube Index (완성본)
 // - 상단바 인사: Welcome! {displayName}
-// - CATEGORY_MODEL 우선, 없으면 CATEGORY_GROUPS로 렌더
-// - 개인자료(personal*) 단독 선택 강제 (로그인 불필요) + 로컬 라벨 반영
-// - 타입 토글: all/shorts/video ↔ makelist(both/shorts/video)
+// - CATEGORY_MODEL 우선(없으면 CATEGORY_GROUPS) 렌더
+// - 그룹 순서 저장/복원, parent↔children 동기화, 전체선택(일반 그룹만)
+// - 개인자료(personal*) 단독 선택 강제(로그인 불필요) + 로컬 라벨(personalLabels) 반영
+// - 타입 토글 all/shorts/video ↔ makelist(both/shorts/video)
 // - '영상보기' / '영상목록' → Makelist 연계
-// - 시리즈 자식 옆 '이어보기' 버튼
-// - 드롭다운 v1.5 (ESC/포커스 트랩/외부클릭 닫기)
-// - 스와이프: 단순형 + 드래그형(우=목록, 좌=업로드는 필요시 확장)
+// - 시리즈 그룹(key가 series_로 시작) 자식 옆 '이어보기' 버튼
+// - 드롭다운 v1.5(ESC/포커스트랩/외부클릭 닫기, aria/inert 정리)
+// - 스와이프: simpleSwipe/dragSwipe (dead zone 18%)  ← 우=목록 / 좌=업로드
 // - 저장 키: selectedCats, autonext, view:type
 
 import { CATEGORY_GROUPS, CATEGORY_MODEL } from './categories.js';
@@ -55,7 +56,10 @@ onAuthStateChanged(auth, (user)=>{
     welcomeEl.textContent = loggedIn ? `Welcome! ${name}` : 'Welcome!';
   }
 });
-btnSignOut?.addEventListener('click', async ()=>{ try{ await fbSignOut(); }catch{} location.reload(); });
+btnSignOut?.addEventListener('click', async ()=>{
+  try{ await fbSignOut(); }catch{}
+  location.reload();
+});
 
 /* ===== 라우팅 ===== */
 btnGoUpload ?.addEventListener('click', ()=> location.href='/upload.html');
@@ -64,7 +68,7 @@ btnAbout    ?.addEventListener('click', ()=> location.href='/about.html');
 btnOrder    ?.addEventListener('click', ()=> location.href='/category-order.html');
 brandHome   ?.addEventListener('click', (e)=>{ e.preventDefault(); location.href='/index.html'; });
 
-// (index.js) 기존 initDropdown IIFE 전체 교체
+/* ===== 드롭다운 v1.5 (접근성 경고 해결 버전) ===== */
 (function initDropdown(){
   const menu = dropdown; let open=false; let offPointer=null, offKey=null;
 
@@ -82,9 +86,8 @@ brandHome   ?.addEventListener('click', (e)=>{ e.preventDefault(); location.href
       (first instanceof HTMLElement ? first : btnDropdown)?.focus({preventScroll:true});
       bindDoc();
     } else {
-      // 포커스 먼저 회수
+      // 포커스 회수 후 숨김 속성 적용
       btnDropdown?.focus({preventScroll:true});
-
       menu.classList.remove('open');
       menu.setAttribute('aria-hidden','true');
       menu.setAttribute('inert','');
@@ -116,11 +119,10 @@ brandHome   ?.addEventListener('click', (e)=>{ e.preventDefault(); location.href
   btnDropdown?.addEventListener('click', (e)=>{ e.preventDefault(); setOpen(!open); });
   menu?.addEventListener('click', (e)=>{ if (e.target.closest('a,button,[role="menuitem"]')) setOpen(false); });
 
-  // 초기 동기화 (HTML에 aria-hidden="true"가 있을 수 있음)
+  // 초기 동기화
   if (menu.classList.contains('hidden')) { menu.setAttribute('aria-hidden','true'); menu.setAttribute('inert',''); }
   else { menu.removeAttribute('aria-hidden'); menu.removeAttribute('inert'); }
 })();
-
 
 /* ===== 카테고리 렌더 ===== */
 const isSeriesGroup = (key)=> typeof key==='string' && key.startsWith('series_');
@@ -176,6 +178,7 @@ function setChildrenByParent(groupEl,on){ groupEl.querySelectorAll('input.cat').
 function refreshAllParentStates(){ catsBox.querySelectorAll('.group').forEach(setParentStateByChildren); }
 
 function computeAllSelected(){
+  // 일반 그룹만(개인/시리즈 제외)
   const normals = Array.from(catsBox.querySelectorAll('.group')).filter(g=> !isSeriesGroup(g.dataset.key) && g.dataset.key!=='personal');
   const kids = normals.flatMap(g=> Array.from(g.querySelectorAll('input.cat')));
   return kids.length>0 && kids.every(c=>c.checked);
@@ -247,7 +250,8 @@ function restoreState(){
   // 타입
   const savedType = localStorage.getItem(VIEW_TYPE_KEY) || 'both';
   const uiType = (savedType==='both') ? 'all' : savedType;
-  (typeWrap.querySelector(`input[value="${uiType}"]`) || typeWrap.querySelector('#type_all'))?.click();
+  const r = typeWrap.querySelector(`input[value="${uiType}"]`) || typeWrap.querySelector('#type_all');
+  r && (r.checked = true);
 
   // 연속재생 (구키 유지)
   const v = (localStorage.getItem(AUTONEXT_KEY)||'').toLowerCase();
@@ -313,32 +317,59 @@ helpBtn?.addEventListener('click', ()=>{
   helpOverlay?.setAttribute('aria-hidden','false');
 });
 helpOverlay?.addEventListener('click',(e)=>{
-  if (e.target===helpOverlay){ helpOverlay.classList.remove('show'); helpOverlay?.setAttribute('aria-hidden','true'); }
+  if (e.target===helpOverlay){
+    helpOverlay.classList.remove('show');
+    helpOverlay?.setAttribute('aria-hidden','true');
+  }
 });
 document.addEventListener('keydown',(e)=>{
   if (e.key==='Escape' && helpOverlay?.classList.contains('show')){
-    helpOverlay.classList.remove('show'); helpOverlay?.setAttribute('aria-hidden','true');
+    helpOverlay.classList.remove('show');
+    helpOverlay?.setAttribute('aria-hidden','true');
   }
 });
 
-/* ===== 스와이프: 단순형 + 드래그형 (우=목록) ===== */
-(function simpleSwipe({ goRightHref='/list.html', deadZoneCenterRatio=0.18 }={}){
+/* ===== 스와이프 (CopyTube 그대로: dead zone 18%) ===== */
+/* simpleSwipe: 플릭형 — 좌=업로드, 우=목록 (함수명 유지) */
+(function simpleSwipe({
+  goLeftHref='/upload.html',
+  goRightHref='/list.html',
+  deadZoneCenterRatio=0.18
+} = {}){
   let sx=0, sy=0, t0=0, tracking=false;
   const TH=70, MAX_OFF_Y=80, MAX_T=600;
   const point = (e)=> e.touches?.[0] || e.changedTouches?.[0] || e;
 
-  function onStart(e){
-    const p = point(e); if(!p) return;
+  function inDead(x){
     const vw = Math.max(document.documentElement.clientWidth, window.innerWidth||0);
     const L = vw*(0.5-deadZoneCenterRatio/2), R = vw*(0.5+deadZoneCenterRatio/2);
-    if(p.clientX>=L && p.clientX<=R) return;
+    return x>=L && x<=R;
+  }
+  function onStart(e){
+    const p = point(e); if(!p) return;
+    if (inDead(p.clientX)) return;
     sx=p.clientX; sy=p.clientY; t0=Date.now(); tracking=true;
   }
   function onEnd(e){
     if(!tracking) return; tracking=false;
     const p=point(e); const dx=p.clientX-sx, dy=p.clientY-sy, dt=Date.now()-t0;
     if(Math.abs(dy)>MAX_OFF_Y || dt>MAX_T) return;
-    if(dx>=TH && goRightHref){ document.documentElement.classList.add('slide-out-right'); setTimeout(()=> location.href=goRightHref, 260); }
+
+    if (dx>=TH && goRightHref){
+      // → 목록
+      try{
+        const { cats, type } = collectCurrentFilters();
+        localStorage.setItem(VIEW_TYPE_KEY, type);
+        localStorage.setItem(SELECTED_CATS_KEY, JSON.stringify(catsForSave(cats)));
+        Makelist.makeForListFromIndex({ cats, type });
+      }catch{}
+      document.documentElement.classList.add('slide-out-right');
+      setTimeout(()=> location.href=goRightHref, 260);
+    } else if (dx<=-TH && goLeftHref){
+      // ← 업로드
+      document.documentElement.classList.add('slide-out-left');
+      setTimeout(()=> location.href=goLeftHref, 260);
+    }
   }
   document.addEventListener('touchstart', onStart, {passive:true});
   document.addEventListener('touchend',   onEnd,   {passive:true});
@@ -346,17 +377,31 @@ document.addEventListener('keydown',(e)=>{
   document.addEventListener('pointerup',  onEnd,   {passive:true});
 })();
 
-(function dragSwipe({ goRightHref='/list.html', threshold=60, slop=45, timeMax=700, deadZoneCenterRatio=0.18 }={}){
+/* dragSwipe: 드래그 미리보기 — 좌=업로드, 우=목록 (함수명 유지) */
+(function dragSwipe({
+  goLeftHref='/upload.html',
+  goRightHref='/list.html',
+  threshold=60, slop=45, timeMax=700,
+  deadZoneCenterRatio=0.18
+} = {}){
   const page = document.querySelector('main')||document.body; if(!page) return;
   let x0=0,y0=0,t0=0,active=false,canceled=false;
-  function reset(){ page.style.transition='transform 180ms ease'; requestAnimationFrame(()=>{ page.style.transform='translateX(0px)'; }); setTimeout(()=>{ page.style.transition=''; },200); }
-  function isInteractive(el){ return !!(el && el.closest('input,textarea,select,button,a,[role="button"],[contenteditable="true"]')); }
-  function start(e){
-    const t=(e.touches&&e.touches[0])||(e.pointerType?e:null); if(!t) return;
-    if(isInteractive(e.target)) return;
+
+  const inDead = (x)=>{
     const vw=Math.max(document.documentElement.clientWidth, window.innerWidth||0);
     const L=vw*(0.5-deadZoneCenterRatio/2), R=vw*(0.5+deadZoneCenterRatio/2);
-    if(t.clientX>=L && t.clientX<=R) return;
+    return x>=L && x<=R;
+  };
+  function reset(){
+    page.style.transition='transform 180ms ease';
+    requestAnimationFrame(()=>{ page.style.transform='translateX(0px)'; });
+    setTimeout(()=>{ page.style.transition=''; },200);
+  }
+  function isInteractive(el){ return !!(el && el.closest('input,textarea,select,button,a,[role="button"],[contenteditable="true"]')); }
+
+  function start(e){
+    const t=(e.touches&&e.touches[0])||(e.pointerType?e:null); if(!t) return;
+    if(isInteractive(e.target) || inDead(t.clientX)) return;
     x0=t.clientX; y0=t.clientY; t0=Date.now(); active=true; canceled=false; page.style.transition='none';
   }
   function move(e){
@@ -364,16 +409,30 @@ document.addEventListener('keydown',(e)=>{
     const t=(e.touches&&e.touches[0])||(e.pointerType?e:null); if(!t) return;
     const dx=t.clientX-x0, dy=t.clientY-y0;
     if(Math.abs(dy)>slop){ canceled=true; active=false; reset(); return; }
-    const dxAdj = (dx>0)?dx:0;
-    if(dxAdj===0){ page.style.transform='translateX(0px)'; return; }
-    e.preventDefault(); page.style.transform='translateX('+dxAdj+'px)';
+    e.preventDefault();
+    page.style.transform='translateX('+(dx)+ 'px)'; // 좌우 모두 미리보이게
   }
   function end(e){
     if(!active) return; active=false;
     const t=(e.changedTouches&&e.changedTouches[0])||(e.pointerType?e:null); if(!t) return;
     const dx=t.clientX-x0, dy=t.clientY-y0, dt=Date.now()-t0;
     if(canceled || Math.abs(dy)>slop || dt>timeMax){ reset(); return; }
-    if(dx>=threshold && goRightHref){ page.style.transition='transform 160ms ease'; page.style.transform='translateX(100vw)'; setTimeout(()=>{ location.href=goRightHref; },150); } else reset();
+
+    if (dx>=threshold && goRightHref){
+      try{
+        const { cats, type } = collectCurrentFilters();
+        localStorage.setItem(VIEW_TYPE_KEY, type);
+        localStorage.setItem(SELECTED_CATS_KEY, JSON.stringify(catsForSave(cats)));
+        Makelist.makeForListFromIndex({ cats, type });
+      }catch{}
+      page.style.transition='transform 160ms ease'; page.style.transform='translateX(100vw)';
+      setTimeout(()=>{ location.href=goRightHref; },150);
+    } else if (dx<=-threshold && goLeftHref){
+      page.style.transition='transform 160ms ease'; page.style.transform='translateX(-100vw)';
+      setTimeout(()=>{ location.href=goLeftHref; },150);
+    } else {
+      reset();
+    }
   }
   document.addEventListener('touchstart',start,{passive:true});
   document.addEventListener('touchmove', move ,{passive:false});
