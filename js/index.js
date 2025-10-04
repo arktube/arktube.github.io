@@ -18,13 +18,12 @@ import { initHeader } from './admin-common.js';
 const GROUP_ORDER_KEY   = 'groupOrderV1';
 const SELECTED_CATS_KEY = 'selectedCats';
 const AUTONEXT_KEY      = 'autonext';
-const VIEW_TYPE_KEY     = 'view:type';        // both | shorts | video
+const VIEW_TYPE_KEY     = 'view:type';  // both | shorts | video
 
 /* ========= 상단바 초기화 ========= */
 try { initHeader?.({ greeting: 'Welcome!' }); } catch {}
 
 /* ========= 엘리먼트 ========= */
-const topbar       = document.getElementById('topbar');
 const dropdown     = document.getElementById('dropdownMenu');
 const signupLink   = document.getElementById('signupLink');
 const signinLink   = document.getElementById('signinLink');
@@ -37,15 +36,25 @@ const btnList      = document.getElementById('btnList');
 const brandHome    = document.getElementById('brandHome');
 const btnDropdown  = document.getElementById('btnDropdown');
 
-/* ========= 로그인 표시 ========= */
+const catsBox      = document.getElementById('cats');
+const cbToggleAll  = document.getElementById('cbToggleAll');
+const btnWatch     = document.getElementById('btnWatch');
+const btnOpenOrder = document.getElementById('btnOpenOrder');
+const cbAutoNext   = document.getElementById('cbAutoNext');
+const typeWrap     = document.getElementById('typeToggle');
+const helpBtn      = document.getElementById('btnHelp');
+const helpOverlay  = document.getElementById('helpOverlay');
+
+/* ========= 로그인 표시(로컬 구독 유지) ========= */
 onAuthStateChanged(auth, (user)=>{
   const loggedIn = !!user;
   signupLink?.classList.toggle('hidden', loggedIn);
   signinLink?.classList.toggle('hidden', loggedIn);
+  btnSignOut?.classList.toggle('hidden', !loggedIn);
 });
+btnSignOut?.addEventListener('click', async ()=>{ try{ await fbSignOut(); }catch{} location.reload(); });
 
 /* ========= 라우팅 버튼 ========= */
-btnSignOut?.addEventListener('click', async ()=>{ try{ await fbSignOut(); }catch{} location.reload(); });
 btnGoUpload?.addEventListener('click', ()=> location.href='/upload.html');
 btnMyUploads?.addEventListener('click', ()=> location.href='/manage-uploads.html');
 btnAbout?.addEventListener('click', ()=> location.href='/about.html');
@@ -56,47 +65,38 @@ brandHome?.addEventListener('click', (e)=>{ e.preventDefault(); location.href='/
 (function initDropdown(){
   const menu = dropdown; let open=false;
   function setOpen(v){
-    open=!!v;
-    btnDropdown?.setAttribute('aria-expanded', String(open));
-    if(!menu) return;
-    if(open){
+    open=!!v; btnDropdown?.setAttribute('aria-expanded', String(open));
+    if (!menu) return;
+    if (open){
       menu.classList.remove('hidden'); requestAnimationFrame(()=> menu.classList.add('open'));
       const first = menu.querySelector('button,[href],[tabindex]:not([tabindex="-1"])');
       (first instanceof HTMLElement ? first : btnDropdown)?.focus();
       bindDoc();
-    }else{
+    } else {
       menu.classList.remove('open'); setTimeout(()=> menu.classList.add('hidden'), 120);
       unbindDoc();
     }
   }
-  function toggle(){ setOpen(!open); }
+  const toggle=()=> setOpen(!open);
   btnDropdown?.addEventListener('click', (e)=>{ e.preventDefault(); toggle(); });
   menu?.addEventListener('click', (e)=>{ if (e.target.closest('button,[role="menuitem"],a')) setOpen(false); });
 
   let off1=null, off2=null;
   function bindDoc(){
-    if(off1 || off2) return;
+    if (off1 || off2) return;
     const onP=(e)=>{ if(e.target.closest('#dropdownMenu,#btnDropdown')) return; setOpen(false); };
     const onK=(e)=>{ if(e.key==='Escape') setOpen(false); };
-    document.addEventListener('pointerdown', onP, {passive:true}); off1=()=>document.removeEventListener('pointerdown',onP,{passive:true});
-    document.addEventListener('keydown', onK); off2=()=>document.removeEventListener('keydown',onK);
+    document.addEventListener('pointerdown', onP, {passive:true}); off1=()=>document.removeEventListener('pointerdown', onP, {passive:true});
+    document.addEventListener('keydown', onK);                      off2=()=>document.removeEventListener('keydown', onK);
   }
   function unbindDoc(){ off1?.(); off2?.(); off1=off2=null; }
 })();
 
 /* ========= 카테고리 렌더 ========= */
-const catsBox      = document.getElementById('cats');
-const cbToggleAll  = document.getElementById('cbToggleAll');
-const btnWatch     = document.getElementById('btnWatch');
-const btnOpenOrder = document.getElementById('btnOpenOrder');
-const cbAutoNext   = document.getElementById('cbAutoNext');
-const typeWrap     = document.getElementById('typeToggle');
-
-const isSeriesGroup = key => typeof key==='string' && key.startsWith('series_');
-const isPersonalVal = v => typeof v==='string' && v.startsWith('personal');
+const isSeriesGroup = (key)=> typeof key==='string' && key.startsWith('series_');
+const isPersonalVal = (v)=> typeof v==='string' && v.startsWith('personal');
 
 function getPersonalLabels(){ try{ return JSON.parse(localStorage.getItem('personalLabels')||'{}'); }catch{ return {}; } }
-
 function applyGroupOrder(groups){
   let saved=null; try{ saved=JSON.parse(localStorage.getItem(GROUP_ORDER_KEY)||'null'); }catch{}
   const order = Array.isArray(saved)&&saved.length ? saved : groups.map(g=>g.key);
@@ -158,7 +158,7 @@ function bindGroupInteractions(){
       const groupEl = parent.closest('.group');
       setChildrenByParent(groupEl, parent.checked);
       setParentStateByChildren(groupEl);
-      // 개인/시리즈 선택 상충 정리
+      // 개인/시리즈와 상충 정리
       if (groupEl.dataset.key!=='personal'){
         catsBox.querySelectorAll('.group[data-key="personal"] input.cat:checked').forEach(c=> c.checked=false);
       }
@@ -171,12 +171,11 @@ function bindGroupInteractions(){
     child.addEventListener('change', ()=>{
       const isPersonal = isPersonalVal(child.value);
       if (isPersonal && child.checked){
-        // 개인자료 단일 선택 강제
+        // 개인자료 단독 선택 강제
         catsBox.querySelectorAll('.group[data-key="personal"] input.cat').forEach(c=>{ if(c!==child) c.checked=false; });
         catsBox.querySelectorAll('.group:not([data-key="personal"]) input.cat:checked').forEach(c=> c.checked=false);
       }
       if (!isPersonal && child.checked){
-        // 일반/시리즈 선택 → personal 해제
         catsBox.querySelectorAll('.group[data-key="personal"] input.cat:checked').forEach(c=> c.checked=false);
       }
       setParentStateByChildren(child.closest('.group'));
@@ -189,11 +188,8 @@ function bindGroupInteractions(){
 function bindResumeButtons(){
   catsBox.querySelectorAll('.resume-mini').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
-      const groupKey = btn.getAttribute('data-group');
-      const subKey   = btn.getAttribute('data-sub');
-      if (!groupKey || !subKey) return;
-
-      // 이어보기: 등록순+resume 반영
+      const subKey = btn.getAttribute('data-sub');
+      if (!subKey) return;
       const type = getTypeValue();
       try {
         await Makelist.makeForWatchFromIndex({ cats:[subKey], type });
@@ -207,8 +203,7 @@ function selectAll(on){
   catsBox.querySelectorAll('.group').forEach(g=>{
     const isPersonal = g.dataset.key==='personal';
     const isSeries = isSeriesGroup(g.dataset.key);
-    const kids = g.querySelectorAll('input.cat');
-    kids.forEach(b=> b.checked = (!isPersonal && !isSeries) ? !!on : false);
+    g.querySelectorAll('input.cat').forEach(b=> b.checked = (!isPersonal && !isSeries) ? !!on : false);
     setParentStateByChildren(g);
   });
   cbToggleAll.checked = !!on;
@@ -295,8 +290,6 @@ function catsForSave(cats){
 }
 
 /* ========= 도움말 ========= */
-const helpBtn = document.getElementById('btnHelp');
-const helpOverlay = document.getElementById('helpOverlay');
 helpBtn?.addEventListener('click', ()=>{ helpOverlay?.classList.add('show'); helpOverlay?.setAttribute('aria-hidden','false'); });
 helpOverlay?.addEventListener('click',(e)=>{ if (e.target===helpOverlay){ helpOverlay.classList.remove('show'); helpOverlay.setAttribute('aria-hidden','true'); } });
 document.addEventListener('keydown',(e)=>{ if (e.key==='Escape' && helpOverlay?.classList.contains('show')){ helpOverlay.classList.remove('show'); helpOverlay.setAttribute('aria-hidden','true'); } });
@@ -338,22 +331,17 @@ document.addEventListener('keydown',(e)=>{ if (e.key==='Escape' && helpOverlay?.
     if (!(passDist||passVel)) return;
 
     async function goRightToList(){
-      // list 진입 전 makelist 준비
       const { cats, type } = collectCurrentFilters();
       localStorage.setItem(VIEW_TYPE_KEY, type);
       localStorage.setItem(SELECTED_CATS_KEY, JSON.stringify(catsForSave(cats)));
-      try{
-        await Makelist.makeForListFromIndex({ cats, type });
-      }catch(e){ console.error('[swipe→list] make list failed', e); }
+      try{ await Makelist.makeForListFromIndex({ cats, type }); }catch(e){ console.error('[swipe→list] make list failed', e); }
       document.documentElement.classList.add('slide-out-right');
       setTimeout(()=> location.href='/list.html', animateMs);
     }
 
     if (dx >= minDx || (dx>0 && passVel)){
-      // 우로 당김 → 목록
       await goRightToList();
     } else if (dx <= -minDx || (dx<0 && passVel)){
-      // 좌로 밀기 → 업로드
       document.documentElement.classList.add('slide-out-left');
       setTimeout(()=> location.href=goLeftHref, animateMs);
     }
@@ -367,7 +355,6 @@ document.addEventListener('keydown',(e)=>{ if (e.key==='Escape' && helpOverlay?.
   document.addEventListener('touchmove',    e=>{ const t=point(e); t&&moveCommon(t.clientX,t.clientY); }, {passive:true});
   document.addEventListener('touchend',     e=>{ const t=point(e); t&&endCommon(t.clientX,t.clientY); }, {passive:true});
 
-  // 애니메이션 CSS
   if (!document.getElementById('swipe-anim-advanced')){
     const style=document.createElement('style'); style.id='swipe-anim-advanced';
     style.textContent=`
