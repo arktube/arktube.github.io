@@ -64,26 +64,40 @@ btnAbout    ?.addEventListener('click', ()=> location.href='/about.html');
 btnOrder    ?.addEventListener('click', ()=> location.href='/category-order.html');
 brandHome   ?.addEventListener('click', (e)=>{ e.preventDefault(); location.href='/index.html'; });
 
-/* ===== 드롭다운 v1.5 ===== */
+// (index.js) 기존 initDropdown IIFE 전체 교체
 (function initDropdown(){
   const menu = dropdown; let open=false; let offPointer=null, offKey=null;
+
   function setOpen(v){
     open=!!v; btnDropdown?.setAttribute('aria-expanded', String(open));
     if (!menu) return;
+
     if (open){
-      menu.classList.remove('hidden'); requestAnimationFrame(()=> menu.classList.add('open'));
+      menu.classList.remove('hidden');
+      requestAnimationFrame(()=> menu.classList.add('open'));
+      menu.removeAttribute('aria-hidden');
+      menu.removeAttribute('inert');
+
       const first = menu.querySelector('button,[href],[tabindex]:not([tabindex="-1"])');
       (first instanceof HTMLElement ? first : btnDropdown)?.focus({preventScroll:true});
       bindDoc();
     } else {
-      menu.classList.remove('open'); setTimeout(()=> menu.classList.add('hidden'), 150);
+      // 포커스 먼저 회수
+      btnDropdown?.focus({preventScroll:true});
+
+      menu.classList.remove('open');
+      menu.setAttribute('aria-hidden','true');
+      menu.setAttribute('inert','');
+      setTimeout(()=> menu.classList.add('hidden'), 150);
       unbindDoc();
     }
   }
+
   function bindDoc(){
     if (offPointer || offKey) return;
     const onP=(e)=>{ if (e.target.closest('#dropdownMenu,#btnDropdown')) return; setOpen(false); };
-    const onK=(e)=>{ if (e.key==='Escape') setOpen(false);
+    const onK=(e)=>{
+      if (e.key==='Escape') setOpen(false);
       if (e.key==='Tab' && open){
         const nodes=menu.querySelectorAll('a,button,[tabindex]:not([tabindex="-1"])');
         if (!nodes.length) return;
@@ -98,9 +112,15 @@ brandHome   ?.addEventListener('click', (e)=>{ e.preventDefault(); location.href
     offKey     = ()=> document.removeEventListener('keydown', onK);
   }
   function unbindDoc(){ offPointer?.(); offKey?.(); offPointer=offKey=null; }
+
   btnDropdown?.addEventListener('click', (e)=>{ e.preventDefault(); setOpen(!open); });
   menu?.addEventListener('click', (e)=>{ if (e.target.closest('a,button,[role="menuitem"]')) setOpen(false); });
+
+  // 초기 동기화 (HTML에 aria-hidden="true"가 있을 수 있음)
+  if (menu.classList.contains('hidden')) { menu.setAttribute('aria-hidden','true'); menu.setAttribute('inert',''); }
+  else { menu.removeAttribute('aria-hidden'); menu.removeAttribute('inert'); }
 })();
+
 
 /* ===== 카테고리 렌더 ===== */
 const isSeriesGroup = (key)=> typeof key==='string' && key.startsWith('series_');
