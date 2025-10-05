@@ -1,5 +1,5 @@
 // /js/watch.js — ArkTube Watch 완전판 (CopyTube 상단바/팔레트 참조 대응)
-// - 브랜드 자동 인식: CopyTube(Welcome!) / ArkTube(Enjoy)
+// - 브랜드 자동 인식: CopyTube(Welcome!) / ArkTube(Enjoy!)
 // - 상단바: CopyTube식 (#menuBtn, #welcome, #menuBackdrop) 우선 지원 + 기존(#btnMenu/#btnDropdown) 폴백
 // - makelist 연동: readPlayQueue/readPlayIndex/readPlayMeta/fetchMoreForWatchIfNeeded/readListSnapshot
 // - 시리즈(resumeCtx)만 이어보기 저장·복원(주기 10초, 복원 임계 5초)
@@ -19,7 +19,7 @@ import {
 /* ===== 브랜드/상수 ===== */
 // CopyTube HTML이면 #welcome, #menuBtn, #menuBackdrop가 존재함
 const isCopyTube = !!document.getElementById('welcome') || (document.title||'').toLowerCase().includes('copytube');
-const GREETING_TEXT       = isCopyTube ? 'Welcome!' : 'Enjoy';
+const GREETING_TEXT       = isCopyTube ? 'Welcome!' : 'Enjoy!';
 const RESUME_SAVE_MS      = 10000; // 10s 저장 주기 (시리즈만)
 const RESUME_RESTORE_MIN  = 5;     // 5s 이상 저장돼 있으면 복원
 const RESUME_ADVANCE_ON_END = true; // ENDED 시 다음 인덱스로 이어보기 저장(시리즈만)
@@ -56,17 +56,18 @@ const playerBox  = document.getElementById('playerBox');
 
 /* ===== 상단바 초기화 (브랜드별 인삿말/메뉴) ===== */
 onAuthStateChanged(auth, (user)=>{
-  const name = user?.displayName || 'Guest';
-
-  // 인삿말: 브랜드별로 다른 문구
-  if (isCopyTube && welcomeCT) {
-    welcomeCT.textContent = `${GREETING_TEXT} ${name}`;
-  } else if (welcomeAT) {
-    welcomeAT.textContent = `${GREETING_TEXT} ${name}`;
-  }
-  if (!isCopyTube && nickNameEl) nickNameEl.textContent = name;
-
   const loggedIn = !!user;
+  const name = loggedIn ? (user.displayName || 'User') : '';
+
+  // 인삿말: index.js와 동일 규칙 → 로그인 시 "{GREETING_TEXT} {name}", 로그아웃 시 "{GREETING_TEXT}"
+  if (isCopyTube && welcomeCT) {
+    welcomeCT.textContent = loggedIn ? `${GREETING_TEXT} ${name}` : GREETING_TEXT;
+  } else if (welcomeAT) {
+    welcomeAT.textContent = loggedIn ? `${GREETING_TEXT} ${name}` : GREETING_TEXT;
+  }
+  // ArkTube 전용 닉네임 표기 영역: 로그인 때만 이름 표시
+  if (!isCopyTube && nickNameEl) nickNameEl.textContent = loggedIn ? name : '';
+
   if (signinLink)  signinLink.style.display  = loggedIn ? 'none' : 'inline-block';
   if (signupLink)  signupLink.style.display  = loggedIn ? 'none' : 'inline-block';
   if (btnSignOut)  btnSignOut.style.display  = loggedIn ? 'inline-block' : 'none';
