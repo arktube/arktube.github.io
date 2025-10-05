@@ -404,19 +404,39 @@ async function submitAll(){
   }
 
   // 개인자료 → 로컬 저장
-  if(hasPersonal){
-    const slot = cats[0];
-    const good = entries.filter(e=> e.ok).map(e=> ({ id:e.id, url:e.url, title:'', type:e.type }));
-    if(!good.length){ setStatusHTML('<span class="danger">저장할 유효한 URL이 없습니다.</span>'); return; }
-    const key = `personal_${slot}`;
-    let arr=[]; try{ arr=JSON.parse(localStorage.getItem(key)||'[]'); }catch{}
-    const now=Date.now();
-    good.forEach(g=> arr.push({ id:g.id, url:g.url, title:'', type:g.type, savedAt:now }));
-    try{ localStorage.setItem(key, JSON.stringify(arr)); }catch{}
+if(hasPersonal){
+  const slot = cats[0];
+  const good = entries.filter(e=> e.ok).map(e=> ({ id:e.id, url:e.url, title:'', type:e.type }));
+  if(!good.length){ setStatusHTML('<span class="danger">저장할 유효한 URL이 없습니다.</span>'); return; }
+
+  const key = `personal_${slot}`;
+  let arr=[]; try{ arr=JSON.parse(localStorage.getItem(key)||'[]'); }catch{}
+  const now=Date.now();
+
+  // 로그인 상태면 구글 이름, 아니면 "로컬 사용자"
+  const ownerName = auth.currentUser?.displayName || '로컬 사용자';
+
+  good.forEach(g=> arr.push({
+    id: g.id,
+    url: g.url,
+    title: '',
+    type: g.type,
+    ownerName,    // 👈 추가
+    savedAt: now
+  }));
+
+  try {
+    localStorage.setItem(key, JSON.stringify(arr));
     setStatusHTML(`<span class="ok">개인자료(${esc(personalLabel(slot))})에 ${good.length}건 저장 완료</span>`);
-    resetFormAfterSubmit();
+  } catch (err) {
+    console.error('localStorage save failed:', err);
+    setStatusHTML('<span class="danger">개인자료 저장 실패: 브라우저 저장소를 사용할 수 없습니다.</span>');
     return;
   }
+
+  resetFormAfterSubmit();
+  return;
+}
 
   // 서버 모드
   const user = auth.currentUser;
