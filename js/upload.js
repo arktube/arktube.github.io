@@ -406,12 +406,12 @@ async function submitAll(){
   // 개인자료 → 로컬 저장
   if(hasPersonal){
     const slot = cats[0];
-    const good = entries.filter(e=> e.ok).map(e=> ({ url:e.url, title:'' }));
+    const good = entries.filter(e=> e.ok).map(e=> ({ id:e.id, url:e.url, title:'', type:e.type }));
     if(!good.length){ setStatusHTML('<span class="danger">저장할 유효한 URL이 없습니다.</span>'); return; }
     const key = `personal_${slot}`;
     let arr=[]; try{ arr=JSON.parse(localStorage.getItem(key)||'[]'); }catch{}
     const now=Date.now();
-    good.forEach(g=> arr.push({ url:g.url, title:'', savedAt:now }));
+    good.forEach(g=> arr.push({ id:g.id, url:g.url, title:'', type:g.type, savedAt:now }));
     try{ localStorage.setItem(key, JSON.stringify(arr)); }catch{}
     setStatusHTML(`<span class="ok">개인자료(${esc(personalLabel(slot))})에 ${good.length}건 저장 완료</span>`);
     resetFormAfterSubmit();
