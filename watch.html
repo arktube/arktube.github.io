@@ -1,48 +1,51 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
-  <title>영상 재생 - ArkTube</title>
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  base-uri 'self';
+  object-src 'none';
 
-  <!-- CSP (YouTube IFrame API + Firebase + gtag) -->
-  <meta http-equiv="Content-Security-Policy" content="
-    default-src 'self';
-    connect-src 'self'
-      https://www.googleapis.com
-      https://firestore.googleapis.com
-      https://securetoken.googleapis.com
-      https://identitytoolkit.googleapis.com
-      https://firebaseinstallations.googleapis.com
-      https://firebase.googleapis.com
-      https://www.gstatic.com
-      https://www.google-analytics.com
-      https://www.youtube.com
-      https://s.ytimg.com
-      https://i.ytimg.com;
-    img-src 'self' data: https://i.ytimg.com https://www.google-analytics.com;
-    frame-src https://www.youtube.com https://www.youtube-nocookie.com
-      https://accounts.google.com https://www.google.com;
-    script-src 'self' https://www.gstatic.com https://www.youtube.com https://www.googletagmanager.com 'unsafe-inline';
-    style-src 'self' 'unsafe-inline';
-    object-src 'none';
-    base-uri 'self';
-  ">
+  /* 정적 리소스 */
+  style-src 'self' 'unsafe-inline';
+  font-src 'self' data:;
+  manifest-src 'self';
 
-  <!-- 프로젝트 공통 CSS (있다면) -->
-  <link rel="stylesheet" href="./css/style.css"/>
+  /* 스크립트: Firebase(gstatic) + YouTube IFrameAPI(+선택: gtag) */
+  script-src 'self' https://www.gstatic.com https://www.youtube.com https://www.googletagmanager.com 'unsafe-inline';
+  script-src-elem 'self' https://www.gstatic.com https://www.youtube.com https://www.googletagmanager.com 'unsafe-inline';
 
-  <!-- Firebase (상단바에 auth만 씀 / admin-common 사용 안 함) -->
-  <script type="module" src="./js/firebase-init.js"></script>
-  <script type="module" src="./js/auth.js"></script>
+  /* 네트워크 호출: Firestore/Auth/Installations/Google APIs + (선택) GA/gtm + YT 보조 */
+  connect-src 'self'
+    https://www.googleapis.com
+    https://firestore.googleapis.com
+    https://securetoken.googleapis.com
+    https://identitytoolkit.googleapis.com
+    https://firebaseinstallations.googleapis.com
+    https://firebase.googleapis.com
+    https://www.gstatic.com
+    https://www.youtube.com
+    https://s.ytimg.com
+    https://www.google-analytics.com
+    https://www.googletagmanager.com;
 
-  <!-- YouTube IFrame API -->
-  <script>
-    (function(){ const s=document.createElement('script'); s.src="https://www.youtube.com/iframe_api"; document.head.appendChild(s); })();
-  </script>
+  /* 이미지(로고/썸네일/GA 픽셀) */
+  img-src 'self' data: https://i.ytimg.com https://www.google-analytics.com;
+
+  /* 임베드: YT 플레이어 + 구글 로그인 팝업/임베드 */
+  frame-src https://www.youtube.com https://www.youtube-nocookie.com https://accounts.google.com https://www.google.com;
+  child-src https://www.youtube.com https://www.youtube-nocookie.com https://accounts.google.com https://www.google.com;
+
+  /* 이 페이지를 다른 사이트가 iframe으로 감싸지 못하게 */
+  frame-ancestors 'self';
+">
+
+
+  <!-- 전역 CSS가 있으면 사용, 없으면 아래 팔레트가 기본으로 동작 -->
+  <link rel="stylesheet" href="css/style.css"/>
 
   <style>
-    /* ===== CopyTube v1.5 라이트 팔레트 ===== */
+    /* ===== CopyTube v1.5 라이트 팔레트 (fallback) ===== */
     :root{
       --pad:12px;
       --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -56,33 +59,30 @@
     html,body{ height:100%; }
     body{ margin:0; background:var(--bg); color:var(--text); }
 
-    /* ===== 상단바 (admin-common 미사용, 메뉴 트리거 분리) ===== */
-    .topbar{
-      display:grid; grid-template-columns:auto 1fr auto auto; align-items:center;
-      gap:12px; padding:8px 12px;
-      background:var(--topbar-bg); border-bottom:1px solid var(--topbar-border);
-      position:sticky; top:0; z-index:10;
+    /* ===== 상단바: CopyTube 구조 (#welcome/#menuBtn/#menuBackdrop) ===== */
+    #topbar{
+      position:sticky; top:0; z-index:1000;
+      display:flex; align-items:center; justify-content:space-between;
+      padding:8px 12px; background:var(--topbar-bg); border-bottom:1px solid var(--topbar-border);
     }
-    .brand{ display:flex; align-items:center; gap:8px; text-decoration:none; }
-    .brand-logo{ height:48px; }
-    @media (max-width:420px){ .brand-logo{ height:40px; } }
+    .brand{ display:flex; align-items:center; gap:8px; }
+    .brand-logo{ height:44px; }
+    @media (max-width:420px){ .brand-logo{ height:38px; } }
 
-    .welcome{ font-size:14px; color:var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .right{ display:flex; align-items:center; gap:10px; }
+    .link{ text-decoration:none; color:var(--text); font-size:14px; }
+    .welcome{ font-size:14px; color:var(--text-dim); }
 
-    .account-name{ font-size:14px; color:var(--text); white-space:nowrap; max-width:32vw; overflow:hidden; text-overflow:ellipsis; }
-
-    /* 메뉴 트리거: 계정이름과 분리된 버튼 (CopyTube v1.5 스타일) */
-    .menu-wrap{ position:relative; }
-    .menu-btn{
-      display:flex; align-items:center; justify-content:center;
-      width:36px; height:36px; border-radius:10px;
+    #menuBtn{
+      width:36px; height:36px; display:inline-flex; align-items:center; justify-content:center;
       border:1px solid var(--btn-border); background:var(--btn-bg); color:var(--btn-text);
-      cursor:pointer;
+      border-radius:10px; cursor:pointer;
     }
-    .menu-btn:focus{ outline:2px solid #94a3b8; outline-offset:2px; }
+    #menuBackdrop{ position:fixed; inset:0; background:transparent; z-index:900; display:none; }
+    #menuBackdrop.show{ display:block; }
 
     .dropdown{
-      position:absolute; right:0; top:calc(100% + 6px); min-width:180px;
+      position:absolute; right:0; top:calc(100% + 6px); min-width:180px; z-index:1001;
       background:var(--dd-bg); color:var(--dd-text); border:1px solid var(--dd-border);
       border-radius:12px; padding:6px; box-shadow:var(--dd-shadow);
       transform-origin:top right; opacity:0; transform:translateY(-4px) scale(.98);
@@ -90,58 +90,65 @@
     }
     .dropdown.open{ opacity:1; transform:translateY(0) scale(1); pointer-events:auto; }
     .dropdown.hidden{ display:block; opacity:0; pointer-events:none; }
-    .dropdown a,.dropdown button{
+    .dropdown button,.dropdown a{
       width:100%; text-align:left; border:0; background:transparent; color:inherit;
-      padding:8px 10px; border-radius:8px; cursor:pointer; font-size:14px;
+      padding:8px 10px; border-radius:8px; cursor:pointer; font-size:14px; display:block; text-decoration:none;
     }
-    .dropdown a:hover,.dropdown button:hover{ background:var(--dd-hover); }
+    .dropdown .menu-strong{ font-weight:700; }
+    .dropdown button:hover,.dropdown a:hover{ background:var(--dd-hover); }
     .dropdown hr{ border:0; border-top:1px solid var(--dd-hr); margin:6px 0; }
 
-    /* ===== 본문: 플레이어만 노출 ===== */
+    /* ===== 본문: 플레이어만 표시 ===== */
     .wrap{ max-width:1100px; margin:0 auto; padding:var(--pad); padding-bottom: calc(var(--pad) + var(--safe-bottom)); }
     .player-box{ position:relative; width:100%; aspect-ratio:16/9; background:var(--player-bg); border-radius:12px; overflow:hidden; }
     #player{ width:100%; height:100%; }
   </style>
+
+  <!-- YouTube IFrame API (watch.js에서 사용) -->
+  <script>
+    (function(){ const s=document.createElement('script'); s.src='https://www.youtube.com/iframe_api'; document.head.appendChild(s); })();
+  </script>
 </head>
 <body>
-  <!-- 상단바 (메뉴 트리거는 계정이름과 분리) -->
-  <header class="topbar">
-    <!-- 좌: 로고 -->
-    <a class="brand" href="./index.html">
-      <img class="brand-logo" src="./image/arktube_side.png" alt="ArkTube"/>
-    </a>
-
-    <!-- 중: 인삿말 (watch 전용: Enjoy) -->
-    <div class="welcome" id="welcomeText">Enjoy Guest</div>
-
-    <!-- 우: 계정 이름 (표시만) -->
-    <div class="account-name" id="nickName">Guest</div>
-
-    <!-- 우끝: 메뉴 트리거 + 드롭다운 -->
-    <div class="menu-wrap">
-      <!-- ⚠️ 이 버튼이 드롭다운 트리거 (#btnMenu). 계정이름과 분리! -->
-      <button id="btnMenu" class="menu-btn" aria-label="메뉴" aria-expanded="false">⋯</button>
-      <div id="dropdownMenu" class="dropdown hidden" aria-hidden="true" role="menu">
-        <a href="./list.html" role="menuitem">영상목록</a>
-        <a href="./upload.html" role="menuitem">업로드</a>
-        <button id="btnMyUploads" role="menuitem">내 업로드</button>
-        <a href="./about.html" role="menuitem">소개</a>
+  <!-- 상단바 (CopyTube 구조) -->
+  <header id="topbar">
+    <div class="brand">
+      <a id="brandHome" href="#" aria-label="CopyTube 홈으로">
+        <img class="brand-logo" src="image/new_copytube_logo_side_w.png" alt="CopyTube"/>
+      </a>
+    </div>
+    <div class="right" style="position:relative;">
+      <a id="signupLink" class="link" href="signup.html">Sign up</a>
+      <a id="signinLink" class="link" href="signin.html">Sign in</a>
+      <span id="welcome" class="welcome">Welcome! Guest</span>
+      <button id="menuBtn" class="icon" aria-label="menu" aria-expanded="false">三</button>
+      <div id="dropdownMenu" class="dropdown hidden" role="menu" aria-hidden="true">
+        <button id="btnAbout"       type="button">CopyTube는…</button>
+        <button id="btnGoCategory"  class="menu-strong" type="button">카테고리 선택</button>
+        <button id="btnMyUploads"   type="button">내영상관리</button>
+        <button id="btnSignOut"     type="button" style="display:none;">Sign out</button>
         <hr/>
-        <a id="signinLink" href="./signin.html" role="menuitem">로그인</a>
-        <a id="signupLink" href="./signup.html" role="menuitem">회원가입</a>
-        <button id="btnSignOut" role="menuitem">로그아웃</button>
+        <button id="btnList"        type="button">영상목록</button>
+        <button id="btnGoUpload"    class="menu-strong" type="button">추천영상등록</button>
       </div>
     </div>
   </header>
 
-  <!-- 본문: 플레이어만 (오버레이/메타/버튼 없음) -->
+  <!-- 드롭다운 바깥 클릭 닫힘을 위한 배경 -->
+  <div id="menuBackdrop"></div>
+
+  <!-- 본문: 플레이어 영역 (watch.js가 yt 플레이어 주입) -->
   <main class="wrap">
     <div class="player-box" id="playerBox">
       <div id="player"></div>
     </div>
   </main>
 
-  <!-- 페이지 스크립트 -->
-  <script type="module" src="./js/watch.js"></script>
+  <!-- Firebase / Auth (admin-common 미사용) -->
+  <script type="module" src="js/firebase-init.js"></script>
+  <script type="module" src="js/auth.js"></script>
+
+  <!-- 페이지 스크립트 (브랜드 자동인식: CopyTube면 Welcome!, ArkTube면 Enjoy) -->
+  <script type="module" src="js/watch.js"></script>
 </body>
 </html>
