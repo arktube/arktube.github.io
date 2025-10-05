@@ -2,36 +2,37 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
   <title>영상 재생 - ArkTube</title>
 
-  <!-- CSP (YouTube IFrame API + Firebase 공용) -->
-<meta http-equiv="Content-Security-Policy" content="
-  default-src 'self';
-  connect-src 'self'
-    https://www.googleapis.com
-    https://firestore.googleapis.com
-    https://securetoken.googleapis.com
-    https://identitytoolkit.googleapis.com
-    https://firebaseinstallations.googleapis.com
-    https://firebase.googleapis.com
-    https://www.gstatic.com
-    https://www.google-analytics.com
-    https://www.youtube.com
-    https://s.ytimg.com
-    https://i.ytimg.com;
-  img-src 'self' data: https://i.ytimg.com https://www.google-analytics.com;
-  frame-src https://www.youtube.com https://www.youtube-nocookie.com
-    https://accounts.google.com https://www.google.com;
-  script-src 'self' https://www.gstatic.com https://www.youtube.com https://www.googletagmanager.com 'unsafe-inline';
-  style-src 'self' 'unsafe-inline';
-  object-src 'none';
-  base-uri 'self';
-">
+  <!-- CSP (YouTube IFrame API + Firebase + gtag) -->
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    connect-src 'self'
+      https://www.googleapis.com
+      https://firestore.googleapis.com
+      https://securetoken.googleapis.com
+      https://identitytoolkit.googleapis.com
+      https://firebaseinstallations.googleapis.com
+      https://firebase.googleapis.com
+      https://www.gstatic.com
+      https://www.google-analytics.com
+      https://www.youtube.com
+      https://s.ytimg.com
+      https://i.ytimg.com;
+    img-src 'self' data: https://i.ytimg.com https://www.google-analytics.com;
+    frame-src https://www.youtube.com https://www.youtube-nocookie.com
+      https://accounts.google.com https://www.google.com;
+    script-src 'self' https://www.gstatic.com https://www.youtube.com https://www.googletagmanager.com 'unsafe-inline';
+    style-src 'self' 'unsafe-inline';
+    object-src 'none';
+    base-uri 'self';
+  ">
 
+  <!-- 프로젝트 공통 CSS (있다면) -->
   <link rel="stylesheet" href="./css/style.css"/>
 
-  <!-- Firebase 기본 (admin-common은 사용 안 함) -->
+  <!-- Firebase (상단바에 auth만 씀 / admin-common 사용 안 함) -->
   <script type="module" src="./js/firebase-init.js"></script>
   <script type="module" src="./js/auth.js"></script>
 
@@ -41,59 +42,85 @@
   </script>
 
   <style>
-    :root { --safe-bottom: env(safe-area-inset-bottom, 0px); }
-    body { margin:0; background:#fff; color:#111; }
+    /* ===== CopyTube v1.5 라이트 팔레트 ===== */
+    :root{
+      --pad:12px;
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+      --bg:#fff; --text:#111; --text-dim:rgba(17,17,17,.85);
+      --topbar-bg:#fff; --topbar-border:#e5e7eb;
+      --btn-bg:#fff; --btn-border:#d0d7de; --btn-text:#111;
+      --dd-bg:#fff; --dd-border:#d0d7de; --dd-text:#111;
+      --dd-hover:#f2f4f7; --dd-hr:#eceff3; --dd-shadow:0 8px 20px rgba(16,24,40,.08);
+      --player-bg:#000;
+    }
+    html,body{ height:100%; }
+    body{ margin:0; background:var(--bg); color:var(--text); }
 
-    /* 상단바 */
-    .topbar {
-      display:grid; grid-template-columns:auto 1fr auto; align-items:center;
-      gap:12px; padding:8px 12px; border-bottom:1px solid #e5e7eb; background:#fff;
+    /* ===== 상단바 (admin-common 미사용, 메뉴 트리거 분리) ===== */
+    .topbar{
+      display:grid; grid-template-columns:auto 1fr auto auto; align-items:center;
+      gap:12px; padding:8px 12px;
+      background:var(--topbar-bg); border-bottom:1px solid var(--topbar-border);
       position:sticky; top:0; z-index:10;
     }
-    .brand { display:flex; align-items:center; gap:8px; text-decoration:none; }
-    .brand-logo { height:48px; }
+    .brand{ display:flex; align-items:center; gap:8px; text-decoration:none; }
+    .brand-logo{ height:48px; }
     @media (max-width:420px){ .brand-logo{ height:40px; } }
-    .welcome { font-size:14px; opacity:.85; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .user { position:relative; }
-    .user-btn {
-      display:flex; align-items:center; gap:8px;
-      border:1px solid #d0d7de; background:#fff; padding:6px 10px; border-radius:10px; cursor:pointer;
+
+    .welcome{ font-size:14px; color:var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+    .account-name{ font-size:14px; color:var(--text); white-space:nowrap; max-width:32vw; overflow:hidden; text-overflow:ellipsis; }
+
+    /* 메뉴 트리거: 계정이름과 분리된 버튼 (CopyTube v1.5 스타일) */
+    .menu-wrap{ position:relative; }
+    .menu-btn{
+      display:flex; align-items:center; justify-content:center;
+      width:36px; height:36px; border-radius:10px;
+      border:1px solid var(--btn-border); background:var(--btn-bg); color:var(--btn-text);
+      cursor:pointer;
     }
-    .dropdown {
+    .menu-btn:focus{ outline:2px solid #94a3b8; outline-offset:2px; }
+
+    .dropdown{
       position:absolute; right:0; top:calc(100% + 6px); min-width:180px;
-      border:1px solid #d0d7de; background:#fff; border-radius:12px; padding:6px;
-      box-shadow:0 8px 20px rgba(16,24,40,.08);
+      background:var(--dd-bg); color:var(--dd-text); border:1px solid var(--dd-border);
+      border-radius:12px; padding:6px; box-shadow:var(--dd-shadow);
       transform-origin:top right; opacity:0; transform:translateY(-4px) scale(.98);
       pointer-events:none; transition:opacity .15s, transform .15s;
     }
-    .dropdown.open  { opacity:1; transform:translateY(0) scale(1); pointer-events:auto; }
+    .dropdown.open{ opacity:1; transform:translateY(0) scale(1); pointer-events:auto; }
     .dropdown.hidden{ display:block; opacity:0; pointer-events:none; }
-    .dropdown a, .dropdown button {
-      width:100%; text-align:left; border:0; background:transparent;
+    .dropdown a,.dropdown button{
+      width:100%; text-align:left; border:0; background:transparent; color:inherit;
       padding:8px 10px; border-radius:8px; cursor:pointer; font-size:14px;
     }
-    .dropdown a:hover, .dropdown button:hover { background:#f2f4f7; }
-    .dropdown hr { border:0; border-top:1px solid #eceff3; margin:6px 0; }
+    .dropdown a:hover,.dropdown button:hover{ background:var(--dd-hover); }
+    .dropdown hr{ border:0; border-top:1px solid var(--dd-hr); margin:6px 0; }
 
-    /* 플레이어 컨테이너 */
-    .wrap { max-width:1100px; margin:0 auto; padding:var(--pad); }
-    .player-box {
-      position:relative; width:100%; aspect-ratio:16/9; background:#000; border-radius:12px; overflow:hidden;
-    }
-    #player { width:100%; height:100%; }
+    /* ===== 본문: 플레이어만 노출 ===== */
+    .wrap{ max-width:1100px; margin:0 auto; padding:var(--pad); padding-bottom: calc(var(--pad) + var(--safe-bottom)); }
+    .player-box{ position:relative; width:100%; aspect-ratio:16/9; background:var(--player-bg); border-radius:12px; overflow:hidden; }
+    #player{ width:100%; height:100%; }
   </style>
 </head>
 <body>
-  <!-- 상단바 (admin-common 미사용, watch 전용) -->
+  <!-- 상단바 (메뉴 트리거는 계정이름과 분리) -->
   <header class="topbar">
+    <!-- 좌: 로고 -->
     <a class="brand" href="./index.html">
       <img class="brand-logo" src="./image/arktube_side.png" alt="ArkTube"/>
     </a>
+
+    <!-- 중: 인삿말 (watch 전용: Enjoy) -->
     <div class="welcome" id="welcomeText">Enjoy Guest</div>
-    <div class="user">
-      <button id="btnDropdown" class="user-btn" aria-expanded="false">
-        <span id="nickName">Guest</span><span aria-hidden="true">▾</span>
-      </button>
+
+    <!-- 우: 계정 이름 (표시만) -->
+    <div class="account-name" id="nickName">Guest</div>
+
+    <!-- 우끝: 메뉴 트리거 + 드롭다운 -->
+    <div class="menu-wrap">
+      <!-- ⚠️ 이 버튼이 드롭다운 트리거 (#btnMenu). 계정이름과 분리! -->
+      <button id="btnMenu" class="menu-btn" aria-label="메뉴" aria-expanded="false">⋯</button>
       <div id="dropdownMenu" class="dropdown hidden" aria-hidden="true" role="menu">
         <a href="./list.html" role="menuitem">영상목록</a>
         <a href="./upload.html" role="menuitem">업로드</a>
@@ -107,7 +134,7 @@
     </div>
   </header>
 
-  <!-- 본문: 플레이어만 -->
+  <!-- 본문: 플레이어만 (오버레이/메타/버튼 없음) -->
   <main class="wrap">
     <div class="player-box" id="playerBox">
       <div id="player"></div>
