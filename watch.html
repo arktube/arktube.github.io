@@ -6,28 +6,28 @@
   <title>영상 재생 - ArkTube</title>
 
   <!-- CSP (YouTube IFrame API + Firebase 공용) -->
-  <meta http-equiv="Content-Security-Policy" content="
-    default-src 'self';
-    connect-src 'self'
-      https://www.googleapis.com
-      https://firestore.googleapis.com
-      https://securetoken.googleapis.com
-      https://identitytoolkit.googleapis.com
-      https://firebaseinstallations.googleapis.com
-      https://firebase.googleapis.com
-      https://www.gstatic.com
-      https://www.google-analytics.com
-      https://www.youtube.com
-      https://s.ytimg.com
-      https://i.ytimg.com;
-    img-src 'self' data: https://i.ytimg.com https://www.google-analytics.com;
-    frame-src https://www.youtube.com https://www.youtube-nocookie.com
-      https://accounts.google.com https://www.google.com;
-    script-src 'self' https://www.gstatic.com https://www.youtube.com 'unsafe-inline';
-    style-src 'self' 'unsafe-inline';
-    object-src 'none';
-    base-uri 'self';
-  ">
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  connect-src 'self'
+    https://www.googleapis.com
+    https://firestore.googleapis.com
+    https://securetoken.googleapis.com
+    https://identitytoolkit.googleapis.com
+    https://firebaseinstallations.googleapis.com
+    https://firebase.googleapis.com
+    https://www.gstatic.com
+    https://www.google-analytics.com
+    https://www.youtube.com
+    https://s.ytimg.com
+    https://i.ytimg.com;
+  img-src 'self' data: https://i.ytimg.com https://www.google-analytics.com;
+  frame-src https://www.youtube.com https://www.youtube-nocookie.com
+    https://accounts.google.com https://www.google.com;
+  script-src 'self' https://www.gstatic.com https://www.youtube.com https://www.googletagmanager.com 'unsafe-inline';
+  style-src 'self' 'unsafe-inline';
+  object-src 'none';
+  base-uri 'self';
+">
 
   <link rel="stylesheet" href="./css/style.css"/>
 
