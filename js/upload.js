@@ -404,39 +404,55 @@ async function submitAll(){
   }
 
   // 개인자료 → 로컬 저장
-if(hasPersonal){
+if (hasPersonal) {
   const slot = cats[0];
-  const good = entries.filter(e=> e.ok).map(e=> ({ id:e.id, url:e.url, title:'', type:e.type }));
-  if(!good.length){ setStatusHTML('<span class="danger">저장할 유효한 URL이 없습니다.</span>'); return; }
+  const good = entries.filter(e => e.ok).map(e => ({
+    id: e.id,
+    url: e.url,
+    title: '',
+    type: e.type
+  }));
+
+  if (!good.length) {
+    setStatusHTML('<span class="danger">저장할 유효한 URL이 없습니다.</span>');
+    return;
+  }
 
   const key = `personal_${slot}`;
-  let arr=[]; try{ arr=JSON.parse(localStorage.getItem(key)||'[]'); }catch{}
-  const now=Date.now();
+  let arr = [];
+  try { arr = JSON.parse(localStorage.getItem(key) || '[]'); } catch {}
+  const now = Date.now();
 
-  // 로그인 상태면 구글 이름, 아니면 "로컬 사용자"
+  // ✅ 로그인 시 구글계정 이름, 비로그인 시 '로컬 사용자'
   const ownerName = auth.currentUser?.displayName || '로컬 사용자';
 
-  good.forEach(g=> arr.push({
+  good.forEach(g => arr.push({
     id: g.id,
     url: g.url,
     title: '',
     type: g.type,
-    ownerName,    // 👈 추가
+    ownerName,
     savedAt: now
   }));
 
+  // ✅ 여기서 try–catch 교체
   try {
     localStorage.setItem(key, JSON.stringify(arr));
-    setStatusHTML(`<span class="ok">개인자료(${esc(personalLabel(slot))})에 ${good.length}건 저장 완료</span>`);
+    setStatusHTML(
+      `<span class="ok">개인자료(${esc(personalLabel(slot))})에 ${good.length}건 저장 완료</span>`
+    );
   } catch (err) {
     console.error('localStorage save failed:', err);
-    setStatusHTML('<span class="danger">개인자료 저장 실패: 브라우저 저장소를 사용할 수 없습니다.</span>');
-    return;
+    setStatusHTML(
+      '<span class="danger">개인자료 저장 실패: 브라우저 저장소를 사용할 수 없습니다.</span>'
+    );
+    return; // 실패 시 폼 초기화하지 않음
   }
 
   resetFormAfterSubmit();
   return;
 }
+
 
   // 서버 모드
   const user = auth.currentUser;
