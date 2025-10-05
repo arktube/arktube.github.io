@@ -1,11 +1,11 @@
-// /js/watch.js — ArkTube Watch 완전판 (admin-common 미사용)
-// - 상단바: Firebase Auth로 displayName/드롭다운(v1.5) 직접 구현
-// - 재생: IFrame API (CopyTube v1.5 동일 파라미터), 모바일/삼성인터넷 자동재생 보정(mute→play→unMute)
-// - 큐: makelist 세션(readPlayQueue/readPlayIndex/readPlayMeta), 남은≤10 자동 확장(fetchMoreForWatchIfNeeded)
-// - 연속재생: localStorage.autonext === '1' 이면 종료 시 자동 다음
-// - resume: 시리즈(resumeCtx 존재)일 때만 인덱스/시간 저장·복원, 저장 주기 10초
-// - UI: 화면엔 상단바+플레이어만(메타/버튼/오버레이 없음)
+// /js/watch.js — ArkTube Watch 완전판
+// - 상단바(Enjoy + 구글계정 드롭다운) 자체 구현 (admin-common 미사용)
+// - makelist 연계: playQueue / playIndex / playMeta / fetchMoreForWatchIfNeeded / readListSnapshot
+// - 시리즈(resumeCtx)만 이어보기 저장·복원(주기 10초, 임계 5초)
+// - IFrame API (CopyTube v1.5 파라미터): autoplay=1, playsinline=1, controls=1, modestbranding=1, rel=0, fs=1
+// - 연속재생(localStorage.autonext==='1'), unplayable 조용히 스킵, 남은≤10 자동 확장
 // - 키보드: ←/→, Space/K, J/L, F, Esc(뒤로)
+// - 삼성인터넷 하단 잘림 보정: visualViewport로 playerBox 높이 동적 맞춤
 
 import { auth } from './firebase-init.js';
 import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
@@ -14,12 +14,14 @@ import {
   fetchMoreForWatchIfNeeded, readListSnapshot
 } from './makelist.js';
 
-/* ───────── 상수 ───────── */
-const GREETING_TEXT     = 'Enjoy';
-const RESUME_SAVE_MS    = 10000; // 10초 저장 주기
-const RESUME_RESTORE_MIN = 5;    // 5초 이상 저장돼 있으면 복원
+/* =========================
+ * 상수/DOM
+ * ========================= */
+const GREETING_TEXT       = 'Enjoy';
+const RESUME_SAVE_MS      = 10000; // 10s 저장 주기
+const RESUME_RESTORE_MIN  = 5;     // 5s 이상이면 복원
+const KEY_PLAY_INDEX      = 'playIndex';
 
-/* ───────── 상단바 초기화 (admin-common 미사용) ───────── */
 const welcomeText = document.getElementById('welcomeText');
 const nickNameEl  = document.getElementById('nickName');
 const btnDropdown = document.getElementById('btnDropdown');
@@ -28,23 +30,29 @@ const signinLink  = document.getElementById('signinLink');
 const signupLink  = document.getElementById('signupLink');
 const btnSignOut  = document.getElementById('btnSignOut');
 const btnMyUploads= document.getElementById('btnMyUploads');
+const playerBox   = document.getElementById('playerBox');
 
+/* =========================
+ * 상단바 초기화 (admin-common 미사용)
+ * ========================= */
 onAuthStateChanged(auth, (user)=>{
   const name = user?.displayName || 'Guest';
   if (welcomeText) welcomeText.textContent = `${GREETING_TEXT} ${name}`;
-  if (nickNameEl)  nickNameEl.textContent = name;
+  if (nickNameEl)  nickNameEl.textContent  = name;
 
   const loggedIn = !!user;
-  if (signinLink)  signinLink.style.display = loggedIn ? 'none' : 'block';
-  if (signupLink)  signupLink.style.display = loggedIn ? 'none' : 'block';
-  if (btnSignOut)  btnSignOut.style.display = loggedIn ? 'block' : 'none';
+  if (signinLink)   signinLink.style.display = loggedIn ? 'none' : 'block';
+  if (signupLink)   signupLink.style.display = loggedIn ? 'none' : 'block';
+  if (btnSignOut)   btnSignOut.style.display = loggedIn ? 'block' : 'none';
   if (btnMyUploads) btnMyUploads.onclick = ()=> location.href = loggedIn ? './manage-uploads.html' : './signin.html';
 });
 btnSignOut?.addEventListener('click', async ()=>{ try{ await fbSignOut(); }catch{} location.reload(); });
 
-// 드롭다운 v1.5(aria/포커스트랩/외부클릭)
-(function initDropdownV15(){
+// 드롭다운 v1.5 (aria/포커스트랩/외부클릭·ESC 닫힘)
+(function initDropdown(){
+  if (!btnDropdown || !dropdown) return;
   let open=false, offPointer=null, offKey=null;
+
   function setOpen(v){
     open=!!v;
     btnDropdown.setAttribute('aria-expanded', String(open));
@@ -89,14 +97,60 @@ btnSignOut?.addEventListener('click', async ()=>{ try{ await fbSignOut(); }catch
   dropdown.addEventListener('click', (e)=>{ if (e.target.closest('a,button,[role="menuitem"]')) setOpen(false); });
 })();
 
-/* ───────── 플레이어/큐 ───────── */
-const playerBox = document.getElementById('playerBox');
-let player=null, saveTicker=null;
+/* =========================
+ * 삼성 인터넷 하단 잘림 보정
+ * ========================= */
+function getVisualHeight(){
+  if (window.visualViewport && Number.isFinite(window.visualViewport.height)) {
+    return window.visualViewport.height;
+  }
+  return window.innerHeight;
+}
+function debounce(fn, ms=80){ let id; return (...a)=>{ clearTimeout(id); id=setTimeout(()=>fn(...a), ms); }; }
+function fitPlayerToViewport(){
+  try{
+    const el = playerBox;
+    if (!el) return;
+    const rectTop = el.getBoundingClientRect().top;
+    const vh      = getVisualHeight();
+    // CSS var(--safe-bottom) 읽기 (없으면 0)
+    const safeB   = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--safe-bottom')) || 0;
+    const available = Math.max(0, vh - rectTop - safeB - 2);
 
+    const vw      = Math.max(document.documentElement.clientWidth, window.innerWidth||0);
+    const idealH  = Math.round(vw * 9 / 16);
+
+    const h = Math.min(idealH, available);
+    el.style.height = h > 0 ? `${h}px` : '';
+  }catch{}
+}
+
+// 초기/리스너
+fitPlayerToViewport();
+window.addEventListener('resize', debounce(fitPlayerToViewport, 80));
+window.addEventListener('orientationchange', ()=> setTimeout(fitPlayerToViewport, 250));
+document.addEventListener('visibilitychange', ()=>{ if (!document.hidden) setTimeout(fitPlayerToViewport, 120); });
+if (window.visualViewport){
+  window.visualViewport.addEventListener('resize', debounce(fitPlayerToViewport, 50));
+  window.visualViewport.addEventListener('scroll', debounce(fitPlayerToViewport, 50));
+}
+
+/* =========================
+ * 큐/플레이어 상태
+ * ========================= */
 let queue = readPlayQueue();
 let idx   = clamp(readPlayIndex(), 0, Math.max(0, (queue?.length||1)-1));
 const meta = readPlayMeta() || { returnTo:'index' };
 
+function clamp(n,min,max){ n=Number(n||0); if(!Number.isFinite(n)) n=0; return Math.max(min, Math.min(max, n)); }
+function setPlayIndex(i){ idx=clamp(i,0,Math.max(0,queue.length-1)); try{ sessionStorage.setItem(KEY_PLAY_INDEX, String(idx)); }catch{} }
+function current(){ queue = readPlayQueue() || queue; idx = clamp(idx,0,Math.max(0,queue.length-1)); return queue[idx]; }
+function goBack(){
+  const from = meta?.returnTo || new URL(location.href).searchParams.get('from') || 'index';
+  location.href = (from === 'list') ? './list.html' : './index.html';
+}
+
+// 큐 없을 때 보조(리스트 스냅샷)
 if (!Array.isArray(queue) || queue.length===0){
   const snap = readListSnapshot();
   if (Array.isArray(snap?.items) && snap.items.length){
@@ -108,15 +162,9 @@ if (!Array.isArray(queue) || queue.length===0){
   }
 }
 
-function clamp(n,min,max){ n=Number(n||0); if(!Number.isFinite(n)) n=0; return Math.max(min, Math.min(max, n)); }
-function setPlayIndex(i){ idx = clamp(i, 0, Math.max(0, queue.length-1)); try{ sessionStorage.setItem('playIndex', String(idx)); }catch{} }
-function current(){ queue = readPlayQueue() || queue; idx = clamp(idx,0,Math.max(0,queue.length-1)); return queue[idx]; }
-function goBack(){
-  const from = meta?.returnTo || new URL(location.href).searchParams.get('from') || 'index';
-  location.href = (from === 'list') ? './list.html' : './index.html';
-}
-
-/* ───────── resume (시리즈만) ───────── */
+/* =========================
+ * Resume (시리즈만)
+ * ========================= */
 const resumeCtx = (()=>{ try{ return JSON.parse(sessionStorage.getItem('resumeCtx')||'null'); }catch{ return null; }})();
 const isSeriesMode = !!(resumeCtx && resumeCtx.groupKey && resumeCtx.subKey);
 
@@ -124,7 +172,7 @@ async function saveResume(payload){
   try{
     const mod = await import('./resume.js');
     if (typeof mod.saveResume === 'function'){ mod.saveResume(payload); return; }
-  }catch{/* 폴백 아래로 */}
+  }catch{}
   const key = `resume:${payload.type}:${payload.groupKey}:${payload.subKey}`;
   sessionStorage.setItem(key, JSON.stringify({ index: payload.index, t: payload.t||0 }));
 }
@@ -139,28 +187,31 @@ async function loadResumeValue(){
   try{ return JSON.parse(sessionStorage.getItem(key)||'null'); }catch{ return null; }
 }
 
-/* ───────── IFrame API ───────── */
-function ensureYT(){ return new Promise(res=>{ if (window.YT?.Player) return res(); const it=setInterval(()=>{ if (window.YT?.Player){ clearInterval(it); res(); } }, 50); }); }
+/* =========================
+ * YouTube IFrame API
+ * ========================= */
+let player=null, saveTicker=null, firstReadyTweak=false;
+function ensureYT(){ return new Promise(res=>{ if (window.YT?.Player) return res(); const it=setInterval(()=>{ if (window.YT?.Player){ clearInterval(it); res(); } },50); }); }
 window.onYouTubeIframeAPIReady = function(){};
 
 async function loadCurrent(){
   const it = current(); if (!it) return;
 
   // unplayable은 조용히 스킵
-  if (it.playable === false){ setTimeout(next, 100); return; }
+  if (it.playable === false){ setTimeout(next, 80); return; }
 
   await ensureYT();
 
   if (!player){
     player = new YT.Player('player', {
       width:'100%', height:'100%',
-      playerVars:{ autoplay:1, playsinline:1, modestbranding:1, rel:0, fs:1, controls:1 },
-      events:{ onReady, onStateChange, onError }
+      playerVars: { autoplay:1, playsinline:1, modestbranding:1, rel:0, fs:1, controls:1 },
+      events:     { onReady, onStateChange, onError }
     });
   }
   player.loadVideoById({ videoId: it.id });
 
-  // 진행 저장 타이머 (시리즈에서만)
+  // 진행 저장 타이머 (시리즈만)
   if (saveTicker){ clearInterval(saveTicker); saveTicker=null; }
   if (isSeriesMode){
     saveTicker = setInterval(async ()=>{
@@ -177,13 +228,17 @@ async function loadCurrent(){
       }catch{}
     }, RESUME_SAVE_MS);
   }
+
+  // 새 영상 로드 후에도 뷰포트 맞춤
+  fitPlayerToViewport();
 }
 
-let firstReadyTweak=false;
 async function onReady(){
-  // 자동재생 보정(모바일/삼성인터넷)
-  if (!firstReadyTweak){ firstReadyTweak=true; try{ player.mute(); player.playVideo(); setTimeout(()=>player.unMute(), 800); }catch{} }
-
+  // 모바일/삼성인터넷 자동재생 보정
+  if (!firstReadyTweak){
+    firstReadyTweak = true;
+    try{ player.mute(); player.playVideo(); setTimeout(()=>player.unMute(), 800); }catch{}
+  }
   // 시리즈만 위치 복원
   if (isSeriesMode){
     try{
@@ -192,18 +247,27 @@ async function onReady(){
       if (Number.isFinite(t) && t >= RESUME_RESTORE_MIN){ try{ player.seekTo(t, true); }catch{} }
     }catch{}
   }
+  // 혹시 주소창 변동 직후를 위해 약간 지연 재맞춤
+  setTimeout(fitPlayerToViewport, 120);
 }
+
 async function onStateChange(ev){
   const S = YT.PlayerState;
   if (ev.data === S.ENDED){
     try{ await fetchMoreForWatchIfNeeded(idx); }catch{}
     const autonext = localStorage.getItem('autonext') === '1';
     if (autonext) next();
+  } else if (ev.data === S.PLAYING){
+    // 재생 시작 직후에도 한 번 맞춤 (툴바 접힘 대응)
+    setTimeout(fitPlayerToViewport, 60);
   }
 }
-function onError(){ setTimeout(next, 120); }
 
-/* ───────── 이동 ───────── */
+function onError(){ setTimeout(next, 100); }
+
+/* =========================
+ * 이동/내비
+ * ========================= */
 async function next(){
   try{ await fetchMoreForWatchIfNeeded(idx); }catch{}
   queue = readPlayQueue() || queue;
@@ -219,6 +283,7 @@ async function next(){
   setPlayIndex(idx + 1);
   await loadCurrent();
 }
+
 async function prev(){
   if (idx <= 0) return;
   if (isSeriesMode){
@@ -232,25 +297,40 @@ async function prev(){
   await loadCurrent();
 }
 
-/* ───────── 전체화면 ───────── */
 function toggleFullscreen(){
   if (document.fullscreenElement){ document.exitFullscreen().catch(()=>{}); }
   else { playerBox.requestFullscreen?.().catch(()=>{}); }
 }
 
-/* ───────── 키보드 단축키 ───────── */
+/* =========================
+ * 키보드 단축키
+ * ========================= */
 window.addEventListener('keydown',(e)=>{
   const tag=(e.target?.tagName||'').toLowerCase();
   if (['input','textarea'].includes(tag)) return;
 
   if (e.key==='ArrowLeft'){ e.preventDefault(); prev(); }
   else if (e.key==='ArrowRight'){ e.preventDefault(); next(); }
-  else if (e.key===' ' || e.key.toLowerCase()==='k'){ e.preventDefault(); try{ const st=player?.getPlayerState?.(); if(st===YT.PlayerState.PLAYING) player.pauseVideo(); else player.playVideo(); }catch{} }
+  else if (e.key===' ' || e.key.toLowerCase()==='k'){
+    e.preventDefault();
+    try{
+      const st = player?.getPlayerState?.();
+      if (st === YT.PlayerState.PLAYING) player.pauseVideo();
+      else player.playVideo();
+    }catch{}
+  }
   else if (e.key.toLowerCase()==='j'){ e.preventDefault(); try{ const t=player.getCurrentTime(); player.seekTo(Math.max(0,t-10), true); }catch{} }
   else if (e.key.toLowerCase()==='l'){ e.preventDefault(); try{ const t=player.getCurrentTime(); player.seekTo(t+10, true); }catch{} }
   else if (e.key.toLowerCase()==='f'){ e.preventDefault(); toggleFullscreen(); }
   else if (e.key==='Escape'){ e.preventDefault(); goBack(); }
 });
 
-/* ───────── 시작 ───────── */
+/* =========================
+ * 시작
+ * ========================= */
 await loadCurrent();
+
+/* =========================
+ * 유틸
+ * ========================= */
+function clampVal(v, min, max){ return Math.max(min, Math.min(max, v)); } // (미사용 예비)
