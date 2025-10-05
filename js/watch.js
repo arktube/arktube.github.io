@@ -1,15 +1,13 @@
-// /js/watch.js — ArkTube Watch (최종 정합본)
+// /js/watch.js — ArkTube Watch (CATEGORY_MODEL 정합본)
 // - 상단바/드롭다운 v1.5
-// - 개인자료: type 필터 미적용 + shorts/embed 링크 ID 추출 대응
+// - 개인자료: type 필터 미적용 + shorts/embed/yt.be ID 추출
 // - 시리즈 이어보기: createdAt asc + index/t 자동 복원
-// - 오버레이 없음, 수직 스와이프(위=다음/아래=이전), PC 화살표
-// - autoplay 차단 환경 대비 onReady에서 mute 후 play
-// - 저장키 통일: selectedCats, view:type, (autonext는 구키('autonext') 우선, 없으면 resume의 getAutoNext())
-// - z-index/겹침 이슈 회피
+// - 수직 스와이프(위=다음/아래=이전), PC 화살표 ←/→
+// - 저장키 통일: selectedCats, view:type, (autonext 구키 → resume 키 폴백)
 
 import { auth, db } from './firebase-init.js';
 import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
-import { CATEGORY_MODEL } from './categories.js';
+import { CATEGORY_GROUPS, CATEGORY_MODEL } from './categories.js';
 import { getAutoNext, loadResume, saveResume } from './resume.js';
 import {
   collection, query, where, orderBy, limit, getDocs
@@ -31,7 +29,6 @@ const btnList      = document.getElementById('btnList');
 const btnGoUpload  = document.getElementById('btnGoUpload');
 const btnMyUploads = document.getElementById('btnMyUploads');
 
-// 공통 네비
 btnAbout    ?.addEventListener('click', ()=> location.href='/about.html');
 btnOrder    ?.addEventListener('click', ()=> location.href='/category-order.html');
 btnList     ?.addEventListener('click', ()=> location.href='/list.html');
@@ -98,9 +95,8 @@ onAuthStateChanged(auth, (user)=>{
   trigger?.addEventListener('click', (e)=>{ e.preventDefault(); toggle(); });
   menu?.addEventListener('click', (e)=>{ if (e.target.closest('a,button,[role="menuitem"]')) setOpen(false); });
 
-  // 초기 aria 동기화
+  const initiallyHidden = menu?.classList.contains('hidden');
   if (menu && trigger){
-    const initiallyHidden = menu.classList.contains('hidden');
     trigger.setAttribute('aria-expanded', String(!initiallyHidden));
     menu.setAttribute('aria-hidden', String(initiallyHidden));
   }
@@ -108,8 +104,8 @@ onAuthStateChanged(auth, (user)=>{
 
 /* ===================== 재생 컨텍스트/큐 ===================== */
 const SELECTED_CATS_KEY = 'selectedCats'; // "ALL" | string[]
-const VIEW_TYPE_KEY     = 'view:type';    // 'both' | 'shorts' | 'video'  ← 통일
-const AUTONEXT_KEY_OLD  = 'autonext';     // 구키(인덱스에서 저장)
+const VIEW_TYPE_KEY     = 'view:type';    // 'both' | 'shorts' | 'video'
+const AUTONEXT_KEY_OLD  = 'autonext';     // 구키(있으면 우선)
 const RESUME_SERIES_SS  = 'resumeSeriesKey';
 
 const SS_QUEUE_KEY      = 'playQueue';
@@ -122,13 +118,18 @@ let AUTONEXT = false;
 
 let resumeCtx = null; // { groupKey, subKey, typeForKey }
 
-const sleep = (ms)=> new Promise(r=> setTimeout(r, ms));
 const parseJSON = (s, fb=null)=>{ try{ return JSON.parse(s); }catch{ return fb; } };
-const clamp = (n,min,max)=> Math.max(min, Math.min(max, n));
+const clamp     = (n,min,max)=> Math.max(min, Math.min(max, n));
 
+/* ----- 시리즈 카테고리 집합: CATEGORY_MODEL 우선 ----- */
+function modelGroups(){
+  if (Array.isArray(CATEGORY_MODEL?.groups)) return CATEGORY_MODEL.groups;
+  if (Array.isArray(CATEGORY_GROUPS))        return CATEGORY_GROUPS;
+  return [];
+}
 function seriesCatSet() {
   const set = new Set();
-  for (const g of CATEGORY_GROUPS || []) {
+  for (const g of modelGroups()) {
     const isSeries = g?.isSeries===true || String(g?.key||'').startsWith('series_');
     if (isSeries) for (const c of (g.children||[])) set.add(c.value);
   }
@@ -136,18 +137,21 @@ function seriesCatSet() {
 }
 const SERIES_CATS = seriesCatSet();
 
+/* ----- 쿼리스트링: 개인자료 슬롯 ----- */
 function getPersonalSlotFromQS(){
   const p = new URLSearchParams(location.search);
   const cats = p.get('cats') || '';
   return /^personal[1-4]$/.test(cats) ? cats : null;
 }
+
+/* ----- AutoNext 읽기 (구키 → resume 폴백) ----- */
 function readAutoNext(){
-  // 인덱스에서 세팅하는 구키('autonext') 우선, 없으면 resume 모듈의 키 사용
   const s = (localStorage.getItem(AUTONEXT_KEY_OLD)||'').toLowerCase();
   if (s==='1' || s==='true' || s==='on') return true;
   return !!getAutoNext();
 }
 
+/* ----- 세션 큐 로드/세이브 ----- */
 function loadQueueFromSession(){
   const q = parseJSON(sessionStorage.getItem(SS_QUEUE_KEY), null);
   const i = Number(sessionStorage.getItem(SS_INDEX_KEY));
@@ -165,9 +169,10 @@ function saveQueueToSession(){
   } catch {}
 }
 
+/* ----- 큐 구성 ----- */
 async function buildQueue(){
   const personalSlot = getPersonalSlotFromQS();
-  const selType = (localStorage.getItem(VIEW_TYPE_KEY) || 'both'); // 통일: 기본 both
+  const selType = (localStorage.getItem(VIEW_TYPE_KEY) || 'both'); // 기본 both
   AUTONEXT = readAutoNext();
 
   const resumeKey = sessionStorage.getItem(RESUME_SERIES_SS) || '';
@@ -179,7 +184,7 @@ async function buildQueue(){
   if (loadQueueFromSession()) return;
 
   if (personalSlot){
-    // 개인자료: type 필터 미적용 + 다형 URL ID 파싱
+    // 개인자료: type 필터 미적용 + 다양한 URL에서 ID 추출
     const storeKey = `personal_${personalSlot}`;
     const arr = parseJSON(localStorage.getItem(storeKey), []);
 
@@ -351,7 +356,7 @@ async function initPlayer(){
 }
 
 /* ===================== 제스처 & 키보드 ===================== */
-// 모바일: 수직 스와이프 (위=다음, 아래=이전) — CopyTube 합의 유지
+// 모바일: 수직 스와이프 (위=다음, 아래=이전) — dead zone 18%
 // PC: 화살표 ←/→
 (function initGestures({
   deadZoneCenterRatio = 0.18,
@@ -422,7 +427,7 @@ async function initPlayer(){
       endCommon(e.clientX, e.clientY);
       pointerId = null;
     }, { passive:true });
-    document.addEventListener('pointercancel', ()=>{ /* cleanup */ }, { passive:true });
+    document.addEventListener('pointercancel', ()=>{ /* no-op */ }, { passive:true });
   } else {
     const pt = (e)=> e.touches?.[0] || e.changedTouches?.[0] || e;
     document.addEventListener('touchstart', (e)=>{ const p=pt(e); if(!p) return; startCommon(p.clientX,p.clientY,e.target); }, { passive:true });
