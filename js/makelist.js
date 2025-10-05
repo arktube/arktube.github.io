@@ -146,7 +146,9 @@ function loadPersonalAll(){
 
   // [{url,title?,savedAt?}] → QueueItem
   let items = arr.map(it=>{
-    const id = parseYouTubeId(it.url||'');
+    const id = String(it.id || '').trim() || parseYouTubeId(it.url||'');
+    const type = it.type ? String(it.type) : (String(it.url||'').includes('/shorts/')) ? 'shorts' : 'video';
+
     return {
       id,
       url: it.url,
@@ -338,6 +340,19 @@ export async function makeForWatchFromIndex({ cats, type }){
 
   await buildQueue({ firstPage: 20 });
   if (onlySeriesSingle) applyResumeStartIndex();
+
+  // 이어보기 컨텍스트 세팅 (watch용)
+if (onlySeriesSingle) {
+  const { groupKey, subKey } = SERIES_MAP.get(state.cats[0]);
+  sessionStorage.setItem('resumeCtx', JSON.stringify({
+    typeForKey: 'video',
+    groupKey,
+    subKey,
+    sort: 'createdAt-asc'
+  }));
+} else {
+  sessionStorage.removeItem('resumeCtx');
+}
 
   stashPlayQueue();
   return { queue: state.queue, startIndex: state.startIndex };
