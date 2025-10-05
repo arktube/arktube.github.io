@@ -19,6 +19,7 @@ const GREETING_TEXT       = 'Enjoy';
 const RESUME_SAVE_MS      = 10000; // 10s 저장 주기 (시리즈만)
 const RESUME_RESTORE_MIN  = 5;     // 5s 이상 저장돼 있으면 복원
 const KEY_PLAY_INDEX      = 'playIndex';
+const RESUME_ADVANCE_ON_END = true; // ✅ ENDED 시 다음 인덱스로 이어보기 저장(시리즈만)
 
 const welcomeText = document.getElementById('welcomeText');
 const nickNameEl  = document.getElementById('nickName');
@@ -84,7 +85,7 @@ btnSignOut?.addEventListener('click', async ()=>{ try{ await fbSignOut(); }catch
     const onKey = (e)=>{
       if (e.key === 'Escape') setOpen(false);
       if (e.key === 'Tab' && open){
-        const nodes = dropdown.querySelectorAll('a,button,[tabindex]:not([tabindex="-1"])');
+        const nodes = dropdown.querySelectorAll('a,button,[tabindex]:not([tabindex="-1"])`);
         if (!nodes.length) return;
         const first = nodes[0], last = nodes[nodes.length-1];
         if (e.shiftKey && document.activeElement === first){ e.preventDefault(); last.focus(); }
@@ -252,6 +253,22 @@ async function onReady(){
 async function onStateChange(ev){
   const S = YT.PlayerState;
   if (ev.data === S.ENDED){
+    // ✅ 시리즈 모드라면, autonext와 무관하게 '다음 인덱스'로 이어보기 저장(선호 UX)
+    if (RESUME_ADVANCE_ON_END && isSeriesMode) {
+      const q = readPlayQueue() || queue;
+      const nextIndex = Math.min(idx + 1, Math.max(0, (q?.length || 1) - 1));
+      try{
+        await saveResume({
+          type: resumeCtx.typeForKey || 'video',
+          groupKey: resumeCtx.groupKey,
+          subKey: resumeCtx.subKey,
+          sort: (resumeCtx.sort || 'createdAt-asc'),
+          index: nextIndex,
+          t: 0
+        });
+      }catch{}
+    }
+
     try{ await fetchMoreForWatchIfNeeded(idx); }catch{}
     const autonext = localStorage.getItem('autonext') === '1';
     if (autonext) next();
