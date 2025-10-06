@@ -1,13 +1,7 @@
-// /js/watch.js — ArkTube Watch 완전판 (CopyTube 상단바/팔레트 참조 대응)
-// - 브랜드 자동 인식: CopyTube(Welcome!) / ArkTube(Enjoy!)
-// - 상단바: CopyTube식 (#menuBtn, #welcome, #menuBackdrop) 우선 지원 + 기존(#btnMenu/#btnDropdown) 폴백
-// - makelist 연동: readPlayQueue/readPlayIndex/readPlayMeta/fetchMoreForWatchIfNeeded/readListSnapshot
-// - 시리즈(resumeCtx)만 이어보기 저장·복원(주기 10초, 복원 임계 5초)
-// - ENDED 시 다음 인덱스로 이어보기 저장(토글 가능)
-// - IFrame API: 최초 videoId, 이후 loadVideoById (레이스/충돌 방지)
-// - 연속재생(localStorage.autonext === '1'), unplayable 자동 스킵, 남은≤10 자동 확장
-// - 키보드: ←/→, Space/K, J/L, F, Esc(뒤로)
-// - 삼성인터넷 하단 잘림: visualViewport 기반 동적 핏
+// /js/watch.js — ArkTube Watch 완전판 v0.1.2 (세로 스와이프 + 시리즈 모드 안전판정)
+// - 모바일 세로 스와이프: ↑ 다음 / ↓ 이전 (YouTube 앱 스타일)
+// - 시리즈(resume) 동작은 "단일 series_ 서브키"일 때만 활성화, 아니면 자동 비활성화/정리
+// - 나머지 기능: 상단바/드롭다운, 큐/메타, IFrame API, 연속재생, 자동 확장, 키보드 단축키 등 기존 유지
 
 import { auth } from './firebase-init.js';
 import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
@@ -17,55 +11,46 @@ import {
 } from './makelist.js';
 
 /* ===== 브랜드/상수 ===== */
-// CopyTube HTML이면 #welcome, #menuBtn, #menuBackdrop가 존재함
 const isCopyTube = !!document.getElementById('welcome') || (document.title||'').toLowerCase().includes('copytube');
-const GREETING_TEXT       = isCopyTube ? 'Welcome!' : 'Enjoy!';
-const RESUME_SAVE_MS      = 10000; // 10s 저장 주기 (시리즈만)
-const RESUME_RESTORE_MIN  = 5;     // 5s 이상 저장돼 있으면 복원
-const RESUME_ADVANCE_ON_END = true; // ENDED 시 다음 인덱스로 이어보기 저장(시리즈만)
-const KEY_PLAY_INDEX      = 'playIndex';
+const GREETING_TEXT         = isCopyTube ? 'Welcome!' : 'Enjoy!';
+const RESUME_SAVE_MS        = 10000; // 10s
+const RESUME_RESTORE_MIN    = 5;     // 5s
+const RESUME_ADVANCE_ON_END = true;
+const KEY_PLAY_INDEX        = 'playIndex';
 
-/* ===== DOM (브랜드 별로 공존 지원) ===== */
-// CopyTube 우선
-const welcomeCT  = document.getElementById('welcome');     // CopyTube
-const menuBtnCT  = document.getElementById('menuBtn');     // CopyTube
-const backdropCT = document.getElementById('menuBackdrop');// CopyTube
-const brandHome  = document.getElementById('brandHome');   // CopyTube
+/* ===== DOM ===== */
+const welcomeCT   = document.getElementById('welcome');
+const menuBtnCT   = document.getElementById('menuBtn');
+const backdropCT  = document.getElementById('menuBackdrop');
+const brandHome   = document.getElementById('brandHome');
 
-// ArkTube(또는 이전 변형)
-const welcomeAT  = document.getElementById('welcomeText'); // ArkTube
-const nickNameEl = document.getElementById('nickName');
+const welcomeAT   = document.getElementById('welcomeText');
+const nickNameEl  = document.getElementById('nickName');
+const btnMenuAT   = document.getElementById('btnMenu');
+const btnDropdown = document.getElementById('btnDropdown');
 
-const btnMenuAT  = document.getElementById('btnMenu');     // ArkTube
-const btnDropdown= document.getElementById('btnDropdown'); // ArkTube 폴백
+const dropdown    = document.getElementById('dropdownMenu');
 
-// 공통 드롭다운
-const dropdown   = document.getElementById('dropdownMenu');
+const signinLink  = document.getElementById('signinLink');
+const signupLink  = document.getElementById('signupLink');
+const btnSignOut  = document.getElementById('btnSignOut');
+const btnMyUploads= document.getElementById('btnMyUploads');
+const btnAbout    = document.getElementById('btnAbout');
+const btnGoCategory = document.getElementById('btnGoCategory');
+const btnList     = document.getElementById('btnList');
+const btnGoUpload = document.getElementById('btnGoUpload');
 
-// 공통 링크/버튼
-const signinLink = document.getElementById('signinLink');
-const signupLink = document.getElementById('signupLink');
-const btnSignOut = document.getElementById('btnSignOut');
-const btnMyUploads = document.getElementById('btnMyUploads');
-const btnAbout     = document.getElementById('btnAbout');
-const btnGoCategory= document.getElementById('btnGoCategory');
-const btnList      = document.getElementById('btnList');
-const btnGoUpload  = document.getElementById('btnGoUpload');
+const playerBox   = document.getElementById('playerBox'); // 권장 컨테이너
+const playerHost  = playerBox || document.getElementById('videoContainer') || document.body;
 
-const playerBox  = document.getElementById('playerBox');
-
-/* ===== 상단바 초기화 (브랜드별 인삿말/메뉴) ===== */
+/* ===== 상단바 초기화 ===== */
 onAuthStateChanged(auth, (user)=>{
   const loggedIn = !!user;
   const name = loggedIn ? (user.displayName || 'User') : '';
 
-  // 인삿말: index.js와 동일 규칙 → 로그인 시 "{GREETING_TEXT} {name}", 로그아웃 시 "{GREETING_TEXT}"
-  if (isCopyTube && welcomeCT) {
-    welcomeCT.textContent = loggedIn ? `${GREETING_TEXT} ${name}` : GREETING_TEXT;
-  } else if (welcomeAT) {
-    welcomeAT.textContent = loggedIn ? `${GREETING_TEXT} ${name}` : GREETING_TEXT;
-  }
-  // ArkTube 전용 닉네임 표기 영역: 로그인 때만 이름 표시
+  if (isCopyTube && welcomeCT) welcomeCT.textContent = loggedIn ? `${GREETING_TEXT} ${name}` : GREETING_TEXT;
+  else if (welcomeAT)          welcomeAT.textContent = loggedIn ? `${GREETING_TEXT} ${name}` : GREETING_TEXT;
+
   if (!isCopyTube && nickNameEl) nickNameEl.textContent = loggedIn ? name : '';
 
   if (signinLink)  signinLink.style.display  = loggedIn ? 'none' : 'inline-block';
@@ -75,12 +60,11 @@ onAuthStateChanged(auth, (user)=>{
 });
 btnSignOut?.addEventListener('click', async ()=>{ try{ await fbSignOut(); }catch{} location.reload(); });
 
-// 브랜드 홈 링크(CT 템플릿이 #brandHome를 href="#"로 줌)
 if (brandHome){
   brandHome.addEventListener('click', (e)=>{ e.preventDefault(); location.href='./index.html'; });
 }
 
-/* ===== 드롭다운 (CopyTube 우선, ArkTube 폴백) ===== */
+/* ===== 드롭다운 ===== */
 (function initDropdown(){
   const trigger = menuBtnCT || btnMenuAT || btnDropdown;
   if (!trigger || !dropdown) return;
@@ -117,7 +101,7 @@ if (brandHome){
     const onKey = (e)=>{
       if (e.key === 'Escape') setOpen(false);
       if (e.key === 'Tab' && open){
-        const nodes = dropdown.querySelectorAll('a,button,[tabindex]:not([tabindex="-1"])');
+        const nodes = dropdown.querySelectorAll('a,button,[tabindex]:not([tabindex="-1"])`);
         if (!nodes.length) return;
         const first = nodes[0], last = nodes[nodes.length-1];
         if (e.shiftKey && document.activeElement === first){ e.preventDefault(); last.focus(); }
@@ -135,7 +119,6 @@ if (brandHome){
   trigger.addEventListener('click', (e)=>{ e.preventDefault(); toggle(); });
   dropdown.addEventListener('click', (e)=>{ if (e.target.closest('a,button,[role="menuitem"],[role="menuitemradio"]')) setOpen(false); });
 
-  // 메뉴 항목 라우팅(있을 때만)
   btnAbout     ?.addEventListener('click', ()=> location.href='./about.html');
   btnGoCategory?.addEventListener('click', ()=> location.href='./category.html');
   btnList      ?.addEventListener('click', ()=> location.href='./list.html');
@@ -144,16 +127,13 @@ if (brandHome){
 
 /* ===== 삼성 인터넷 하단 잘림 보정 ===== */
 function getVisualHeight(){
-  if (window.visualViewport && Number.isFinite(window.visualViewport.height)) {
-    return window.visualViewport.height;
-  }
+  if (window.visualViewport && Number.isFinite(window.visualViewport.height)) return window.visualViewport.height;
   return window.innerHeight;
 }
 function debounce(fn, ms=80){ let id; return (...a)=>{ clearTimeout(id); id=setTimeout(()=>fn(...a), ms); }; }
 function fitPlayerToViewport(){
   try{
-    const el = playerBox || document.getElementById('videoContainer'); // CT 템플릿 폴백
-    if (!el) return;
+    const el = playerHost; if (!el) return;
     const rectTop = el.getBoundingClientRect().top;
     const vh      = getVisualHeight();
     const safeB   = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--safe-area-inset-bottom')) || 0;
@@ -200,10 +180,25 @@ if (!Array.isArray(queue) || queue.length===0){
   }
 }
 
-/* ===== Resume (시리즈만) ===== */
-const resumeCtx = (()=>{ try{ return JSON.parse(sessionStorage.getItem('resumeCtx')||'null'); }catch{ return null; }})();
-const isSeriesMode = !!(resumeCtx && resumeCtx.groupKey && resumeCtx.subKey);
+/* ===== 시리즈 모드 안전 판정 ===== */
+function readResumeCtx(){ try{ return JSON.parse(sessionStorage.getItem('resumeCtx')||'null'); }catch{ return null; } }
+function isSeriesSubKey(v){ return typeof v==='string' && v.startsWith('pick'); } // makelist가 series_*의 children value를 저장
+function computeSeriesMode(){
+  const rc = readResumeCtx();
+  if (!rc || !rc.groupKey || !rc.subKey) return false;
+  if (typeof rc.groupKey !== 'string' || !rc.groupKey.startsWith('series_')) return false;
 
+  const pm = readPlayMeta() || null;
+  const ok = pm && Array.isArray(pm.cats) && pm.cats.length===1 && pm.cats[0]===rc.subKey && isSeriesSubKey(rc.subKey);
+  if (!ok){
+    try{ sessionStorage.removeItem('resumeCtx'); }catch{}
+    return false;
+  }
+  return true;
+}
+let isSeriesMode = computeSeriesMode();
+
+/* ===== Resume I/O ===== */
 async function saveResume(payload){
   try{
     const mod = await import('./resume.js');
@@ -213,13 +208,15 @@ async function saveResume(payload){
   sessionStorage.setItem(key, JSON.stringify({ index: payload.index, t: payload.t||0 }));
 }
 async function loadResumeValue(){
+  const rc = readResumeCtx();
+  if (!rc) return null;
   try{
     const mod = await import('./resume.js');
     if (typeof mod.loadResume === 'function'){
-      return mod.loadResume({ type: resumeCtx.typeForKey||'video', groupKey: resumeCtx.groupKey, subKey: resumeCtx.subKey });
+      return mod.loadResume({ type: rc.typeForKey||'video', groupKey: rc.groupKey, subKey: rc.subKey });
     }
   }catch{}
-  const key = `resume:${(resumeCtx?.typeForKey||'video')}:${resumeCtx?.groupKey}:${resumeCtx?.subKey}`;
+  const key = `resume:${(rc?.typeForKey||'video')}:${rc?.groupKey}:${rc?.subKey}`;
   try{ return JSON.parse(sessionStorage.getItem(key)||'null'); }catch{ return null; }
 }
 
@@ -251,15 +248,17 @@ async function loadCurrent(){
 
   // 진행 저장(시리즈만)
   if (saveTicker){ clearInterval(saveTicker); saveTicker=null; }
+  isSeriesMode = computeSeriesMode();
   if (isSeriesMode){
     saveTicker = setInterval(async ()=>{
       try{
         const t = Math.floor(ytPlayer?.getCurrentTime?.() || 0);
+        const rc = readResumeCtx(); if (!rc) return;
         await saveResume({
-          type: resumeCtx.typeForKey || 'video',
-          groupKey: resumeCtx.groupKey,
-          subKey: resumeCtx.subKey,
-          sort: (resumeCtx.sort || 'createdAt-asc'),
+          type: rc.typeForKey || 'video',
+          groupKey: rc.groupKey,
+          subKey: rc.subKey,
+          sort: (rc.sort || 'createdAt-asc'),
           index: idx,
           t
         });
@@ -267,18 +266,16 @@ async function loadCurrent(){
     }, RESUME_SAVE_MS);
   }
 
-  // 새 영상 로드 후에도 뷰포트 맞춤
   fitPlayerToViewport();
 }
 
 async function onReady(){
-  // 모바일/삼성인터넷 자동재생 보정
   if (!firstReadyTweak){
     firstReadyTweak = true;
     try{ ytPlayer.mute(); ytPlayer.playVideo(); setTimeout(()=>ytPlayer.unMute(), 800); }catch{}
   }
   // 시리즈만 위치 복원
-  if (isSeriesMode){
+  if (computeSeriesMode()){
     try{
       const saved = await loadResumeValue();
       const t = Number(saved?.t||0);
@@ -291,19 +288,21 @@ async function onReady(){
 async function onStateChange(ev){
   const S = YT.PlayerState;
   if (ev.data === S.ENDED){
-    // ▶ ENDED에서 '다음 인덱스'로 저장(시리즈/옵션 켜짐)
-    if (RESUME_ADVANCE_ON_END && isSeriesMode) {
+    // ENDED → (시리즈 모드일 때만) 다음 인덱스로 저장
+    if (RESUME_ADVANCE_ON_END && computeSeriesMode()) {
       const q = readPlayQueue() || queue;
       const nextIndex = Math.min(idx + 1, Math.max(0, (q?.length || 1) - 1));
       try{
-        await saveResume({
-          type: resumeCtx.typeForKey || 'video',
-          groupKey: resumeCtx.groupKey,
-          subKey: resumeCtx.subKey,
-          sort: (resumeCtx.sort || 'createdAt-asc'),
-          index: nextIndex,
-          t: 0
-        });
+        const rc = readResumeCtx(); if (rc){
+          await saveResume({
+            type: rc.typeForKey || 'video',
+            groupKey: rc.groupKey,
+            subKey: rc.subKey,
+            sort: (rc.sort || 'createdAt-asc'),
+            index: nextIndex,
+            t: 0
+          });
+        }
       }catch{}
     }
 
@@ -323,12 +322,15 @@ async function next(){
   queue = readPlayQueue() || queue;
   if (idx >= queue.length-1){ setPlayIndex(queue.length-1); return; }
 
-  if (isSeriesMode){
-    await saveResume({
-      type: resumeCtx.typeForKey || 'video',
-      groupKey: resumeCtx.groupKey, subKey: resumeCtx.subKey,
-      index: idx + 1, t: 0
-    });
+  if (computeSeriesMode()){
+    const rc = readResumeCtx();
+    if (rc){
+      await saveResume({
+        type: rc.typeForKey || 'video',
+        groupKey: rc.groupKey, subKey: rc.subKey,
+        index: idx + 1, t: 0
+      });
+    }
   }
   setPlayIndex(idx + 1);
   await loadCurrent();
@@ -336,12 +338,15 @@ async function next(){
 
 async function prev(){
   if (idx <= 0) return;
-  if (isSeriesMode){
-    await saveResume({
-      type: resumeCtx.typeForKey || 'video',
-      groupKey: resumeCtx.groupKey, subKey: resumeCtx.subKey,
-      index: idx - 1, t: 0
-    });
+  if (computeSeriesMode()){
+    const rc = readResumeCtx();
+    if (rc){
+      await saveResume({
+        type: rc.typeForKey || 'video',
+        groupKey: rc.groupKey, subKey: rc.subKey,
+        index: idx - 1, t: 0
+      });
+    }
   }
   setPlayIndex(idx - 1);
   await loadCurrent();
@@ -349,7 +354,7 @@ async function prev(){
 
 function toggleFullscreen(){
   if (document.fullscreenElement){ document.exitFullscreen().catch(()=>{}); }
-  else { (playerBox || document.getElementById('videoContainer'))?.requestFullscreen?.(); }
+  else { playerHost?.requestFullscreen?.(); }
 }
 
 /* ===== 키보드 ===== */
@@ -372,6 +377,64 @@ window.addEventListener('keydown',(e)=>{
   else if (e.key.toLowerCase()==='f'){ e.preventDefault(); toggleFullscreen(); }
   else if (e.key==='Escape'){ e.preventDefault(); goBack(); }
 });
+
+/* ===== 모바일: 세로 스와이프 (↑ 다음 / ↓ 이전) ===== */
+(function verticalSwipe({
+  areaEl = playerHost,      // 제스처 유효 영역
+  threshold = 60,           // 최소 Y 이동(px)
+  slopX = 45,               // 허용되는 X 이동
+  timeMax = 700             // 최대 지속(ms) — 플릭 감도
+} = {}){
+  if (!areaEl) return;
+
+  let x0=0, y0=0, t0=0, active=false, canceled=false, dragging=false;
+
+  function isInteractive(el){
+    return !!(el && el.closest('input,textarea,select,button,[role="button"],a,[contenteditable="true"]'));
+  }
+  function inArea(p){
+    const r = areaEl.getBoundingClientRect();
+    return p.clientX>=r.left && p.clientX<=r.right && p.clientY>=r.top && p.clientY<=r.bottom;
+  }
+  function start(e){
+    const t=(e.touches&&e.touches[0])||(e.pointerType?e:null); if(!t) return;
+    if (!inArea(t) || isInteractive(e.target)) return;
+    x0=t.clientX; y0=t.clientY; t0=Date.now();
+    active=true; canceled=false; dragging=false;
+  }
+  function move(e){
+    if(!active) return;
+    const t=(e.touches&&e.touches[0])||(e.pointerType?e:null); if(!t) return;
+    const dx=t.clientX-x0, dy=t.clientY-y0;
+    if (Math.abs(dx)>slopX){ canceled=true; active=false; return; }
+    if (Math.abs(dy)>10){ dragging=true; } // 의도 감지
+    if (dragging) e.preventDefault(); // 수직 스와이프 중엔 스크롤 억제
+  }
+  function end(e){
+    if(!active) return; active=false;
+    const t=(e.changedTouches&&e.changedTouches[0])||(e.pointerType?e:null); if(!t) return;
+    const dx=t.clientX-x0, dy=t.clientY-y0, dt=Date.now()-t0;
+    if (canceled) return;
+
+    // 플릭/드래그 모두 허용: 시간/거리 조건 중 하나 충족
+    const strong = Math.abs(dy)>=threshold;
+    const quick  = dt<=timeMax && Math.abs(dy)>=Math.max(30, threshold*0.6);
+    if (!(strong || quick)) return;
+
+    if (dy <= -Math.max(threshold, 30)){ // ↑ 위로 → 다음
+      next();
+    } else if (dy >=  Math.max(threshold, 30)){ // ↓ 아래로 → 이전
+      prev();
+    }
+  }
+
+  document.addEventListener('touchstart', start, {passive:true});
+  document.addEventListener('touchmove',  move , {passive:false});
+  document.addEventListener('touchend',   end  , {passive:true,capture:true});
+  document.addEventListener('pointerdown',start,{passive:true});
+  document.addEventListener('pointermove', move ,{passive:false});
+  document.addEventListener('pointerup',  end  , {passive:true,capture:true});
+})();
 
 /* ===== 시작 ===== */
 await loadCurrent();
