@@ -1,7 +1,7 @@
-// /js/watch.js — ArkTube Watch 완전판 v0.1.2 (세로 스와이프 + 시리즈 모드 안전판정)
-// - 모바일 세로 스와이프: ↑ 다음 / ↓ 이전 (YouTube 앱 스타일)
-// - 시리즈(resume) 동작은 "단일 series_ 서브키"일 때만 활성화, 아니면 자동 비활성화/정리
-// - 나머지 기능: 상단바/드롭다운, 큐/메타, IFrame API, 연속재생, 자동 확장, 키보드 단축키 등 기존 유지
+// /js/watch.js — ArkTube Watch 완전판 v0.1.3
+// - 브랜드 분기 제거(공통 규격)
+// - 모바일 세로 스와이프: ↑ 다음 / ↓ 이전
+// - 시리즈 resume: "단일 series_ 서브키"일 때만 활성(아니면 자동 비활성/정리)
 
 import { auth } from './firebase-init.js';
 import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
@@ -10,26 +10,19 @@ import {
   fetchMoreForWatchIfNeeded, readListSnapshot
 } from './makelist.js';
 
-/* ===== 브랜드/상수 ===== */
-const isCopyTube = !!document.getElementById('welcome') || (document.title||'').toLowerCase().includes('copytube');
-const GREETING_TEXT         = isCopyTube ? 'Welcome!' : 'Enjoy!';
+/* ===== 상수 ===== */
+const GREETING_TEXT         = 'Welcome!';
 const RESUME_SAVE_MS        = 10000; // 10s
 const RESUME_RESTORE_MIN    = 5;     // 5s
 const RESUME_ADVANCE_ON_END = true;
 const KEY_PLAY_INDEX        = 'playIndex';
 
-/* ===== DOM ===== */
-const welcomeCT   = document.getElementById('welcome');
-const menuBtnCT   = document.getElementById('menuBtn');
-const backdropCT  = document.getElementById('menuBackdrop');
-const brandHome   = document.getElementById('brandHome');
-
-const welcomeAT   = document.getElementById('welcomeText');
-const nickNameEl  = document.getElementById('nickName');
-const btnMenuAT   = document.getElementById('btnMenu');
-const btnDropdown = document.getElementById('btnDropdown');
-
+/* ===== DOM (공통 id 우선, 없으면 대체 id) ===== */
+const welcomeEl   = document.getElementById('welcome') || document.getElementById('welcomeText');
+const menuBtn     = document.getElementById('menuBtn') || document.getElementById('btnMenu') || document.getElementById('btnDropdown');
+const menuBackdrop= document.getElementById('menuBackdrop'); // 있으면 사용
 const dropdown    = document.getElementById('dropdownMenu');
+const brandHome   = document.getElementById('brandHome');
 
 const signinLink  = document.getElementById('signinLink');
 const signupLink  = document.getElementById('signupLink');
@@ -40,7 +33,7 @@ const btnGoCategory = document.getElementById('btnGoCategory');
 const btnList     = document.getElementById('btnList');
 const btnGoUpload = document.getElementById('btnGoUpload');
 
-const playerBox   = document.getElementById('playerBox'); // 권장 컨테이너
+const playerBox   = document.getElementById('playerBox');
 const playerHost  = playerBox || document.getElementById('videoContainer') || document.body;
 
 /* ===== 상단바 초기화 ===== */
@@ -48,60 +41,57 @@ onAuthStateChanged(auth, (user)=>{
   const loggedIn = !!user;
   const name = loggedIn ? (user.displayName || 'User') : '';
 
-  if (isCopyTube && welcomeCT) welcomeCT.textContent = loggedIn ? `${GREETING_TEXT} ${name}` : GREETING_TEXT;
-  else if (welcomeAT)          welcomeAT.textContent = loggedIn ? `${GREETING_TEXT} ${name}` : GREETING_TEXT;
-
-  if (!isCopyTube && nickNameEl) nickNameEl.textContent = loggedIn ? name : '';
+  if (welcomeEl) welcomeEl.textContent = loggedIn ? `${GREETING_TEXT} ${name}` : GREETING_TEXT;
 
   if (signinLink)  signinLink.style.display  = loggedIn ? 'none' : 'inline-block';
   if (signupLink)  signupLink.style.display  = loggedIn ? 'none' : 'inline-block';
   if (btnSignOut)  btnSignOut.style.display  = loggedIn ? 'inline-block' : 'none';
-  if (btnMyUploads) btnMyUploads.onclick = ()=> location.href = loggedIn ? './manage-uploads.html' : './signin.html';
+  if (btnMyUploads) btnMyUploads.onclick = function(){ location.href = loggedIn ? './manage-uploads.html' : './signin.html'; };
 });
-btnSignOut?.addEventListener('click', async ()=>{ try{ await fbSignOut(); }catch{} location.reload(); });
-
+if (btnSignOut){
+  btnSignOut.addEventListener('click', async function(){ try{ await fbSignOut(); }catch(e){} location.reload(); });
+}
 if (brandHome){
-  brandHome.addEventListener('click', (e)=>{ e.preventDefault(); location.href='./index.html'; });
+  brandHome.addEventListener('click', function(e){ e.preventDefault(); location.href='./index.html'; });
 }
 
-/* ===== 드롭다운 ===== */
+/* ===== 드롭다운(공통) ===== */
 (function initDropdown(){
-  const trigger = menuBtnCT || btnMenuAT || btnDropdown;
-  if (!trigger || !dropdown) return;
-
+  if (!menuBtn || !dropdown) return;
   let open=false, offPointer=null, offKey=null;
 
-  const setOpen = (v)=>{
+  function setOpen(v){
     open=!!v;
-    trigger.setAttribute('aria-expanded', String(open));
+    menuBtn.setAttribute('aria-expanded', String(open));
     dropdown.setAttribute('aria-hidden', String(!open));
     if (open){
       dropdown.classList.remove('hidden');
-      requestAnimationFrame(()=> dropdown.classList.add('open'));
-      if (backdropCT) backdropCT.classList.add('show');
+      requestAnimationFrame(function(){ dropdown.classList.add('open'); });
+      if (menuBackdrop) menuBackdrop.classList.add('show');
+
       const first = dropdown.querySelector('a,button,[tabindex]:not([tabindex="-1"])');
-      (first instanceof HTMLElement ? first : trigger)?.focus?.({preventScroll:true});
+      (first instanceof HTMLElement ? first : menuBtn).focus({preventScroll:true});
       bindDoc();
-    } else {
+    }else{
       dropdown.classList.remove('open');
-      setTimeout(()=> dropdown.classList.add('hidden'), 120);
-      if (backdropCT) backdropCT.classList.remove('show');
-      trigger.focus?.({preventScroll:true});
+      setTimeout(function(){ dropdown.classList.add('hidden'); }, 120);
+      if (menuBackdrop) menuBackdrop.classList.remove('show');
+      menuBtn.focus({preventScroll:true});
       unbindDoc();
     }
-  };
-  const toggle = ()=> setOpen(!open);
+  }
+  function toggle(){ setOpen(!open); }
 
   function bindDoc(){
     if (offPointer || offKey) return;
-    const onPointer = (e)=>{
-      if (e.target.closest('#dropdownMenu') || e.target.closest(`#${trigger.id}`)) return;
+    const onPointer = function(e){
+      if (e.target.closest('#dropdownMenu') || e.target.closest('#'+menuBtn.id)) return;
       setOpen(false);
     };
-    const onKey = (e)=>{
+    const onKey = function(e){
       if (e.key === 'Escape') setOpen(false);
       if (e.key === 'Tab' && open){
-        const nodes = dropdown.querySelectorAll('a,button,[tabindex]:not([tabindex="-1"])`);
+        const nodes = dropdown.querySelectorAll('a,button,[tabindex]:not([tabindex="-1"])');
         if (!nodes.length) return;
         const first = nodes[0], last = nodes[nodes.length-1];
         if (e.shiftKey && document.activeElement === first){ e.preventDefault(); last.focus(); }
@@ -110,19 +100,21 @@ if (brandHome){
     };
     document.addEventListener('pointerdown', onPointer, { passive:true });
     document.addEventListener('keydown', onKey);
-    offPointer = ()=> document.removeEventListener('pointerdown', onPointer, { passive:true });
-    offKey     = ()=> document.removeEventListener('keydown', onKey);
-    if (backdropCT) backdropCT.addEventListener('click', ()=> setOpen(false), { once:true });
+    offPointer = function(){ document.removeEventListener('pointerdown', onPointer, { passive:true }); };
+    offKey     = function(){ document.removeEventListener('keydown', onKey); };
+    if (menuBackdrop) menuBackdrop.addEventListener('click', function(){ setOpen(false); }, { once:true });
   }
-  function unbindDoc(){ if(offPointer){offPointer();offPointer=null;} if(offKey){offKey();offKey=null;} }
+  function unbindDoc(){ if(offPointer){offPointer(); offPointer=null;} if(offKey){offKey(); offKey=null;} }
 
-  trigger.addEventListener('click', (e)=>{ e.preventDefault(); toggle(); });
-  dropdown.addEventListener('click', (e)=>{ if (e.target.closest('a,button,[role="menuitem"],[role="menuitemradio"]')) setOpen(false); });
+  menuBtn.addEventListener('click', function(e){ e.preventDefault(); toggle(); });
+  dropdown.addEventListener('click', function(e){
+    if (e.target.closest('a,button,[role="menuitem"],[role="menuitemradio"]')) setOpen(false);
+  });
 
-  btnAbout     ?.addEventListener('click', ()=> location.href='./about.html');
-  btnGoCategory?.addEventListener('click', ()=> location.href='./category.html');
-  btnList      ?.addEventListener('click', ()=> location.href='./list.html');
-  btnGoUpload  ?.addEventListener('click', ()=> location.href='./upload.html');
+  if (btnAbout)      btnAbout.addEventListener('click', function(){ location.href='./about.html'; });
+  if (btnGoCategory) btnGoCategory.addEventListener('click', function(){ location.href='./category.html'; });
+  if (btnList)       btnList.addEventListener('click', function(){ location.href='./list.html'; });
+  if (btnGoUpload)   btnGoUpload.addEventListener('click', function(){ location.href='./upload.html'; });
 })();
 
 /* ===== 삼성 인터넷 하단 잘림 보정 ===== */
@@ -130,7 +122,7 @@ function getVisualHeight(){
   if (window.visualViewport && Number.isFinite(window.visualViewport.height)) return window.visualViewport.height;
   return window.innerHeight;
 }
-function debounce(fn, ms=80){ let id; return (...a)=>{ clearTimeout(id); id=setTimeout(()=>fn(...a), ms); }; }
+function debounce(fn, ms){ let id; return function(){ const args=arguments; clearTimeout(id); id=setTimeout(function(){ fn.apply(null,args); }, ms); }; }
 function fitPlayerToViewport(){
   try{
     const el = playerHost; if (!el) return;
@@ -143,13 +135,13 @@ function fitPlayerToViewport(){
     const idealH  = Math.round(vw * 9 / 16);
 
     const h = Math.min(idealH, available);
-    el.style.height = h > 0 ? `${h}px` : '';
-  }catch{}
+    el.style.height = h > 0 ? (h + 'px') : '';
+  }catch(e){}
 }
 fitPlayerToViewport();
 window.addEventListener('resize', debounce(fitPlayerToViewport, 80));
-window.addEventListener('orientationchange', ()=> setTimeout(fitPlayerToViewport, 250));
-document.addEventListener('visibilitychange', ()=>{ if (!document.hidden) setTimeout(fitPlayerToViewport, 120); });
+window.addEventListener('orientationchange', function(){ setTimeout(fitPlayerToViewport, 250); });
+document.addEventListener('visibilitychange', function(){ if (!document.hidden) setTimeout(fitPlayerToViewport, 120); });
 if (window.visualViewport){
   window.visualViewport.addEventListener('resize', debounce(fitPlayerToViewport, 50));
   window.visualViewport.addEventListener('scroll', debounce(fitPlayerToViewport, 50));
@@ -157,72 +149,75 @@ if (window.visualViewport){
 
 /* ===== 큐/메타 ===== */
 let queue = readPlayQueue();
-let idx   = clamp(readPlayIndex(), 0, Math.max(0, (queue?.length||1)-1));
+let idx   = clamp(readPlayIndex(), 0, Math.max(0, (queue && queue.length ? queue.length : 1)-1));
 const meta = readPlayMeta() || { returnTo:'index' };
 
 function clamp(n,min,max){ n=Number(n||0); if(!Number.isFinite(n)) n=0; return Math.max(min, Math.min(max, n)); }
-function setPlayIndex(i){ idx=clamp(i,0,Math.max(0,queue.length-1)); try{ sessionStorage.setItem(KEY_PLAY_INDEX, String(idx)); }catch{} }
+function setPlayIndex(i){ idx=clamp(i,0,Math.max(0,queue.length-1)); try{ sessionStorage.setItem(KEY_PLAY_INDEX, String(idx)); }catch(e){} }
 function current(){ queue = readPlayQueue() || queue; idx = clamp(idx,0,Math.max(0,queue.length-1)); return queue[idx]; }
 function goBack(){
-  const from = meta?.returnTo || new URL(location.href).searchParams.get('from') || 'index';
+  const from = meta && meta.returnTo ? meta.returnTo : (new URL(location.href).searchParams.get('from') || 'index');
   location.href = (from === 'list') ? './list.html' : './index.html';
 }
 
-// 큐 없음 → 리스트 스냅샷 보조 → 그래도 없으면 index로
+// 큐가 비었으면 리스트 스냅샷으로 보조, 그래도 없으면 index로
 if (!Array.isArray(queue) || queue.length===0){
   const snap = readListSnapshot();
-  if (Array.isArray(snap?.items) && snap.items.length){
+  if (snap && Array.isArray(snap.items) && snap.items.length){
     queue = snap.items; idx = 0;
-    try{ sessionStorage.setItem('playQueue', JSON.stringify(queue)); }catch{}
-    try{ sessionStorage.setItem('playIndex', '0'); }catch{}
+    try{ sessionStorage.setItem('playQueue', JSON.stringify(queue)); }catch(e){}
+    try{ sessionStorage.setItem('playIndex', '0'); }catch(e){}
   } else {
     location.replace('./index.html');
   }
 }
 
 /* ===== 시리즈 모드 안전 판정 ===== */
-function readResumeCtx(){ try{ return JSON.parse(sessionStorage.getItem('resumeCtx')||'null'); }catch{ return null; } }
-function isSeriesSubKey(v){ return typeof v==='string' && v.startsWith('pick'); } // makelist가 series_*의 children value를 저장
-function computeSeriesMode(){
-  const rc = readResumeCtx();
-  if (!rc || !rc.groupKey || !rc.subKey) return false;
-  if (typeof rc.groupKey !== 'string' || !rc.groupKey.startsWith('series_')) return false;
+// 규칙: resumeCtx가 있고, groupKey가 'series_'로 시작하며,
+//       playMeta.cats가 [단일값]이고 그 값 === resumeCtx.subKey 일 때만 시리즈 모드.
+function readResumeCtx(){ try{ return JSON.parse(sessionStorage.getItem('resumeCtx')||'null'); }catch(e){ return null; } }
+function isSeriesModeOK(){
+  const rc = readResumeCtx(); if (!rc || !rc.groupKey || !rc.subKey) return false;
+  if (typeof rc.groupKey !== 'string' || rc.groupKey.indexOf('series_') !== 0) return false;
 
   const pm = readPlayMeta() || null;
-  const ok = pm && Array.isArray(pm.cats) && pm.cats.length===1 && pm.cats[0]===rc.subKey && isSeriesSubKey(rc.subKey);
-  if (!ok){
-    try{ sessionStorage.removeItem('resumeCtx'); }catch{}
-    return false;
-  }
-  return true;
+  const ok = !!(pm && Array.isArray(pm.cats) && pm.cats.length===1 && pm.cats[0]===rc.subKey);
+  if (!ok){ try{ sessionStorage.removeItem('resumeCtx'); }catch(e){} }
+  return ok;
 }
-let isSeriesMode = computeSeriesMode();
+let isSeriesMode = isSeriesModeOK();
 
-/* ===== Resume I/O ===== */
+/* ===== Resume I/O (시리즈 전용) ===== */
 async function saveResume(payload){
   try{
     const mod = await import('./resume.js');
     if (typeof mod.saveResume === 'function'){ mod.saveResume(payload); return; }
-  }catch{}
-  const key = `resume:${payload.type}:${payload.groupKey}:${payload.subKey}`;
+  }catch(e){}
+  const key = 'resume:' + payload.type + ':' + payload.groupKey + ':' + payload.subKey;
   sessionStorage.setItem(key, JSON.stringify({ index: payload.index, t: payload.t||0 }));
 }
 async function loadResumeValue(){
-  const rc = readResumeCtx();
-  if (!rc) return null;
+  const rc = readResumeCtx(); if (!rc) return null;
   try{
     const mod = await import('./resume.js');
     if (typeof mod.loadResume === 'function'){
       return mod.loadResume({ type: rc.typeForKey||'video', groupKey: rc.groupKey, subKey: rc.subKey });
     }
-  }catch{}
-  const key = `resume:${(rc?.typeForKey||'video')}:${rc?.groupKey}:${rc?.subKey}`;
-  try{ return JSON.parse(sessionStorage.getItem(key)||'null'); }catch{ return null; }
+  }catch(e){}
+  const key = 'resume:' + (rc.typeForKey||'video') + ':' + rc.groupKey + ':' + rc.subKey;
+  try{ return JSON.parse(sessionStorage.getItem(key)||'null'); }catch(e){ return null; }
 }
 
 /* ===== YouTube IFrame API ===== */
 let ytPlayer=null, saveTicker=null, firstReadyTweak=false;
-function ensureYT(){ return new Promise(res=>{ if (window.YT?.Player) return res(); const it=setInterval(()=>{ if (window.YT?.Player){ clearInterval(it); res(); } },50); }); }
+function ensureYT(){
+  return new Promise(function(res){
+    if (window.YT && window.YT.Player) return res();
+    const it = setInterval(function(){
+      if (window.YT && window.YT.Player){ clearInterval(it); res(); }
+    }, 50);
+  });
+}
 window.onYouTubeIframeAPIReady = function(){};
 
 async function loadCurrent(){
@@ -236,23 +231,23 @@ async function loadCurrent(){
   if (!ytPlayer){
     ytPlayer = new YT.Player('player', {
       width:'100%', height:'100%',
-      videoId: it.id, // 최초는 videoId로
+      videoId: it.id,
       playerVars: { autoplay:1, playsinline:1, modestbranding:1, rel:0, fs:1, controls:1 },
       events:     { onReady, onStateChange, onError }
     });
   } else if (typeof ytPlayer.loadVideoById === 'function') {
     ytPlayer.loadVideoById({ videoId: it.id });
   } else {
-    try { ytPlayer.cueVideoById?.({ videoId: it.id }); } catch {}
+    try { ytPlayer.cueVideoById && ytPlayer.cueVideoById({ videoId: it.id }); } catch(e){}
   }
 
   // 진행 저장(시리즈만)
   if (saveTicker){ clearInterval(saveTicker); saveTicker=null; }
-  isSeriesMode = computeSeriesMode();
+  isSeriesMode = isSeriesModeOK();
   if (isSeriesMode){
-    saveTicker = setInterval(async ()=>{
+    saveTicker = setInterval(async function(){
       try{
-        const t = Math.floor(ytPlayer?.getCurrentTime?.() || 0);
+        const t = Math.floor((ytPlayer && ytPlayer.getCurrentTime ? ytPlayer.getCurrentTime() : 0) || 0);
         const rc = readResumeCtx(); if (!rc) return;
         await saveResume({
           type: rc.typeForKey || 'video',
@@ -262,7 +257,7 @@ async function loadCurrent(){
           index: idx,
           t
         });
-      }catch{}
+      }catch(e){}
     }, RESUME_SAVE_MS);
   }
 
@@ -272,15 +267,15 @@ async function loadCurrent(){
 async function onReady(){
   if (!firstReadyTweak){
     firstReadyTweak = true;
-    try{ ytPlayer.mute(); ytPlayer.playVideo(); setTimeout(()=>ytPlayer.unMute(), 800); }catch{}
+    try{ ytPlayer.mute(); ytPlayer.playVideo(); setTimeout(function(){ ytPlayer.unMute(); }, 800); }catch(e){}
   }
   // 시리즈만 위치 복원
-  if (computeSeriesMode()){
+  if (isSeriesModeOK()){
     try{
       const saved = await loadResumeValue();
-      const t = Number(saved?.t||0);
-      if (Number.isFinite(t) && t >= RESUME_RESTORE_MIN){ try{ ytPlayer.seekTo(t, true); }catch{} }
-    }catch{}
+      const t = Number(saved && saved.t || 0);
+      if (Number.isFinite(t) && t >= RESUME_RESTORE_MIN){ try{ ytPlayer.seekTo(t, true); }catch(e){} }
+    }catch(e){}
   }
   setTimeout(fitPlayerToViewport, 120);
 }
@@ -289,9 +284,9 @@ async function onStateChange(ev){
   const S = YT.PlayerState;
   if (ev.data === S.ENDED){
     // ENDED → (시리즈 모드일 때만) 다음 인덱스로 저장
-    if (RESUME_ADVANCE_ON_END && computeSeriesMode()) {
+    if (RESUME_ADVANCE_ON_END && isSeriesModeOK()) {
       const q = readPlayQueue() || queue;
-      const nextIndex = Math.min(idx + 1, Math.max(0, (q?.length || 1) - 1));
+      const nextIndex = Math.min(idx + 1, Math.max(0, (q && q.length ? q.length : 1) - 1));
       try{
         const rc = readResumeCtx(); if (rc){
           await saveResume({
@@ -303,10 +298,10 @@ async function onStateChange(ev){
             t: 0
           });
         }
-      }catch{}
+      }catch(e){}
     }
 
-    try{ await fetchMoreForWatchIfNeeded(idx); }catch{}
+    try{ await fetchMoreForWatchIfNeeded(idx); }catch(e){}
     const autonext = localStorage.getItem('autonext') === '1';
     if (autonext) next();
   } else if (ev.data === S.PLAYING){
@@ -318,11 +313,11 @@ function onError(){ setTimeout(next, 100); }
 
 /* ===== 이동/내비 ===== */
 async function next(){
-  try{ await fetchMoreForWatchIfNeeded(idx); }catch{}
+  try{ await fetchMoreForWatchIfNeeded(idx); }catch(e){}
   queue = readPlayQueue() || queue;
   if (idx >= queue.length-1){ setPlayIndex(queue.length-1); return; }
 
-  if (computeSeriesMode()){
+  if (isSeriesModeOK()){
     const rc = readResumeCtx();
     if (rc){
       await saveResume({
@@ -338,7 +333,7 @@ async function next(){
 
 async function prev(){
   if (idx <= 0) return;
-  if (computeSeriesMode()){
+  if (isSeriesModeOK()){
     const rc = readResumeCtx();
     if (rc){
       await saveResume({
@@ -353,79 +348,79 @@ async function prev(){
 }
 
 function toggleFullscreen(){
-  if (document.fullscreenElement){ document.exitFullscreen().catch(()=>{}); }
-  else { playerHost?.requestFullscreen?.(); }
+  if (document.fullscreenElement){ document.exitFullscreen().catch(function(){}); }
+  else { if (playerHost && playerHost.requestFullscreen) playerHost.requestFullscreen(); }
 }
 
 /* ===== 키보드 ===== */
-window.addEventListener('keydown',(e)=>{
-  const tag=(e.target?.tagName||'').toLowerCase();
-  if (['input','textarea'].includes(tag)) return;
+window.addEventListener('keydown', function(e){
+  const tag=(e.target && e.target.tagName || '').toLowerCase();
+  if (tag==='input' || tag==='textarea') return;
 
   if (e.key==='ArrowLeft'){ e.preventDefault(); prev(); }
   else if (e.key==='ArrowRight'){ e.preventDefault(); next(); }
-  else if (e.key===' ' || e.key.toLowerCase()==='k'){
+  else if (e.key===' ' || (e.key && e.key.toLowerCase()==='k')){
     e.preventDefault();
     try{
-      const st = ytPlayer?.getPlayerState?.();
+      const st = ytPlayer && ytPlayer.getPlayerState ? ytPlayer.getPlayerState() : null;
       if (st === YT.PlayerState.PLAYING) ytPlayer.pauseVideo();
       else ytPlayer.playVideo();
-    }catch{}
+    }catch(err){}
   }
-  else if (e.key.toLowerCase()==='j'){ e.preventDefault(); try{ const t=ytPlayer.getCurrentTime(); ytPlayer.seekTo(Math.max(0,t-10), true); }catch{} }
-  else if (e.key.toLowerCase()==='l'){ e.preventDefault(); try{ const t=ytPlayer.getCurrentTime(); ytPlayer.seekTo(t+10, true); }catch{} }
-  else if (e.key.toLowerCase()==='f'){ e.preventDefault(); toggleFullscreen(); }
+  else if (e.key && e.key.toLowerCase()==='j'){ e.preventDefault(); try{ const t=ytPlayer.getCurrentTime(); ytPlayer.seekTo(Math.max(0,t-10), true); }catch(err){} }
+  else if (e.key && e.key.toLowerCase()==='l'){ e.preventDefault(); try{ const t=ytPlayer.getCurrentTime(); ytPlayer.seekTo(t+10, true); }catch(err){} }
+  else if (e.key && e.key.toLowerCase()==='f'){ e.preventDefault(); toggleFullscreen(); }
   else if (e.key==='Escape'){ e.preventDefault(); goBack(); }
 });
 
 /* ===== 모바일: 세로 스와이프 (↑ 다음 / ↓ 이전) ===== */
-(function verticalSwipe({
-  areaEl = playerHost,      // 제스처 유효 영역
-  threshold = 60,           // 최소 Y 이동(px)
-  slopX = 45,               // 허용되는 X 이동
-  timeMax = 700             // 최대 지속(ms) — 플릭 감도
-} = {}){
+(function verticalSwipe(options){
+  options = options || {};
+  const areaEl  = options.areaEl || playerHost; // 제스처 유효 영역
+  const threshold = Number(options.threshold||60); // 최소 Y 이동(px)
+  const slopX     = Number(options.slopX||45);     // 허용 X 이동
+  const timeMax   = Number(options.timeMax||700);  // 플릭 최대 지속(ms)
   if (!areaEl) return;
 
   let x0=0, y0=0, t0=0, active=false, canceled=false, dragging=false;
 
   function isInteractive(el){
-    return !!(el && el.closest('input,textarea,select,button,[role="button"],a,[contenteditable="true"]'));
+    return !!(el && el.closest && el.closest('input,textarea,select,button,[role="button"],a,[contenteditable="true"]'));
   }
   function inArea(p){
     const r = areaEl.getBoundingClientRect();
     return p.clientX>=r.left && p.clientX<=r.right && p.clientY>=r.top && p.clientY<=r.bottom;
   }
+  function getPoint(e){
+    return (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || e;
+  }
+
   function start(e){
-    const t=(e.touches&&e.touches[0])||(e.pointerType?e:null); if(!t) return;
+    const t = getPoint(e); if(!t) return;
     if (!inArea(t) || isInteractive(e.target)) return;
     x0=t.clientX; y0=t.clientY; t0=Date.now();
     active=true; canceled=false; dragging=false;
   }
   function move(e){
     if(!active) return;
-    const t=(e.touches&&e.touches[0])||(e.pointerType?e:null); if(!t) return;
+    const t=getPoint(e); if(!t) return;
     const dx=t.clientX-x0, dy=t.clientY-y0;
     if (Math.abs(dx)>slopX){ canceled=true; active=false; return; }
-    if (Math.abs(dy)>10){ dragging=true; } // 의도 감지
+    if (Math.abs(dy)>10){ dragging=true; }
     if (dragging) e.preventDefault(); // 수직 스와이프 중엔 스크롤 억제
   }
   function end(e){
     if(!active) return; active=false;
-    const t=(e.changedTouches&&e.changedTouches[0])||(e.pointerType?e:null); if(!t) return;
+    const t=getPoint(e); if(!t) return;
     const dx=t.clientX-x0, dy=t.clientY-y0, dt=Date.now()-t0;
     if (canceled) return;
 
-    // 플릭/드래그 모두 허용: 시간/거리 조건 중 하나 충족
     const strong = Math.abs(dy)>=threshold;
     const quick  = dt<=timeMax && Math.abs(dy)>=Math.max(30, threshold*0.6);
     if (!(strong || quick)) return;
 
-    if (dy <= -Math.max(threshold, 30)){ // ↑ 위로 → 다음
-      next();
-    } else if (dy >=  Math.max(threshold, 30)){ // ↓ 아래로 → 이전
-      prev();
-    }
+    if (dy <= -Math.max(threshold, 30)) next();   // ↑ 위로 → 다음
+    else if (dy >= Math.max(threshold, 30)) prev(); // ↓ 아래로 → 이전
   }
 
   document.addEventListener('touchstart', start, {passive:true});
@@ -437,4 +432,4 @@ window.addEventListener('keydown',(e)=>{
 })();
 
 /* ===== 시작 ===== */
-await loadCurrent();
+(async function(){ await loadCurrent(); })();
