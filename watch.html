@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
   <title>ArkTube - 영상 보기</title>
 
-  <!-- CSP: YouTube IFrame + Firebase(Auth/Firestore) + (선택) gtag -->
+  <!-- CSP: YouTube IFrame + Firebase(Auth/Firestore) + (선택) gtag (네가 준 기존안 그대로) -->
   <meta http-equiv="Content-Security-Policy" content="
     default-src 'self';
     base-uri 'self';
@@ -41,16 +41,17 @@
   <link rel="stylesheet" href="./css/style.css"/>
 
   <style>
-    /* ===== ArkTube watch: 검은 톤(색만 CopyTube watch와 동일) ===== */
     :root{ --pad:12px; --safe-bottom: env(safe-area-inset-bottom, 0px); }
     html,body{ height:100%; }
     body{ margin:0; background:#000; color:#fff; }
 
-    /* 상단바 (계정이름과 분리된 메뉴 트리거) */
+    /* 상단바: 프로젝트 공통 구조 + 배경만 투명, 보더 제거 */
     .topbar{
       position:sticky; top:0; z-index:1000;
       display:flex; align-items:center; justify-content:space-between;
-      padding:8px 12px; background:#000; border-bottom:1px solid #222;
+      padding:8px 12px;
+      background:transparent;            /* ← 투명 */
+      border-bottom:none;                /* ← 보더 제거 */
     }
     .brand{ display:flex; align-items:center; gap:8px; text-decoration:none; }
     .brand-logo{ height:44px; }
@@ -86,10 +87,13 @@
     .dropdown button:hover,.dropdown a:hover{ background:#1b1b1b; }
     .dropdown hr{ border:0; border-top:1px solid #333; margin:6px 0; }
 
-    /* 본문: 플레이어만 노출 */
+    /* 본문: 플레이어 컨테이너(16:9를 화면에 예쁘게 맞춤) */
     .wrap{ max-width:1100px; margin:0 auto; padding:var(--pad); padding-bottom: calc(var(--pad) + var(--safe-bottom)); }
     .player-box{ position:relative; width:100%; aspect-ratio:16/9; background:#000; border-radius:12px; overflow:hidden; }
     #player{ width:100%; height:100%; }
+
+    /* 테두리 포커스 제거(공통) */
+    :where(button, a, input, textarea):focus { outline: none; }
   </style>
 
   <!-- YouTube IFrame API (watch.js에서 사용) -->
@@ -98,9 +102,9 @@
   </script>
 </head>
 <body>
-  <!-- 상단바 (인삿말=Enjoy!, 이름=구글 displayName -> #nickName) -->
+  <!-- 상단바 (Enjoy! 고정, 닉/로그인/메뉴는 공통) -->
   <header class="topbar">
-    <a class="brand" href="./index.html" aria-label="ArkTube 홈으로">
+    <a class="brand" id="brandHome" href="./index.html" aria-label="ArkTube 홈으로">
       <img class="brand-logo" src="./image/arktube_side.png" alt="ArkTube"/>
     </a>
 
@@ -131,11 +135,11 @@
     </div>
   </main>
 
-  <!-- Firebase / Auth (admin-common 미사용) -->
+  <!-- Firebase / Auth -->
   <script type="module" src="./js/firebase-init.js"></script>
   <script type="module" src="./js/auth.js"></script>
 
-  <!-- 페이지 스크립트 (너의 watch.js와 1:1 매칭) -->
+  <!-- 페이지 스크립트 -->
   <script type="module" src="./js/watch.js"></script>
 </body>
 </html>
