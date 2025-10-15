@@ -149,16 +149,18 @@ function loadPersonalAll(){
     const id = String(it.id || '').trim() || parseYouTubeId(it.url||'');
     const type = it.type ? String(it.type) : (String(it.url||'').includes('/shorts/')) ? 'shorts' : 'video';
 
-    return {
+    // ❗변경점: ownerName을 절대 덮어쓰지 않음 — 저장된 값이 있을 때만 실어 보냄
+    const item = {
       id,
       url: it.url,
       type: (String(it.url||'').includes('/shorts/')) ? 'shorts' : 'video',
       title: it.title || '',
-      ownerName: '',
       cats: [slot],
       createdAt: Number(it.savedAt||0) || Date.now(),
       playable: !!id
     };
+    if (it.ownerName) item.ownerName = it.ownerName;
+    return item;
   }).filter(x=> !!x.id);
 
   // 형식 필터 적용
@@ -342,17 +344,17 @@ export async function makeForWatchFromIndex({ cats, type }){
   if (onlySeriesSingle) applyResumeStartIndex();
 
   // 이어보기 컨텍스트 세팅 (watch용)
-if (onlySeriesSingle) {
-  const { groupKey, subKey } = SERIES_MAP.get(state.cats[0]);
-  sessionStorage.setItem('resumeCtx', JSON.stringify({
-    typeForKey: 'video',
-    groupKey,
-    subKey,
-    sort: 'createdAt-asc'
-  }));
-} else {
-  sessionStorage.removeItem('resumeCtx');
-}
+  if (onlySeriesSingle) {
+    const { groupKey, subKey } = SERIES_MAP.get(state.cats[0]);
+    sessionStorage.setItem('resumeCtx', JSON.stringify({
+      typeForKey: 'video',
+      groupKey,
+      subKey,
+      sort: 'createdAt-asc'
+    }));
+  } else {
+    sessionStorage.removeItem('resumeCtx');
+  }
 
   stashPlayQueue();
   return { queue: state.queue, startIndex: state.startIndex };
