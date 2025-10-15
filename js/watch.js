@@ -1,7 +1,11 @@
-// /js/watch.js — ArkTube Watch 완전판 v0.1.3
-// - 브랜드 분기 제거(공통 규격)
-// - 모바일 세로 스와이프: ↑ 다음 / ↓ 이전
-// - 시리즈 resume: "단일 series_ 서브키"일 때만 활성(아니면 자동 비활성/정리)
+// /js/watch.js — ArkTube Watch 완전판 v0.1.4
+// - 공통 헤더(브랜드/메뉴/Enjoy!) 유지, 배경만 투명
+// - Firebase/Auth & makelist 연동
+// - ↑/↓ 스와이프, Space/K, ←/→, ',' '.' , F, Esc(히스토리 back)
+// - 시리즈 resume: 안전조건(단일 series_ 서브키)일 때만 10초 주기 저장 + 종료 시 다음 인덱스 저장, 5초 이상일 때만 복원
+// - resume 저장은 validation 거친 후 localStorage('resume:...') (가능하면 resume.js API 우선 사용)
+// - autonext는 localStorage('autonext') 직접 읽기
+// - visualViewport 기반 16:9 높이 보정(삼성 브라우저 대응)
 
 import { auth } from './firebase-init.js';
 import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
@@ -11,48 +15,45 @@ import {
 } from './makelist.js';
 
 /* ===== 상수 ===== */
-const GREETING_TEXT         = 'Welcome!';
 const RESUME_SAVE_MS        = 10000; // 10s
-const RESUME_RESTORE_MIN    = 5;     // 5s
-const RESUME_ADVANCE_ON_END = true;
+const RESUME_RESTORE_MIN    = 5;     // 5s 이상일 때만 복원
+const RESUME_ADVANCE_ON_END = true;  // 종료 시 다음 인덱스로 저장
 const KEY_PLAY_INDEX        = 'playIndex';
 
-/* ===== DOM (공통 id 우선, 없으면 대체 id) ===== */
-const welcomeEl   = document.getElementById('welcome') || document.getElementById('welcomeText');
-const menuBtn     = document.getElementById('menuBtn') || document.getElementById('btnMenu') || document.getElementById('btnDropdown');
-const menuBackdrop= document.getElementById('menuBackdrop'); // 있으면 사용
-const dropdown    = document.getElementById('dropdownMenu');
-const brandHome   = document.getElementById('brandHome');
+/* ===== DOM ===== */
+const welcomeEl     = document.getElementById('welcome') || document.getElementById('welcomeText'); // "Enjoy!"
+const menuBtn       = document.getElementById('btnMenu') || document.getElementById('menuBtn');
+const dropdown      = document.getElementById('dropdownMenu');
+const menuBackdrop  = document.getElementById('menuBackdrop');
+const brandHome     = document.getElementById('brandHome');
 
-const signinLink  = document.getElementById('signinLink');
-const signupLink  = document.getElementById('signupLink');
-const btnSignOut  = document.getElementById('btnSignOut');
-const btnMyUploads= document.getElementById('btnMyUploads');
-const btnAbout    = document.getElementById('btnAbout');
+const signinLink    = document.getElementById('signinLink');
+const signupLink    = document.getElementById('signupLink');
+const btnSignOut    = document.getElementById('btnSignOut');
+const btnMyUploads  = document.getElementById('btnMyUploads');
+const btnAbout      = document.getElementById('btnAbout');
 const btnGoCategory = document.getElementById('btnGoCategory');
-const btnList     = document.getElementById('btnList');
-const btnGoUpload = document.getElementById('btnGoUpload');
+const btnList       = document.getElementById('btnList');
+const btnGoUpload   = document.getElementById('btnGoUpload');
 
 const playerBox   = document.getElementById('playerBox');
-const playerHost  = playerBox || document.getElementById('videoContainer') || document.body;
+const playerHost  = playerBox || document.body;
 
 /* ===== 상단바 초기화 ===== */
 onAuthStateChanged(auth, (user)=>{
   const loggedIn = !!user;
-  const name = loggedIn ? (user.displayName || 'User') : '';
-
-  if (welcomeEl) welcomeEl.textContent = loggedIn ? `${GREETING_TEXT} ${name}` : GREETING_TEXT;
-
+  const name = loggedIn ? (user.displayName || '') : '';
+  if (welcomeEl) welcomeEl.textContent = 'Enjoy!'; // 고정
   if (signinLink)  signinLink.style.display  = loggedIn ? 'none' : 'inline-block';
   if (signupLink)  signupLink.style.display  = loggedIn ? 'none' : 'inline-block';
   if (btnSignOut)  btnSignOut.style.display  = loggedIn ? 'inline-block' : 'none';
-  if (btnMyUploads) btnMyUploads.onclick = function(){ location.href = loggedIn ? './manage-uploads.html' : './signin.html'; };
+  if (btnMyUploads) btnMyUploads.onclick = ()=>{ location.href = loggedIn ? './manage-uploads.html' : './signin.html'; };
 });
 if (btnSignOut){
-  btnSignOut.addEventListener('click', async function(){ try{ await fbSignOut(); }catch(e){} location.reload(); });
+  btnSignOut.addEventListener('click', async ()=>{ try{ await fbSignOut(); }catch{} location.reload(); });
 }
 if (brandHome){
-  brandHome.addEventListener('click', function(e){ e.preventDefault(); location.href='./index.html'; });
+  brandHome.addEventListener('click', (e)=>{ e.preventDefault(); location.href='./index.html'; });
 }
 
 /* ===== 드롭다운(공통) ===== */
@@ -66,15 +67,14 @@ if (brandHome){
     dropdown.setAttribute('aria-hidden', String(!open));
     if (open){
       dropdown.classList.remove('hidden');
-      requestAnimationFrame(function(){ dropdown.classList.add('open'); });
+      requestAnimationFrame(()=> dropdown.classList.add('open'));
       if (menuBackdrop) menuBackdrop.classList.add('show');
-
       const first = dropdown.querySelector('a,button,[tabindex]:not([tabindex="-1"])');
       (first instanceof HTMLElement ? first : menuBtn).focus({preventScroll:true});
       bindDoc();
     }else{
       dropdown.classList.remove('open');
-      setTimeout(function(){ dropdown.classList.add('hidden'); }, 120);
+      setTimeout(()=> dropdown.classList.add('hidden'), 120);
       if (menuBackdrop) menuBackdrop.classList.remove('show');
       menuBtn.focus({preventScroll:true});
       unbindDoc();
@@ -84,11 +84,11 @@ if (brandHome){
 
   function bindDoc(){
     if (offPointer || offKey) return;
-    const onPointer = function(e){
+    const onPointer = (e)=>{
       if (e.target.closest('#dropdownMenu') || e.target.closest('#'+menuBtn.id)) return;
       setOpen(false);
     };
-    const onKey = function(e){
+    const onKey = (e)=>{
       if (e.key === 'Escape') setOpen(false);
       if (e.key === 'Tab' && open){
         const nodes = dropdown.querySelectorAll('a,button,[tabindex]:not([tabindex="-1"])');
@@ -100,29 +100,29 @@ if (brandHome){
     };
     document.addEventListener('pointerdown', onPointer, { passive:true });
     document.addEventListener('keydown', onKey);
-    offPointer = function(){ document.removeEventListener('pointerdown', onPointer, { passive:true }); };
-    offKey     = function(){ document.removeEventListener('keydown', onKey); };
-    if (menuBackdrop) menuBackdrop.addEventListener('click', function(){ setOpen(false); }, { once:true });
+    offPointer = ()=> document.removeEventListener('pointerdown', onPointer, { passive:true });
+    offKey     = ()=> document.removeEventListener('keydown', onKey);
+    if (menuBackdrop) menuBackdrop.addEventListener('click', ()=> setOpen(false), { once:true });
   }
   function unbindDoc(){ if(offPointer){offPointer(); offPointer=null;} if(offKey){offKey(); offKey=null;} }
 
-  menuBtn.addEventListener('click', function(e){ e.preventDefault(); toggle(); });
-  dropdown.addEventListener('click', function(e){
+  menuBtn.addEventListener('click', (e)=>{ e.preventDefault(); toggle(); });
+  dropdown.addEventListener('click', (e)=>{
     if (e.target.closest('a,button,[role="menuitem"],[role="menuitemradio"]')) setOpen(false);
   });
 
-  if (btnAbout)      btnAbout.addEventListener('click', function(){ location.href='./about.html'; });
-  if (btnGoCategory) btnGoCategory.addEventListener('click', function(){ location.href='./category.html'; });
-  if (btnList)       btnList.addEventListener('click', function(){ location.href='./list.html'; });
-  if (btnGoUpload)   btnGoUpload.addEventListener('click', function(){ location.href='./upload.html'; });
+  if (btnAbout)      btnAbout.addEventListener('click', ()=> location.href='./about.html');
+  if (btnGoCategory) btnGoCategory.addEventListener('click', ()=> location.href='./category.html');
+  if (btnList)       btnList.addEventListener('click', ()=> location.href='./list.html');
+  if (btnGoUpload)   btnGoUpload.addEventListener('click', ()=> location.href='./upload.html');
 })();
 
-/* ===== 삼성 인터넷 하단 잘림 보정 ===== */
+/* ===== 삼성 인터넷 하단 잘림/뷰포트 보정 ===== */
 function getVisualHeight(){
   if (window.visualViewport && Number.isFinite(window.visualViewport.height)) return window.visualViewport.height;
   return window.innerHeight;
 }
-function debounce(fn, ms){ let id; return function(){ const args=arguments; clearTimeout(id); id=setTimeout(function(){ fn.apply(null,args); }, ms); }; }
+function debounce(fn, ms){ let id; return (...args)=>{ clearTimeout(id); id=setTimeout(()=> fn(...args), ms); }; }
 function fitPlayerToViewport(){
   try{
     const el = playerHost; if (!el) return;
@@ -136,12 +136,12 @@ function fitPlayerToViewport(){
 
     const h = Math.min(idealH, available);
     el.style.height = h > 0 ? (h + 'px') : '';
-  }catch(e){}
+  }catch{}
 }
 fitPlayerToViewport();
 window.addEventListener('resize', debounce(fitPlayerToViewport, 80));
-window.addEventListener('orientationchange', function(){ setTimeout(fitPlayerToViewport, 250); });
-document.addEventListener('visibilitychange', function(){ if (!document.hidden) setTimeout(fitPlayerToViewport, 120); });
+window.addEventListener('orientationchange', ()=> setTimeout(fitPlayerToViewport, 250));
+document.addEventListener('visibilitychange', ()=>{ if (!document.hidden) setTimeout(fitPlayerToViewport, 120); });
 if (window.visualViewport){
   window.visualViewport.addEventListener('resize', debounce(fitPlayerToViewport, 50));
   window.visualViewport.addEventListener('scroll', debounce(fitPlayerToViewport, 50));
@@ -153,67 +153,67 @@ let idx   = clamp(readPlayIndex(), 0, Math.max(0, (queue && queue.length ? queue
 const meta = readPlayMeta() || { returnTo:'index' };
 
 function clamp(n,min,max){ n=Number(n||0); if(!Number.isFinite(n)) n=0; return Math.max(min, Math.min(max, n)); }
-function setPlayIndex(i){ idx=clamp(i,0,Math.max(0,queue.length-1)); try{ sessionStorage.setItem(KEY_PLAY_INDEX, String(idx)); }catch(e){} }
+function setPlayIndex(i){ idx=clamp(i,0,Math.max(0,queue.length-1)); try{ sessionStorage.setItem(KEY_PLAY_INDEX, String(idx)); }catch{} }
 function current(){ queue = readPlayQueue() || queue; idx = clamp(idx,0,Math.max(0,queue.length-1)); return queue[idx]; }
-function goBack(){
-  const from = meta && meta.returnTo ? meta.returnTo : (new URL(location.href).searchParams.get('from') || 'index');
-  location.href = (from === 'list') ? './list.html' : './index.html';
-}
 
-// 큐가 비었으면 리스트 스냅샷으로 보조, 그래도 없으면 index로
-if (!Array.isArray(queue) || queue.length===0){
-  const snap = readListSnapshot();
-  if (snap && Array.isArray(snap.items) && snap.items.length){
-    queue = snap.items; idx = 0;
-    try{ sessionStorage.setItem('playQueue', JSON.stringify(queue)); }catch(e){}
-    try{ sessionStorage.setItem('playIndex', '0'); }catch(e){}
-  } else {
-    location.replace('./index.html');
-  }
-}
-
-/* ===== 시리즈 모드 안전 판정 ===== */
-// 규칙: resumeCtx가 있고, groupKey가 'series_'로 시작하며,
-//       playMeta.cats가 [단일값]이고 그 값 === resumeCtx.subKey 일 때만 시리즈 모드.
-function readResumeCtx(){ try{ return JSON.parse(sessionStorage.getItem('resumeCtx')||'null'); }catch(e){ return null; } }
+/* ===== 시리즈 모드 안전 판정 & resumeCtx ===== */
+function readResumeCtx(){ try{ return JSON.parse(sessionStorage.getItem('resumeCtx')||'null'); }catch{ return null; } }
 function isSeriesModeOK(){
   const rc = readResumeCtx(); if (!rc || !rc.groupKey || !rc.subKey) return false;
-  if (typeof rc.groupKey !== 'string' || rc.groupKey.indexOf('series_') !== 0) return false;
-
+  if (typeof rc.groupKey !== 'string' || !rc.groupKey.startsWith('series_')) return false;
   const pm = readPlayMeta() || null;
   const ok = !!(pm && Array.isArray(pm.cats) && pm.cats.length===1 && pm.cats[0]===rc.subKey);
-  if (!ok){ try{ sessionStorage.removeItem('resumeCtx'); }catch(e){} }
+  if (!ok){ try{ sessionStorage.removeItem('resumeCtx'); }catch{} }
   return ok;
 }
 let isSeriesMode = isSeriesModeOK();
 
-/* ===== Resume I/O (시리즈 전용) ===== */
-async function saveResume(payload){
+/* ===== Resume 저장/복원 (resume.js 우선, 실패시 localStorage 폴백) ===== */
+function sanitizeResumePayload(obj){
+  if (!obj || typeof obj!=='object') return null;
+  const out = {};
+  const s = String(obj.sort||'');
+  if (!(s==='createdAt-desc' || s==='createdAt-asc' || s.startsWith('random'))) return null;
+  out.sort = s;
+  const index = Math.max(0, Math.floor(Number(obj.index)||0));
+  const t     = Math.max(0, Math.floor(Number(obj.t)||0));
+  const savedAt = Number(obj.savedAt)||Date.now();
+  out.index=index; out.t=t; out.savedAt=savedAt;
+  return out;
+}
+async function saveResumeSafe(payload){
+  const sane = sanitizeResumePayload(payload); if (!sane) return;
+  const key = `resume:${payload.type}:${payload.groupKey}:${payload.subKey}`;
   try{
     const mod = await import('./resume.js');
-    if (typeof mod.saveResume === 'function'){ mod.saveResume(payload); return; }
-  }catch(e){}
-  const key = 'resume:' + payload.type + ':' + payload.groupKey + ':' + payload.subKey;
-  sessionStorage.setItem(key, JSON.stringify({ index: payload.index, t: payload.t||0 }));
+    if (typeof mod.saveResume === 'function'){
+      mod.saveResume(payload);
+      return;
+    }
+  }catch{}
+  try{ localStorage.setItem(key, JSON.stringify(sane)); }catch{}
 }
-async function loadResumeValue(){
-  const rc = readResumeCtx(); if (!rc) return null;
+async function loadResumeSafe(ctx){
+  const key = `resume:${ctx.type}:${ctx.groupKey}:${ctx.subKey}`;
   try{
     const mod = await import('./resume.js');
     if (typeof mod.loadResume === 'function'){
-      return mod.loadResume({ type: rc.typeForKey||'video', groupKey: rc.groupKey, subKey: rc.subKey });
+      const v = mod.loadResume(ctx);
+      return sanitizeResumePayload(v);
     }
-  }catch(e){}
-  const key = 'resume:' + (rc.typeForKey||'video') + ':' + rc.groupKey + ':' + rc.subKey;
-  try{ return JSON.parse(sessionStorage.getItem(key)||'null'); }catch(e){ return null; }
+  }catch{}
+  try{
+    const raw = localStorage.getItem(key);
+    return sanitizeResumePayload(JSON.parse(raw||'null'));
+  }catch{ return null; }
 }
 
 /* ===== YouTube IFrame API ===== */
 let ytPlayer=null, saveTicker=null, firstReadyTweak=false;
 function ensureYT(){
-  return new Promise(function(res){
+  return new Promise((res)=>{
     if (window.YT && window.YT.Player) return res();
-    const it = setInterval(function(){
+    const it = setInterval(()=>{
       if (window.YT && window.YT.Player){ clearInterval(it); res(); }
     }, 50);
   });
@@ -222,8 +222,6 @@ window.onYouTubeIframeAPIReady = function(){};
 
 async function loadCurrent(){
   const it = current(); if (!it) return;
-
-  // unplayable은 조용히 스킵
   if (it.playable === false){ setTimeout(next, 80); return; }
 
   await ensureYT();
@@ -231,33 +229,33 @@ async function loadCurrent(){
   if (!ytPlayer){
     ytPlayer = new YT.Player('player', {
       width:'100%', height:'100%',
-      videoId: it.id,
+      videoId: it.id || it.ytid || it.vid,
       playerVars: { autoplay:1, playsinline:1, modestbranding:1, rel:0, fs:1, controls:1 },
       events:     { onReady, onStateChange, onError }
     });
   } else if (typeof ytPlayer.loadVideoById === 'function') {
-    ytPlayer.loadVideoById({ videoId: it.id });
+    ytPlayer.loadVideoById({ videoId: it.id || it.ytid || it.vid });
   } else {
-    try { ytPlayer.cueVideoById && ytPlayer.cueVideoById({ videoId: it.id }); } catch(e){}
+    try { ytPlayer.cueVideoById && ytPlayer.cueVideoById({ videoId: it.id || it.ytid || it.vid }); } catch{}
   }
 
   // 진행 저장(시리즈만)
   if (saveTicker){ clearInterval(saveTicker); saveTicker=null; }
   isSeriesMode = isSeriesModeOK();
   if (isSeriesMode){
-    saveTicker = setInterval(async function(){
+    saveTicker = setInterval(async ()=>{
       try{
         const t = Math.floor((ytPlayer && ytPlayer.getCurrentTime ? ytPlayer.getCurrentTime() : 0) || 0);
         const rc = readResumeCtx(); if (!rc) return;
-        await saveResume({
+        await saveResumeSafe({
           type: rc.typeForKey || 'video',
           groupKey: rc.groupKey,
           subKey: rc.subKey,
-          sort: (rc.sort || 'createdAt-asc'),
+          sort: (readPlayMeta()?.sort || 'createdAt-asc'),
           index: idx,
           t
         });
-      }catch(e){}
+      }catch{}
     }, RESUME_SAVE_MS);
   }
 
@@ -267,15 +265,16 @@ async function loadCurrent(){
 async function onReady(){
   if (!firstReadyTweak){
     firstReadyTweak = true;
-    try{ ytPlayer.mute(); ytPlayer.playVideo(); setTimeout(function(){ ytPlayer.unMute(); }, 800); }catch(e){}
+    try{ ytPlayer.mute(); ytPlayer.playVideo(); setTimeout(()=> ytPlayer.unMute(), 800); }catch{}
   }
-  // 시리즈만 위치 복원
+  // 시리즈만 위치 복원(5초 이상일 때만)
   if (isSeriesModeOK()){
     try{
-      const saved = await loadResumeValue();
+      const rc = readResumeCtx();
+      const saved = rc ? await loadResumeSafe({ type: rc.typeForKey||'video', groupKey: rc.groupKey, subKey: rc.subKey }) : null;
       const t = Number(saved && saved.t || 0);
-      if (Number.isFinite(t) && t >= RESUME_RESTORE_MIN){ try{ ytPlayer.seekTo(t, true); }catch(e){} }
-    }catch(e){}
+      if (Number.isFinite(t) && t >= RESUME_RESTORE_MIN){ try{ ytPlayer.seekTo(t, true); }catch{} }
+    }catch{}
   }
   setTimeout(fitPlayerToViewport, 120);
 }
@@ -283,26 +282,25 @@ async function onReady(){
 async function onStateChange(ev){
   const S = YT.PlayerState;
   if (ev.data === S.ENDED){
-    // ENDED → (시리즈 모드일 때만) 다음 인덱스로 저장
+    // ENDED → (시리즈) 다음 인덱스로 저장
     if (RESUME_ADVANCE_ON_END && isSeriesModeOK()) {
       const q = readPlayQueue() || queue;
       const nextIndex = Math.min(idx + 1, Math.max(0, (q && q.length ? q.length : 1) - 1));
       try{
         const rc = readResumeCtx(); if (rc){
-          await saveResume({
+          await saveResumeSafe({
             type: rc.typeForKey || 'video',
             groupKey: rc.groupKey,
             subKey: rc.subKey,
-            sort: (rc.sort || 'createdAt-asc'),
+            sort: (readPlayMeta()?.sort || 'createdAt-asc'),
             index: nextIndex,
             t: 0
           });
         }
-      }catch(e){}
+      }catch{}
     }
-
-    try{ await fetchMoreForWatchIfNeeded(idx); }catch(e){}
-    const autonext = localStorage.getItem('autonext') === '1';
+    try{ await fetchMoreForWatchIfNeeded(idx); }catch{}
+    const autonext = (localStorage.getItem('autonext') === '1');
     if (autonext) next();
   } else if (ev.data === S.PLAYING){
     setTimeout(fitPlayerToViewport, 60);
@@ -313,16 +311,17 @@ function onError(){ setTimeout(next, 100); }
 
 /* ===== 이동/내비 ===== */
 async function next(){
-  try{ await fetchMoreForWatchIfNeeded(idx); }catch(e){}
+  try{ await fetchMoreForWatchIfNeeded(idx); }catch{}
   queue = readPlayQueue() || queue;
   if (idx >= queue.length-1){ setPlayIndex(queue.length-1); return; }
 
   if (isSeriesModeOK()){
     const rc = readResumeCtx();
     if (rc){
-      await saveResume({
+      await saveResumeSafe({
         type: rc.typeForKey || 'video',
         groupKey: rc.groupKey, subKey: rc.subKey,
+        sort: (readPlayMeta()?.sort || 'createdAt-asc'),
         index: idx + 1, t: 0
       });
     }
@@ -336,9 +335,10 @@ async function prev(){
   if (isSeriesModeOK()){
     const rc = readResumeCtx();
     if (rc){
-      await saveResume({
+      await saveResumeSafe({
         type: rc.typeForKey || 'video',
         groupKey: rc.groupKey, subKey: rc.subKey,
+        sort: (readPlayMeta()?.sort || 'createdAt-asc'),
         index: idx - 1, t: 0
       });
     }
@@ -348,12 +348,12 @@ async function prev(){
 }
 
 function toggleFullscreen(){
-  if (document.fullscreenElement){ document.exitFullscreen().catch(function(){}); }
+  if (document.fullscreenElement){ document.exitFullscreen().catch(()=>{}); }
   else { if (playerHost && playerHost.requestFullscreen) playerHost.requestFullscreen(); }
 }
 
 /* ===== 키보드 ===== */
-window.addEventListener('keydown', function(e){
+window.addEventListener('keydown', (e)=>{
   const tag=(e.target && e.target.tagName || '').toLowerCase();
   if (tag==='input' || tag==='textarea') return;
 
@@ -365,12 +365,12 @@ window.addEventListener('keydown', function(e){
       const st = ytPlayer && ytPlayer.getPlayerState ? ytPlayer.getPlayerState() : null;
       if (st === YT.PlayerState.PLAYING) ytPlayer.pauseVideo();
       else ytPlayer.playVideo();
-    }catch(err){}
+    }catch{}
   }
-  else if (e.key && e.key.toLowerCase()==='j'){ e.preventDefault(); try{ const t=ytPlayer.getCurrentTime(); ytPlayer.seekTo(Math.max(0,t-10), true); }catch(err){} }
-  else if (e.key && e.key.toLowerCase()==='l'){ e.preventDefault(); try{ const t=ytPlayer.getCurrentTime(); ytPlayer.seekTo(t+10, true); }catch(err){} }
+  else if (e.key===','){ e.preventDefault(); try{ const t=ytPlayer.getCurrentTime(); ytPlayer.seekTo(Math.max(0,t-10), true); }catch{} }
+  else if (e.key=== '.'){ e.preventDefault(); try{ const t=ytPlayer.getCurrentTime(); ytPlayer.seekTo(t+10, true); }catch{} }
   else if (e.key && e.key.toLowerCase()==='f'){ e.preventDefault(); toggleFullscreen(); }
-  else if (e.key==='Escape'){ e.preventDefault(); goBack(); }
+  else if (e.key==='Escape'){ e.preventDefault(); history.back(); } // copytube 방식
 });
 
 /* ===== 모바일: 세로 스와이프 (↑ 다음 / ↓ 이전) ===== */
@@ -412,14 +412,11 @@ window.addEventListener('keydown', function(e){
   function end(e){
     if(!active) return; active=false;
     const t=getPoint(e); if(!t) return;
-    const dx=t.clientX-x0, dy=t.clientY-y0, dt=Date.now()-t0;
-    if (canceled) return;
-
+    const dy=t.clientY-y0, dt=Date.now()-t0;
     const strong = Math.abs(dy)>=threshold;
     const quick  = dt<=timeMax && Math.abs(dy)>=Math.max(30, threshold*0.6);
     if (!(strong || quick)) return;
-
-    if (dy <= -Math.max(threshold, 30)) next();   // ↑ 위로 → 다음
+    if (dy <= -Math.max(threshold, 30)) next();     // ↑ 위로 → 다음
     else if (dy >= Math.max(threshold, 30)) prev(); // ↓ 아래로 → 이전
   }
 
@@ -432,4 +429,18 @@ window.addEventListener('keydown', function(e){
 })();
 
 /* ===== 시작 ===== */
-(async function(){ await loadCurrent(); })();
+(async function(){
+  // 큐가 비었으면 list 스냅샷 폴백 → 그래도 없으면 index
+  if (!Array.isArray(queue) || queue.length===0){
+    const snap = readListSnapshot();
+    if (snap && Array.isArray(snap.items) && snap.items.length){
+      queue = snap.items; idx = 0;
+      try{ sessionStorage.setItem('playQueue', JSON.stringify(queue)); }catch{}
+      try{ sessionStorage.setItem('playIndex', '0'); }catch{}
+    } else {
+      location.replace('./index.html');
+      return;
+    }
+  }
+  await loadCurrent();
+})();
