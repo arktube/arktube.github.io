@@ -182,62 +182,96 @@ function loadPersonalAll(){
 }
 
 /* =========================
- * Firestore 1페이지 로드 (클라 필터/검색 포함)
+ * Firestore 1페이지 로드 (서버 필터 + 클라 후처리/검색)
  * ========================= */
-async function loadPage({ perPage=20 }){
+async function loadPage({ perPage = 20 }) {
   if (state._exhausted) return [];
 
+  // ---- base collection / type filter
   const col = collection(db, 'videos');
   const wheres = [];
-  if (state.type==='shorts') wheres.push(where('type','==','shorts'));
-  else if (state.type==='video') wheres.push(where('type','==','video'));
 
-  const ord = (state.sort==='asc') ? orderBy('createdAt','asc') : orderBy('createdAt','desc');
+  // type 서버 필터 ('all' 이면 생략)
+  if (state.type === 'shorts') wheres.push(where('type', '==', 'shorts'));
+  else if (state.type === 'video') wheres.push(where('type', '==', 'video'));
+
+  // ---- cats 서버 필터 분기
+  // 개인자료(personal_*)는 Firestore 대상이 아니므로 서버 필터에서 제외
+  // (개인자료 단일 선택은 buildQueue에서 이미 로컬 로드로 분기)
+  let serverCats = Array.isArray(state.cats)
+    ? state.cats.filter(c => typeof c === 'string' && !isPersonal(c))
+    : [];
+
+  // 'ALL' 처리 (문자열 'ALL'을 cats에 저장하는 흐름을 고려)
+  if (state.cats === 'ALL') serverCats = [];
+
+  // 서버 필터 정책:
+  // - 0개/ALL → 서버 cats 필터 없음
+  // - 1개 → where('cats', 'array-contains', cat)
+  // - 2~10개 → where('cats', 'array-contains-any', cats[])
+  // - 11개 이상 → 서버 cats 필터 건너뜀(클라 필터로 후처리)
+  if (serverCats.length === 1) {
+    wheres.push(where('cats', 'array-contains', serverCats[0]));
+  } else if (serverCats.length >= 2 && serverCats.length <= 10) {
+    wheres.push(where('cats', 'array-contains-any', serverCats));
+  } // else: 0개 or 11개 이상 → 서버 cats 필터 없음 (아래 클라 필터 유지)
+
+  // ---- order / cursor / limit
+  const ord =
+    state.sort === 'asc' ? orderBy('createdAt', 'asc') : orderBy('createdAt', 'desc');
 
   const parts = [col, ...wheres, ord, limit(perPage)];
   if (state._lastDoc) parts.push(startAfter(state._lastDoc));
 
+  // ---- fetch
   const snap = await getDocs(query(...parts));
-  if (snap.empty) { state._exhausted = true; return []; }
-  state._lastDoc = snap.docs[snap.docs.length-1];
+  if (snap.empty) {
+    state._exhausted = true;
+    return [];
+  }
+  state._lastDoc = snap.docs[snap.docs.length - 1];
 
-  // 데이터 → QueueItem 가공
-  let items = snap.docs.map(d=>({ id:d.id, ...d.data() })); // ytid가 있으면 아래에서 보정
-  // id 보정
-  items.forEach(it=>{ it.id = it.ytid || it.id; });
+  // ---- doc -> QueueItem 가공
+  let items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  // id 보정(문서 id 대신 ytid 사용)
+  items.forEach(it => {
+    it.id = it.ytid || it.id;
+  });
 
-  // 카테고리 필터(클라)
+  // ---- 클라 카테고리 필터 (서버에서 못 거른 케이스 보강: 0개/ALL, 11개 이상, 혹은 'personal' 포함)
   if (Array.isArray(state.cats)) {
     const set = new Set(state.cats);
-    items = items.filter(doc=>{
-      const cats = doc.cats||[];
-      return cats.some(v=> set.has(v));
+    items = items.filter(doc => {
+      const cats = doc.cats || [];
+      return cats.some(v => set.has(v));
     });
   }
 
-  // 검색(제목/ownerName, 대소문자 무시)
-  if (state.search && state.search.trim()){
+  // ---- 검색(제목/ownerName, 대소문자 무시)
+  if (state.search && state.search.trim()) {
     const q = state.search.trim().toLowerCase();
-    items = items.filter(doc=>{
-      const t = String(doc.title||'').toLowerCase();
-      const o = String(doc.ownerName||'').toLowerCase();
+    items = items.filter(doc => {
+      const t = String(doc.title || '').toLowerCase();
+      const o = String(doc.ownerName || '').toLowerCase();
       return t.includes(q) || o.includes(q);
     });
   }
 
-  // QueueItem으로 변환
+  // ---- QueueItem 표준화(기존 형식 유지)
   const now = Date.now();
-  return items.map(doc=>({
+  return items.map(doc => ({
     id: doc.id,
+    ytid: doc.ytid || doc.id,
     url: doc.url,
-    type: doc.type || 'video',
     title: doc.title || '',
-    ownerName: doc.ownerName || '',
+    type: doc.type || 'video',
     cats: Array.isArray(doc.cats) ? doc.cats : [],
-    createdAt: (doc.createdAt?.seconds? doc.createdAt.seconds*1000 : now),
-    playable: true
+    ownerName: doc.ownerName || '',
+    createdAt: doc.createdAt?.seconds ? doc.createdAt.seconds * 1000 : now,
+    playable: true,
   }));
 }
+
 
 /* =========================
  * 큐 빌드 (초기/재생성)
