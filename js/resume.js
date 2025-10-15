@@ -1,4 +1,4 @@
-// /js/resume.js — ArkTube series resume helper (localStorage, GC, multi-tab sync)
+// /js/resume.js — series resume helper (localStorage, GC, multi-tab sync)
 // key:    resume:{type}:{groupKey}:{subKey}
 // value:  { sort:"createdAt-desc"|"createdAt-asc"|"random:SEED", index:Number, t:Number(sec), savedAt:Number }
 //
@@ -20,8 +20,8 @@
 
 const LS = typeof localStorage !== 'undefined' ? localStorage : null;
 const PREFIX = 'resume:';
-const AUTONEXT_KEY = 'arktube:autoNext'; // index의 연속재생 토글 상태
-const EVENT_NAME = 'arktube:resume-change';
+const AUTONEXT_KEY = 'autonext';        // index의 연속재생 토글 상태 (일반 키명)
+const EVENT_NAME = 'resume-change';     // 변경 알림 이벤트 이름(일반화)
 
 // ---- 내부 이벤트 버스 ----
 const bus = (typeof window !== 'undefined' && typeof window.EventTarget !== 'undefined')
