@@ -20,37 +20,50 @@
 
 const LS = typeof localStorage !== 'undefined' ? localStorage : null;
 const PREFIX = 'resume:';
-const AUTONEXT_KEY = 'autonext';        // index의 연속재생 토글 상태 (일반 키명)
+const AUTONEXT_KEY = 'autonext';        // index의 연속재생 토글 상태 (로컬 저장 전용)
 const EVENT_NAME = 'resume-change';     // 변경 알림 이벤트 이름(일반화)
 
 // ---- 내부 이벤트 버스 ----
 const bus = (typeof window !== 'undefined' && typeof window.EventTarget !== 'undefined')
   ? new EventTarget()
   : null;
+const hasCustomEvent = (typeof window !== 'undefined' && typeof window.CustomEvent === 'function');
 
 function emitChange(detail) {
-  if (!bus) return;
+  if (!bus || !hasCustomEvent) return;
   try {
     bus.dispatchEvent(new CustomEvent(EVENT_NAME, { detail }));
   } catch {}
 }
 
 // ---- 공개: 변경 이벤트 구독/해제 ----
+// (핸들러 매핑을 보관해 offChange가 정확히 동일 래퍼를 제거할 수 있게 함)
+const _handlerMap = new WeakMap();
 export function onChange(handler) {
   if (!bus || typeof handler !== 'function') return () => {};
   const wrapped = (ev) => handler(ev);
-  bus.addEventListener(EVENT_NAME, wrapped);
+  _handlerMap.set(handler, wrapped);
+  try { bus.addEventListener(EVENT_NAME, wrapped); } catch {}
   // 해제 함수 반환
   return () => {
-    try { bus.removeEventListener(EVENT_NAME, wrapped); } catch {}
+    try {
+      const w = _handlerMap.get(handler);
+      if (w) bus.removeEventListener(EVENT_NAME, w);
+    } catch {}
+    _handlerMap.delete(handler);
   };
 }
 export function offChange(handler) {
   if (!bus || typeof handler !== 'function') return;
-  try { bus.removeEventListener(EVENT_NAME, handler); } catch {}
+  try {
+    const w = _handlerMap.get(handler);
+    if (w) bus.removeEventListener(EVENT_NAME, w);
+  } catch {}
+  _handlerMap.delete(handler);
 }
 
 // ---- AutoNext (index 전용 토글 상태 공유) ----
+// *요구사항: 로컬 저장값으로만 확인*
 export function getAutoNext() {
   try { return (LS.getItem(AUTONEXT_KEY) === '1'); } catch { return false; }
 }
@@ -150,12 +163,17 @@ export function vacuumOld({ maxAgeDays = 120, maxScan = 1000 } = {}) {
   let removed = 0;
 
   try {
+    // 키 목록을 먼저 복사해 순회 중 삭제로 인한 인덱스 이동 문제 방지
+    const keys = [];
     const len = LS.length;
-    for (let i = 0; i < len && scanned < maxScan; i++) {
+    for (let i = 0; i < len && keys.length < maxScan; i++) {
       const k = LS.key(i);
       if (!k || (!k.startsWith(PREFIX) && k !== AUTONEXT_KEY)) continue;
-      scanned++;
+      keys.push(k);
+    }
 
+    for (const k of keys) {
+      scanned++;
       if (k === AUTONEXT_KEY) {
         // AutoNext는 보존
         continue;
