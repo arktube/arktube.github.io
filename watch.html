@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
   <title>ArkTube - 영상 보기</title>
 
-  <!-- CSP: YouTube IFrame + Firebase(Auth/Firestore) + (선택) gtag (네가 준 기존안 그대로) -->
+  <!-- CSP: 기존 arktube.html과 동일 -->
   <meta http-equiv="Content-Security-Policy" content="
     default-src 'self';
     base-uri 'self';
@@ -45,13 +45,13 @@
     html,body{ height:100%; }
     body{ margin:0; background:#000; color:#fff; }
 
-    /* 상단바: 프로젝트 공통 구조 + 배경만 투명, 보더 제거 */
+    /* 공통 헤더(배경만 투명) */
     .topbar{
       position:sticky; top:0; z-index:1000;
       display:flex; align-items:center; justify-content:space-between;
       padding:8px 12px;
-      background:transparent;            /* ← 투명 */
-      border-bottom:none;                /* ← 보더 제거 */
+      background:transparent;
+      border-bottom:none;
     }
     .brand{ display:flex; align-items:center; gap:8px; text-decoration:none; }
     .brand-logo{ height:44px; }
@@ -62,14 +62,12 @@
     .welcome{ font-size:14px; color:#fff; opacity:.85; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .nick{ font-size:14px; color:#fff; opacity:.95; white-space:nowrap; max-width:32vw; overflow:hidden; text-overflow:ellipsis; }
 
-    /* 드롭다운 트리거 */
     #btnMenu{
       width:36px; height:36px; display:inline-flex; align-items:center; justify-content:center;
       border:1px solid #333; background:#111; color:#fff;
       border-radius:10px; cursor:pointer;
     }
 
-    /* 드롭다운 (watch.js가 토글) */
     .dropdown{
       position:absolute; right:0; top:calc(100% + 6px); min-width:180px; z-index:1001;
       background:#111; color:#fff; border:1px solid #333;
@@ -87,22 +85,26 @@
     .dropdown button:hover,.dropdown a:hover{ background:#1b1b1b; }
     .dropdown hr{ border:0; border-top:1px solid #333; margin:6px 0; }
 
-    /* 본문: 플레이어 컨테이너(16:9를 화면에 예쁘게 맞춤) */
+    /* 본문 */
     .wrap{ max-width:1100px; margin:0 auto; padding:var(--pad); padding-bottom: calc(var(--pad) + var(--safe-bottom)); }
     .player-box{ position:relative; width:100%; aspect-ratio:16/9; background:#000; border-radius:12px; overflow:hidden; }
     #player{ width:100%; height:100%; }
 
-    /* 테두리 포커스 제거(공통) */
+    /* 스와이프 제스처 존(상/하만 캡처: 가운데는 컨트롤 통과) */
+    .gesture-zone{ position:absolute; left:0; right:0; z-index:5; touch-action:none; }
+    #gestureTop{ top:0; height:32%; }
+    #gestureBottom{ bottom:0; height:32%; }
+
     :where(button, a, input, textarea):focus { outline: none; }
   </style>
 
-  <!-- YouTube IFrame API (watch.js에서 사용) -->
+  <!-- YouTube IFrame API -->
   <script>
     (function(){ const s=document.createElement('script'); s.src='https://www.youtube.com/iframe_api'; document.head.appendChild(s); })();
   </script>
 </head>
 <body>
-  <!-- 상단바 (Enjoy! 고정, 닉/로그인/메뉴는 공통) -->
+  <!-- 헤더 -->
   <header class="topbar">
     <a class="brand" id="brandHome" href="./index.html" aria-label="ArkTube 홈으로">
       <img class="brand-logo" src="./image/arktube_side.png" alt="ArkTube"/>
@@ -115,7 +117,6 @@
       <span id="nickName" class="nick"></span>
       <button id="btnMenu" class="icon" aria-label="menu" aria-expanded="false">三</button>
 
-      <!-- watch.js가 제어하는 드롭다운 -->
       <div id="dropdownMenu" class="dropdown hidden" role="menu" aria-hidden="true">
         <button id="btnAbout"       type="button">소개</button>
         <button id="btnGoCategory"  class="menu-strong" type="button">카테고리 선택</button>
@@ -128,10 +129,13 @@
     </div>
   </header>
 
-  <!-- 본문: 플레이어 -->
+  <!-- 본문 -->
   <main class="wrap">
     <div class="player-box" id="playerBox">
       <div id="player"></div>
+      <!-- 스와이프용 투명 레이어 -->
+      <div id="gestureTop" class="gesture-zone" aria-hidden="true"></div>
+      <div id="gestureBottom" class="gesture-zone" aria-hidden="true"></div>
     </div>
   </main>
 
