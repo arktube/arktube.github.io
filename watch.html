@@ -1,22 +1,15 @@
+<!-- FILE: watch.html (ArkTube queue-only v0.3.1) -->
 <!DOCTYPE html>
 <html lang="ko">
 <head>
   <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>ArkTube - 영상 보기</title>
 
-  <!-- CSP: 기존 arktube.html과 동일 -->
+  <!-- CSP: index와의 정합성 강화 (nocookie/GA/TagManager/Accounts 포함) -->
   <meta http-equiv="Content-Security-Policy" content="
     default-src 'self';
-    base-uri 'self';
-    object-src 'none';
 
-    style-src 'self' 'unsafe-inline';
-    font-src 'self' data:;
-    manifest-src 'self';
-
-    script-src 'self' https://www.gstatic.com https://www.youtube.com https://s.ytimg.com https://www.googletagmanager.com 'unsafe-inline';
-    script-src-elem 'self' https://www.gstatic.com https://www.youtube.com https://s.ytimg.com https://www.googletagmanager.com 'unsafe-inline';
     connect-src 'self'
       https://www.googleapis.com
       https://firestore.googleapis.com
@@ -26,124 +19,123 @@
       https://firebase.googleapis.com
       https://www.gstatic.com
       https://www.youtube.com
-      https://s.ytimg.com
-      https://www.google-analytics.com
-      https://www.googletagmanager.com;
+      https://www.google-analytics.com;
 
-    img-src 'self' data: https://i.ytimg.com https://www.google-analytics.com;
+    img-src 'self' data:
+      https://i.ytimg.com
+      https://www.google-analytics.com;
 
-    frame-src https://www.youtube.com https://www.youtube-nocookie.com https://accounts.google.com https://www.google.com;
-    child-src https://www.youtube.com https://www.youtube-nocookie.com https://accounts.google.com https://www.google.com;
+    frame-src
+      https://www.youtube.com
+      https://www.youtube-nocookie.com
+      https://accounts.google.com
+      https://www.google.com;
 
-    frame-ancestors 'self';
+    script-src 'self'
+      https://www.gstatic.com
+      https://apis.google.com
+      https://www.googletagmanager.com
+      'unsafe-inline';
+
+    style-src 'self' 'unsafe-inline';
+    object-src 'none';
+    base-uri 'self';
   ">
 
-  <link rel="stylesheet" href="./css/style.css"/>
-
+  <link rel="stylesheet" href="css/style.css"/>
   <style>
-    :root{ --pad:12px; --safe-bottom: env(safe-area-inset-bottom, 0px); }
-    html,body{ height:100%; }
-    body{ margin:0; background:#000; color:#fff; }
+    :root{ --app-vh: 100vh; }
+    .brand-logo{ height:48px; }
+    @media (max-width: 420px){ .brand-logo{ height:40px; } }
 
-    /* 공통 헤더(배경만 투명) */
-    .topbar{
-      position:sticky; top:0; z-index:1000;
-      display:flex; align-items:center; justify-content:space-between;
-      padding:8px 12px;
-      background:transparent;
-      border-bottom:none;
+    /* full-screen vertical snap feed */
+    #videoContainer{
+      height: var(--app-vh);
+      overflow-y: scroll;
+      scroll-snap-type: y mandatory;
+      overscroll-behavior-y: contain;
+      background:#000;
     }
-    .brand{ display:flex; align-items:center; gap:8px; text-decoration:none; }
-    .brand-logo{ height:44px; }
-    @media (max-width:420px){ .brand-logo{ height:38px; } }
+    @supports (height: 100svh){ #videoContainer{ height: 100svh; } }
 
-    .right{ display:flex; align-items:center; gap:10px; position:relative; }
-    .link{ text-decoration:none; color:#fff; font-size:14px; opacity:.9; }
-    .welcome{ font-size:14px; color:#fff; opacity:.85; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .nick{ font-size:14px; color:#fff; opacity:.95; white-space:nowrap; max-width:32vw; overflow:hidden; text-overflow:ellipsis; }
-
-    #btnMenu{
-      width:36px; height:36px; display:inline-flex; align-items:center; justify-content:center;
-      border:1px solid #333; background:#111; color:#fff;
-      border-radius:10px; cursor:pointer;
+    .video{
+      height: var(--app-vh);
+      scroll-snap-align: start;
+      scroll-snap-stop: always;
+      position:relative; display:flex; align-items:center; justify-content:center; background:#000;
     }
+    @supports (height: 100svh){ .video{ height: 100svh; } }
 
-    .dropdown{
-      position:absolute; right:0; top:calc(100% + 6px); min-width:180px; z-index:1001;
-      background:#111; color:#fff; border:1px solid #333;
-      border-radius:12px; padding:6px; box-shadow:0 8px 20px rgba(0,0,0,.35);
-      transform-origin:top right; opacity:0; transform:translateY(-4px) scale(.98);
-      pointer-events:none; transition:opacity .15s, transform .15s;
+    .thumb{ width:100%; height:100%; display:flex; align-items:center; justify-content:center; position:relative; background:#000; }
+    .thumb img{ max-width:100%; max-height:100%; object-fit:contain; border:0; }
+    .playhint{
+      position:absolute; bottom:16px; left:50%; transform:translateX(-50%);
+      padding:6px 10px; background:rgba(0,0,0,.45); border-radius:6px; font-size:13px; color:#fff; text-align:center;
     }
-    .dropdown.open{ opacity:1; transform:translateY(0) scale(1); pointer-events:auto; }
-    .dropdown.hidden{ display:block; opacity:0; pointer-events:none; }
-    .dropdown button,.dropdown a{
-      width:100%; text-align:left; border:0; background:transparent; color:#fff;
-      padding:8px 10px; border-radius:8px; cursor:pointer; font-size:14px; display:block; text-decoration:none;
+    .mute-tip{
+      position:absolute; top:12px; left:50%; transform:translateX(-50%);
+      padding:6px 10px; background:rgba(0,0,0,.45); border-radius:6px; color:#fff; font-size:12px;
     }
-    .dropdown .menu-strong{ font-weight:700; }
-    .dropdown button:hover,.dropdown a:hover{ background:#1b1b1b; }
-    .dropdown hr{ border:0; border-top:1px solid #333; margin:6px 0; }
+    .video iframe{ width:100%; height:100%; border:0; }
 
-    /* 본문 */
-    .wrap{ max-width:1100px; margin:0 auto; padding:var(--pad); padding-bottom: calc(var(--pad) + var(--safe-bottom)); }
-    .player-box{ position:relative; width:100%; aspect-ratio:16/9; background:#000; border-radius:12px; overflow:hidden; }
-    #player{ width:100%; height:100%; }
+    .gesture-capture{ position:absolute; inset:0; z-index:20; display:flex; align-items:center; justify-content:center; background:transparent; cursor:pointer; }
+    .gesture-capture.hidden{ display:none; }
 
-    /* 스와이프 제스처 존(상/하만 캡처: 가운데는 컨트롤 통과) */
-    .gesture-zone{ position:absolute; left:0; right:0; z-index:5; touch-action:none; }
-    #gestureTop{ top:0; height:32%; }
-    #gestureBottom{ bottom:0; height:32%; }
-
-    :where(button, a, input, textarea):focus { outline: none; }
+    /* Topbar (original baseline, CopyTube v1.5 behaviour) */
+    #topbar{ position:fixed; inset:0 0 auto 0; z-index:1000; background:var(--bg-1); transition:transform .25s ease; }
+    #topbar.hide{ transform:translateY(-100%); }
+    #dropdownMenu.hidden{ display:none; }
+    #menuBackdrop{ position:fixed; inset:0; background:transparent; z-index:900; display:none; }
+    #menuBackdrop.open{ display:block; }
   </style>
 
-  <!-- YouTube IFrame API -->
-  <script>
-    (function(){ const s=document.createElement('script'); s.src='https://www.youtube.com/iframe_api'; document.head.appendChild(s); })();
-  </script>
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" type="image/png" sizes="32x32" href="/image/arktube_icon_32b.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/image/arktube_icon_192b.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="/image/arktube_512.png">
+
+  <!-- Open Graph / Twitter cards -->
+  <meta property="og:title" content="ArkTube" />
+  <meta property="og:description" content="당신의 영상 아카이브, ArkTube" />
+  <meta property="og:image" content="https://arktube.github.io/image/arktube_512.png" />
+  <meta property="og:url" content="https://arktube.github.io/" />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="ArkTube">
+  <meta name="twitter:description" content="당신의 영상 아카이브, ArkTube">
+  <meta name="twitter:image" content="https://arktube.github.io/image/arktube_512.png">
 </head>
 <body>
-  <!-- 헤더 -->
-  <header class="topbar">
-    <a class="brand" id="brandHome" href="./index.html" aria-label="ArkTube 홈으로">
-      <img class="brand-logo" src="./image/arktube_side.png" alt="ArkTube"/>
-    </a>
-
-    <div class="right">
-      <a id="signupLink" class="link" href="./signup.html">Sign up</a>
-      <a id="signinLink" class="link" href="./signin.html">Sign in</a>
-      <span id="welcomeText" class="welcome">Enjoy!</span>
-      <span id="nickName" class="nick"></span>
-      <button id="btnMenu" class="icon" aria-label="menu" aria-expanded="false">三</button>
-
-      <div id="dropdownMenu" class="dropdown hidden" role="menu" aria-hidden="true">
-        <button id="btnAbout"       type="button">소개</button>
+  <!-- Header must follow original baseline; greeting text fixed to "Enjoy!" for watch page -->
+  <header id="topbar">
+    <div class="brand">
+      <a id="brandHome" href="#" aria-label="ArkTube 홈으로">
+        <img class="brand-logo" src="/image/arktube_side.png" alt="ArkTube"/>
+      </a>
+    </div>
+    <div class="right" style="position:relative;">
+      <a id="signupLink" class="link" href="signup.html">Sign up</a>
+      <a id="signinLink" class="link" href="signin.html">Sign in</a>
+      <span id="welcome" class="welcome"></span>
+      <button id="menuBtn" class="icon" aria-label="menu" aria-haspopup="true" aria-expanded="false">三</button>
+      <div id="dropdownMenu" class="dropdown hidden" role="menu" aria-hidden="true" inert>
+        <button id="btnAbout"       type="button">ArkTube는…</button>
         <button id="btnGoCategory"  class="menu-strong" type="button">카테고리 선택</button>
-        <button id="btnMyUploads"   type="button">내 업로드</button>
-        <button id="btnSignOut"     type="button" style="display:none;">Sign out</button>
-        <hr/>
+        <button id="btnMyUploads"   type="button">내영상관리</button>
+        <button id="btnSignOut"     type="button">Sign out</button>
         <button id="btnList"        type="button">영상목록</button>
         <button id="btnGoUpload"    class="menu-strong" type="button">추천영상등록</button>
       </div>
     </div>
   </header>
 
-  <!-- 본문 -->
-  <main class="wrap">
-    <div class="player-box" id="playerBox">
-      <div id="player"></div>
-      <!-- 스와이프용 투명 레이어 -->
-      <div id="gestureTop" class="gesture-zone" aria-hidden="true"></div>
-      <div id="gestureBottom" class="gesture-zone" aria-hidden="true"></div>
-    </div>
-  </main>
+  <div id="menuBackdrop" aria-hidden="true"></div>
+  <main id="videoContainer" aria-live="polite"></main>
 
-  <!-- Firebase / Auth -->
-  <script type="module" src="./js/firebase-init.js"></script>
-  <script type="module" src="./js/auth.js"></script>
-
-  <!-- 페이지 스크립트 -->
-  <script type="module" src="./js/watch.js"></script>
+  <script type="module" src="/js/firebase-init.js"></script>
+  <script type="module" src="/js/auth.js"></script>
+  <script type="module" src="/js/watch.js?v=0.3.1"></script>
 </body>
 </html>
