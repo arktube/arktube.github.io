@@ -1,4 +1,3 @@
- <!-- FILE: watch.html (ArkTube queue-only v0.3.1) -->
 <!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -6,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>ArkTube - 영상 보기</title>
 
-  <!-- CSP: index와 정합성 강화 (nocookie/GA/TagManager/Accounts 포함) -->
+  <!-- CSP: index와 정합성 -->
   <meta http-equiv="Content-Security-Policy" content="
     default-src 'self';
 
@@ -19,6 +18,7 @@
       https://firebase.googleapis.com
       https://www.gstatic.com
       https://www.youtube.com
+      https://i.ytimg.com
       https://www.google-analytics.com;
 
     img-src 'self' data:
@@ -42,13 +42,45 @@
     base-uri 'self';
   ">
 
-  <link rel="stylesheet" href="css/style.css"/>
+  <link rel="stylesheet" href="/css/style.css"/>
   <style>
     :root{ --app-vh: 100vh; }
+    body{ margin:0; background:#000; color:#fff; }
     .brand-logo{ height:48px; }
     @media (max-width: 420px){ .brand-logo{ height:40px; } }
 
-    /* full-screen vertical snap feed */
+    /* ===== Topbar (index와 동일 스타일 가정) ===== */
+    #topbar{
+      position:fixed; inset:0 0 auto 0; z-index:20;
+      display:flex; align-items:center; justify-content:space-between;
+      height:52px; padding:0 16px; background:var(--bg-2,#111); border-bottom:1px solid var(--border,#333);
+      transition: transform .25s ease, opacity .25s ease;
+    }
+    #topbar.hide{ transform: translateY(-100%); opacity:0; pointer-events:none; }
+    .right{ display:flex; align-items:center; gap:12px; position:relative; }
+    .welcome{ font-size:14px; color:var(--muted,#9aa0a6); }
+    .link{ color:var(--accent,#4ea1ff); text-decoration:none; font-size:14px; }
+    .icon{ background:none; border:0; color:#fff; font-size:20px; cursor:pointer; padding:4px 6px; border-radius:6px; }
+    .icon:hover{ background:rgba(255,255,255,.07); }
+    .hidden{ display:none !important; }
+
+    /* 드롭다운 (index와 동일 동작) */
+    .dropdown{
+      position:absolute; right:0; top:100%;
+      background:var(--bg-2,#111); border:1px solid var(--border,#333); border-radius:8px;
+      display:flex; flex-direction:column; min-width:200px; padding:6px 0;
+      opacity:0; transform:translateY(-6px); pointer-events:none;
+      transition: opacity .15s ease, transform .15s ease;
+    }
+    .dropdown.open{ opacity:1; transform:translateY(0); pointer-events:auto; }
+    .dropdown button{
+      background:none; border:0; color:#fff; text-align:left;
+      padding:10px 16px; cursor:pointer; font-size:14px; line-height:1.25;
+    }
+    .dropdown button:hover{ background:rgba(255,255,255,.07); }
+    .menu-strong{ font-size:16px; font-weight:700; }
+
+    /* ===== Full-screen vertical snap feed ===== */
     #videoContainer{
       height: var(--app-vh);
       overflow-y: scroll;
@@ -80,62 +112,41 @@
 
     .gesture-capture{ position:absolute; inset:0; z-index:20; display:flex; align-items:center; justify-content:center; background:transparent; cursor:pointer; }
     .gesture-capture.hidden{ display:none; }
-
-    /* Topbar (original baseline, CopyTube v1.5 behaviour) */
-    #topbar{ position:fixed; inset:0 0 auto 0; z-index:1000; background:var(--bg-1); transition:transform .25s ease; }
-    #topbar.hide{ transform:translateY(-100%); }
-    #dropdownMenu.hidden{ display:none; }
-    #menuBackdrop{ position:fixed; inset:0; background:transparent; z-index:900; display:none; }
-    #menuBackdrop.open{ display:block; }
   </style>
 
-  <!-- PWA Manifest -->
-  <link rel="manifest" href="manifest.json">
+  <!-- PWA -->
+  <link rel="manifest" href="/manifest.webmanifest">
   <meta name="theme-color" content="#000000">
-  <link rel="icon" type="image/png" sizes="32x32" href="/image/arktube_icon_32b.png">
-  <link rel="icon" type="image/png" sizes="192x192" href="/image/arktube_icon_192b.png">
-  <link rel="icon" type="image/png" sizes="512x512" href="/image/arktube_512.png">
-
-  <!-- Open Graph / Twitter cards -->
-  <meta property="og:title" content="ArkTube" />
-  <meta property="og:description" content="당신의 영상 아카이브, ArkTube" />
-  <meta property="og:image" content="https://arktube.github.io/image/arktube_512.png" />
-  <meta property="og:url" content="https://arktube.github.io/" />
-  <meta property="og:type" content="website" />
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="ArkTube">
-  <meta name="twitter:description" content="당신의 영상 아카이브, ArkTube">
-  <meta name="twitter:image" content="https://arktube.github.io/image/arktube_512.png">
+  <link rel="icon" href="/favicon.ico">
 </head>
 <body>
-  <!-- Header must follow original baseline; greeting text fixed to "Enjoy!" for watch page -->
+  <!-- Header: index와 동일 구성/ID. 인사말만 Enjoy! -->
   <header id="topbar">
     <div class="brand">
       <a id="brandHome" href="#" aria-label="ArkTube 홈으로">
         <img class="brand-logo" src="/image/arktube_side.png" alt="ArkTube"/>
       </a>
     </div>
-    <div class="right" style="position:relative;">
-      <a id="signupLink" class="link" href="signup.html">Sign up</a>
-      <a id="signinLink" class="link" href="signin.html">Sign in</a>
-      <span id="welcome" class="welcome"></span>
-      <button id="menuBtn" class="icon" aria-label="menu" aria-haspopup="true" aria-expanded="false">三</button>
+    <div class="right">
+      <a id="signupLink" class="link" href="/signup.html">Sign up</a>
+      <a id="signinLink" class="link" href="/signin.html">Sign in</a>
+      <span id="welcome" class="welcome">Enjoy!</span>
+      <button id="btnDropdown" class="icon" aria-label="menu" aria-expanded="false">三</button>
       <div id="dropdownMenu" class="dropdown hidden" role="menu" aria-hidden="true" inert>
-        <button id="btnAbout"       type="button">ArkTube는…</button>
-        <button id="btnGoCategory"  class="menu-strong" type="button">카테고리 선택</button>
-        <button id="btnMyUploads"   type="button">내영상관리</button>
-        <button id="btnSignOut"     type="button">Sign out</button>
-        <button id="btnList"        type="button">영상목록</button>
-        <button id="btnGoUpload"    class="menu-strong" type="button">추천영상등록</button>
+        <button id="btnAbout" class="menu-strong" type="button" role="menuitem">ArkTube는…</button>
+        <button id="btnOrder" type="button" role="menuitem">카테고리순서</button>
+        <button id="btnMyUploads" type="button" role="menuitem">내영상관리</button>
+        <button id="btnSignOut" type="button" role="menuitem">Sign out</button>
+        <button id="btnList" type="button" role="menuitem">영상목록</button>
+        <button id="btnGoUpload" class="menu-strong" type="button" role="menuitem">추천영상등록</button>
       </div>
     </div>
   </header>
 
-  <div id="menuBackdrop" aria-hidden="true"></div>
   <main id="videoContainer" aria-live="polite"></main>
 
   <script type="module" src="/js/firebase-init.js"></script>
   <script type="module" src="/js/auth.js"></script>
-  <script type="module" src="/js/watch.js?v=0.3.1"></script>
+  <script type="module" src="/js/watch.js?v=0.3.2"></script>
 </body>
 </html>
