@@ -1,15 +1,14 @@
-<!-- FILE: /js/watch.js (ArkTube queue-only v0.3.1) -->
-<script type="module">
-// watch.js — ArkTube (queue-only, CopyTube swipe + auto-extend + resume save)
-// - makelist.js가 sessionStorage에 넣어준 playQueue/playIndex 사용
+// FILE: /js/watch.js — ArkTube (queue-only v0.3.1)
+// - 세션 playQueue/playIndex 사용 (makelist.js 생산물)
 // - 상단바/드롭다운 v1.5 a11y + greeting "Enjoy!"
-// - 끝나갈 때 자동 추가 로드(fetchMoreForWatchIfNeeded) 연동
-// - 시리즈 시청 중 10초마다 resume 저장(YouTube infoDelivery 기반)
+// - (3) 끝나갈 때 자동 추가 로드(fetchMoreForWatchIfNeeded)
+// - (4) 시리즈 시청 중 10초마다 이어보기 저장(resume.saveResume)
+// - 외부 모듈 로딩: <script type="module" src="/js/watch.js?v=0.3.1"></script> 로 사용 (JS 파일 안에 <script> 태그 없음)
 
 import { auth } from './firebase-init.js';
 import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
-import * as makelist from './makelist.js';    // ③ 자동 추가 로드
-import * as resume   from './resume.js';      // ④ 이어보기 저장
+import * as makelist from './makelist.js';
+import * as resume   from './resume.js';
 
 /* ---------- viewport fix ---------- */
 function updateVh(){ document.documentElement.style.setProperty('--app-vh', `${window.innerHeight}px`); }
@@ -58,7 +57,7 @@ function setMenuState(open){
   dropdown?.setAttribute('aria-hidden', String(!open));
   menuBtn?.setAttribute('aria-expanded', String(open));
   menuBackdrop?.setAttribute('aria-hidden', String(!open));
-  // inert 토글(일관성)
+  // inert 토글로 포커스/읽기 고립
   if (open) dropdown?.removeAttribute?.('inert'); else dropdown?.setAttribute?.('inert','');
 
   if(open){ lastFocus = document.activeElement; (dropdown?.querySelector('button'))?.focus({preventScroll:true}); }
@@ -108,7 +107,7 @@ function showTopbar(){ topbar?.classList.remove('hide'); if(hideTimer) clearTime
 });
 
 /* ---------- YouTube 안전성 ---------- */
-const YT_URL_WHITELIST = /^(https:\/\/(www\.)?youtube\.com\/(watch\?v=|shorts\/)\/?|https:\/\/youtu\.be\/)\/?.*/i;
+const YT_URL_WHITELIST = /^(https:\/\/(www\.)?youtube\.com\/(watch\?v=|shorts\/)\/?|https:\/\/youtu\.be\/)/i;
 const YT_ID_SAFE = /^[a-zA-Z0-9_-]{6,20}$/;
 function safeExtractYouTubeId(url){
   const m = String(url||'').match(/(?:youtu\.be\/|v=|shorts\/)([^?&\/]+)/i);
@@ -143,12 +142,11 @@ addEventListener('message',(e)=>{
     return;
   }
   if(data.event==='onStateChange' && data.info===0){ // ended
-    const card = winToCard.get(e.source); if(!card) return;
-    const activeIframe = currentActive?.querySelector('iframe');
-
     // ③ 큐 자동 확장 시도
     tryFetchMoreIfNeeded();
 
+    const card = winToCard.get(e.source); if(!card) return;
+    const activeIframe = currentActive?.querySelector('iframe');
     if(activeIframe && e.source===activeIframe.contentWindow && AUTO_NEXT){ goToNextCard(); }
     return;
   }
@@ -304,10 +302,10 @@ function ensureIframe(card, preload=false){
   iframe.addEventListener('load',()=>{
     try{
       iframe.contentWindow.postMessage(JSON.stringify({ event:'listening', id: playerId }), '*');
+      // onReady / onStateChange 이벤트 수신
       ytCmd(iframe,'addEventListener',['onReady']);
       ytCmd(iframe,'addEventListener',['onStateChange']);
-      // infoDelivery 구독(진행도 수집)
-      ytCmd(iframe,'addEventListener',['onPlaybackQualityChange']); // 트리거용
+      // infoDelivery는 listening 이후 주기적으로 옴 (별도 트리거 불필요)
       winToCard.set(iframe.contentWindow, card);
       if(preload) ytCmd(iframe,'mute');
     }catch{}
@@ -398,7 +396,6 @@ function trySaveResume(reason){
     // 최소 저장 단위(0초만 계속 저장되는 것 방지)
     if (reason === 'interval' && t <= 0) return;
 
-    // 저장(구체 스키마는 resume.js 측이 처리)
     resume.saveResume(seriesKey, seriesSubKey, {
       index: idx,
       vid,
@@ -417,4 +414,3 @@ function trySaveResume(reason){
   showTopbar();
   updateSnapHeightForSamsung();
 })();
-</script>
