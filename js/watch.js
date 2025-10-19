@@ -1,451 +1,420 @@
-// /js/watch.js — ArkTube Watch 완전판 (gesture-layer + series_key check + keys off)
-//
-// - 상단바: 로고/Enjoy!/구글계정/드롭다운 완비
-// - 데이터: playQueue/playIndex/playMeta/resumeCtx (sessionStorage)
-// - 연속재생: localStorage('autonext') 직접 확인
-// - 스와이프: 상/하 투명 제스처 존으로 ↑다음 / ↓이전
-// - 마우스 휠: 아래=다음 / 위=이전 (쿨다운)
-// - 키보드: Esc(뒤로), F(전체화면)만 유지 (나머지 비활성)
-// - 시리즈 이어보기(안전조건):
-//     resumeCtx.groupKey가 'series_'로 시작 &&
-//     (playMeta.seriesKey || playMeta.groupKey || 단일 cats 값)가 resumeCtx.subKey와 일치
-//     → 10s 주기 저장, 종료시 다음 인덱스 저장, 5s 이상일 때 복원
-// - YouTube: playerVars.origin=location.origin
-// - 뷰포트: CopyTube식 letterbox fit(가로/세로/삼성인터넷 대응)
+<!-- FILE: /js/watch.js (ArkTube queue-only v0.3.1) -->
+<script type="module">
+// watch.js — ArkTube (queue-only, CopyTube swipe + auto-extend + resume save)
+// - makelist.js가 sessionStorage에 넣어준 playQueue/playIndex 사용
+// - 상단바/드롭다운 v1.5 a11y + greeting "Enjoy!"
+// - 끝나갈 때 자동 추가 로드(fetchMoreForWatchIfNeeded) 연동
+// - 시리즈 시청 중 10초마다 resume 저장(YouTube infoDelivery 기반)
 
 import { auth } from './firebase-init.js';
 import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
-import {
-  readPlayQueue, readPlayIndex, readPlayMeta,
-  fetchMoreForWatchIfNeeded, readListSnapshot
-} from './makelist.js';
+import * as makelist from './makelist.js';    // ③ 자동 추가 로드
+import * as resume   from './resume.js';      // ④ 이어보기 저장
 
-/* ===== 상수 ===== */
-const RESUME_SAVE_MS        = 10000;
-const RESUME_RESTORE_MIN    = 5;
-const RESUME_ADVANCE_ON_END = true;
-const KEY_PLAY_INDEX        = 'playIndex';
+/* ---------- viewport fix ---------- */
+function updateVh(){ document.documentElement.style.setProperty('--app-vh', `${window.innerHeight}px`); }
+updateVh();
+addEventListener('resize', updateVh, {passive:true});
+addEventListener('orientationchange', updateVh, {passive:true});
 
-/* ===== DOM ===== */
-const welcomeEl     = document.getElementById('welcome') || document.getElementById('welcomeText');
-const nickEl        = document.getElementById('nickName');
-const menuBtn       = document.getElementById('btnMenu');
-const dropdown      = document.getElementById('dropdownMenu');
-const brandHome     = document.getElementById('brandHome');
+/* ---------- Samsung Internet 전용 보정 ---------- */
+const isSamsungInternet = /SamsungBrowser/i.test(navigator.userAgent);
+if (isSamsungInternet) { document.documentElement.classList.add('ua-sbrowser'); }
+function updateSnapHeightForSamsung(){
+  if (!isSamsungInternet) return;
+  const vc = document.getElementById('videoContainer');
+  if (!vc) return;
+  document.documentElement.style.setProperty('--snap-h', vc.clientHeight + 'px');
+}
+updateSnapHeightForSamsung();
+addEventListener('resize', updateSnapHeightForSamsung, {passive:true});
+addEventListener('orientationchange', updateSnapHeightForSamsung, {passive:true});
+if (window.visualViewport) { visualViewport.addEventListener('resize', updateSnapHeightForSamsung, {passive:true}); }
 
-const signinLink    = document.getElementById('signinLink');
-const signupLink    = document.getElementById('signupLink');
-const btnSignOut    = document.getElementById('btnSignOut');
-const btnMyUploads  = document.getElementById('btnMyUploads');
-const btnAbout      = document.getElementById('btnAbout');
-const btnGoCategory = document.getElementById('btnGoCategory');
-const btnList       = document.getElementById('btnList');
-const btnGoUpload   = document.getElementById('btnGoUpload');
+/* ---------- DOM refs ---------- */
+const topbar         = document.getElementById('topbar');
+const signupLink     = document.getElementById('signupLink');
+const signinLink     = document.getElementById('signinLink');
+const welcome        = document.getElementById('welcome');
+const menuBtn        = document.getElementById('menuBtn');
+const dropdown       = document.getElementById('dropdownMenu');
+const menuBackdrop   = document.getElementById('menuBackdrop');
+const btnSignOut     = document.getElementById('btnSignOut');
+const btnGoUpload    = document.getElementById('btnGoUpload');
+const btnGoCategory  = document.getElementById('btnGoCategory');
+const btnMyUploads   = document.getElementById('btnMyUploads');
+const btnAbout       = document.getElementById('btnAbout');
+const brandHome      = document.getElementById('brandHome');
+const videoContainer = document.getElementById('videoContainer');
+const btnList        = document.getElementById('btnList');
 
-const playerBox   = document.getElementById('playerBox');
-const playerHost  = playerBox || document.body;
-const gestureTop  = document.getElementById('gestureTop');
-const gestureBottom = document.getElementById('gestureBottom');
+/* ---------- dropdown (CopyTube v1.5 behavior + a11y + inert 토글) ---------- */
+let isMenuOpen=false; let lastFocus=null;
+function setMenuState(open){
+  isMenuOpen=open;
+  dropdown?.classList.toggle('hidden', !open);
+  dropdown?.classList.toggle('open', open);
+  menuBackdrop?.classList.toggle('open', open);
+  dropdown?.setAttribute('aria-hidden', String(!open));
+  menuBtn?.setAttribute('aria-expanded', String(open));
+  menuBackdrop?.setAttribute('aria-hidden', String(!open));
+  // inert 토글(일관성)
+  if (open) dropdown?.removeAttribute?.('inert'); else dropdown?.setAttribute?.('inert','');
 
-/* ===== 헤더 ===== */
-onAuthStateChanged(auth, (user)=>{
-  const loggedIn = !!user;
-  if (welcomeEl) welcomeEl.textContent = 'Enjoy!';
-  if (nickEl) {
-    nickEl.textContent = loggedIn ? (user.displayName || user.email || '') : '';
-    nickEl.style.display = loggedIn ? 'inline' : 'none';
-  }
-  if (signinLink)  signinLink.style.display  = loggedIn ? 'none' : 'inline-block';
-  if (signupLink)  signupLink.style.display  = loggedIn ? 'none' : 'inline-block';
-  if (btnSignOut)  btnSignOut.style.display  = loggedIn ? 'inline-block' : 'none';
-  if (btnMyUploads) btnMyUploads.onclick = ()=>{ location.href = loggedIn ? './manage-uploads.html' : './signin.html'; };
+  if(open){ lastFocus = document.activeElement; (dropdown?.querySelector('button'))?.focus({preventScroll:true}); }
+  else{ lastFocus?.focus?.({preventScroll:true}); }
+}
+function openDropdown(){ setMenuState(true); }
+function closeDropdown(){ setMenuState(false); }
+
+onAuthStateChanged(auth,(user)=>{
+  const loggedIn=!!user;
+  signupLink?.classList.toggle('hidden', loggedIn);
+  signinLink?.classList.toggle('hidden', loggedIn);
+  if(welcome) welcome.textContent = 'Enjoy!';
+  closeDropdown();
 });
-btnSignOut?.addEventListener('click', async ()=>{ try{ await fbSignOut(); }catch{} location.reload(); });
-brandHome?.addEventListener('click', (e)=>{ e.preventDefault(); location.href='./index.html'; });
 
-/* ===== 드롭다운 ===== */
-(function initDropdown(){
-  if (!menuBtn || !dropdown) return;
-  let open=false, offPointer=null, offKey=null;
-
-  function setOpen(v){
-    open=!!v;
-    menuBtn.setAttribute('aria-expanded', String(open));
-    dropdown.setAttribute('aria-hidden', String(!open));
-    if (open){
-      dropdown.classList.remove('hidden');
-      requestAnimationFrame(()=> dropdown.classList.add('open'));
-      const first = dropdown.querySelector('a,button,[tabindex]:not([tabindex="-1"])');
-      (first instanceof HTMLElement ? first : menuBtn).focus({preventScroll:true});
-      bindDoc();
-    }else{
-      dropdown.classList.remove('open');
-      setTimeout(()=> dropdown.classList.add('hidden'), 120);
-      menuBtn.focus({preventScroll:true});
-      unbindDoc();
+menuBtn?.addEventListener('click',(e)=>{ e.stopPropagation(); isMenuOpen ? closeDropdown() : openDropdown(); });
+dropdown?.addEventListener('click',(e)=> e.stopPropagation());
+menuBackdrop?.addEventListener('pointerdown', closeDropdown);
+addEventListener('keydown',(e)=>{
+  if(e.key==='Escape') closeDropdown();
+  if(isMenuOpen && e.key==='Tab'){
+    const focusables = dropdown.querySelectorAll('button, [href], [tabindex]:not([tabindex="-1"])');
+    if(focusables.length){
+      const first=focusables[0], last=focusables[focusables.length-1];
+      if(e.shiftKey && document.activeElement===first){ e.preventDefault(); last.focus(); }
+      else if(!e.shiftKey && document.activeElement===last){ e.preventDefault(); first.focus(); }
     }
   }
-  function toggle(){ setOpen(!open); }
-  function bindDoc(){
-    if (offPointer || offKey) return;
-    const onPointer = (e)=>{
-      if (e.target.closest('#dropdownMenu') || e.target.closest('#'+menuBtn.id)) return;
-      setOpen(false);
-    };
-    const onKey = (e)=>{
-      if (e.key === 'Escape') setOpen(false);
-      if (e.key === 'Tab' && open){
-        const nodes = dropdown.querySelectorAll('a,button,[tabindex]:not([tabindex="-1"])');
-        if (!nodes.length) return;
-        const first = nodes[0], last = nodes[nodes.length-1];
-        if (e.shiftKey && document.activeElement === first){ e.preventDefault(); last.focus(); }
-        else if (!e.shiftKey && document.activeElement === last){ e.preventDefault(); first.focus(); }
+});
+['scroll','wheel','keydown','touchmove'].forEach(ev=> addEventListener(ev, ()=>{ if(isMenuOpen) closeDropdown(); }, {passive:true}));
+function goOrSignIn(path){ auth.currentUser ? (location.href=path) : (location.href='signin.html'); }
+btnGoCategory?.addEventListener('click', ()=>{ location.href='index.html'; closeDropdown(); });
+btnMyUploads ?.addEventListener('click', ()=>{ goOrSignIn('manage-uploads.html'); closeDropdown(); });
+btnAbout     ?.addEventListener('click', ()=>{ location.href='about.html'; closeDropdown(); });
+btnList      ?.addEventListener('click', ()=>{ location.href='list.html'; closeDropdown(); });
+btnGoUpload  ?.addEventListener('click', ()=>{ location.href='upload.html'; closeDropdown(); });
+btnSignOut   ?.addEventListener('click', async ()=>{ if(!auth.currentUser){ location.href='signin.html'; return; } await fbSignOut(auth); closeDropdown(); });
+brandHome    ?.addEventListener('click',(e)=>{ e.preventDefault(); location.href='index.html'; });
+
+/* ---------- topbar auto hide ---------- */
+const HIDE_DELAY_MS=1000; let hideTimer=null;
+function showTopbar(){ topbar?.classList.remove('hide'); if(hideTimer) clearTimeout(hideTimer); if(!isMenuOpen){ hideTimer=setTimeout(()=> topbar?.classList.add('hide'), HIDE_DELAY_MS); } }
+['scroll','wheel','mousemove','keydown','pointermove','touchmove'].forEach(ev=>{
+  const tgt = ev==='scroll' ? videoContainer : window;
+  tgt.addEventListener(ev, ()=>{ if(!isMenuOpen) showTopbar(); }, {passive:true});
+});
+
+/* ---------- YouTube 안전성 ---------- */
+const YT_URL_WHITELIST = /^(https:\/\/(www\.)?youtube\.com\/(watch\?v=|shorts\/)\/?|https:\/\/youtu\.be\/)\/?.*/i;
+const YT_ID_SAFE = /^[a-zA-Z0-9_-]{6,20}$/;
+function safeExtractYouTubeId(url){
+  const m = String(url||'').match(/(?:youtu\.be\/|v=|shorts\/)([^?&\/]+)/i);
+  const cand = m ? m[1] : '';
+  return YT_ID_SAFE.test(cand) ? cand : '';
+}
+
+/* ---------- Player control + infoDelivery(진행도 수집) ---------- */
+let userSoundConsent=false;
+let currentActive=null;
+const winToCard=new Map();
+const winInfo  =new Map(); // e.source -> { currentTime, duration }
+
+function ytCmd(iframe, func, args=[]){ if(!iframe?.contentWindow) return; iframe.contentWindow.postMessage(JSON.stringify({event:'command', func, args}), '*'); }
+function applyAudioPolicy(iframe){ if(!iframe) return; if(userSoundConsent){ ytCmd(iframe,'setVolume',[100]); ytCmd(iframe,'unMute'); } else { ytCmd(iframe,'mute'); } }
+
+// AUTO_NEXT: 로컬 저장('1')만 허용
+function readAutoNext(){ try{ return localStorage.getItem('autonext') === '1'; }catch{ return false; } }
+let AUTO_NEXT = readAutoNext();
+addEventListener('storage', (e)=>{ if(e.key==='autonext'){ AUTO_NEXT = readAutoNext(); } });
+
+addEventListener('message',(e)=>{
+  if(typeof e.data!=='string') return; let data; try{ data=JSON.parse(e.data); }catch{ return; }
+  if(!data) return;
+
+  // YouTube IFrame API: ready/state
+  if(data.event==='onReady'){
+    const card = winToCard.get(e.source); if(!card) return;
+    const iframe = card.querySelector('iframe');
+    if(card===currentActive){ applyAudioPolicy(iframe); ytCmd(iframe,'playVideo'); }
+    else{ ytCmd(iframe,'mute'); }
+    return;
+  }
+  if(data.event==='onStateChange' && data.info===0){ // ended
+    const card = winToCard.get(e.source); if(!card) return;
+    const activeIframe = currentActive?.querySelector('iframe');
+
+    // ③ 큐 자동 확장 시도
+    tryFetchMoreIfNeeded();
+
+    if(activeIframe && e.source===activeIframe.contentWindow && AUTO_NEXT){ goToNextCard(); }
+    return;
+  }
+
+  // ④ infoDelivery: currentTime/duration 등 수신
+  if(data.event === 'infoDelivery' && data.info){
+    const info = winInfo.get(e.source) || {};
+    if(typeof data.info.currentTime === 'number') info.currentTime = data.info.currentTime;
+    if(typeof data.info.duration    === 'number') info.duration    = data.info.duration;
+    winInfo.set(e.source, info);
+  }
+}, false);
+
+function grantSoundFromCard(){
+  userSoundConsent=true;
+  document.querySelectorAll('.gesture-capture').forEach(el=> el.classList.add('hidden'));
+  const ifr = currentActive?.querySelector('iframe');
+  if(ifr){ ytCmd(ifr,'setVolume',[100]); ytCmd(ifr,'unMute'); ytCmd(ifr,'playVideo'); }
+}
+
+/* ---------- IO: activate current, preload next, auto-extend ---------- */
+const activeIO = new IntersectionObserver((entries)=>{
+  entries.forEach(entry=>{
+    const card = entry.target;
+    const iframe = card.querySelector('iframe');
+    if(entry.isIntersecting && entry.intersectionRatio>=0.6){
+      if(currentActive && currentActive!==card){
+        const prev = currentActive.querySelector('iframe');
+        if(prev){ ytCmd(prev,'mute'); ytCmd(prev,'pauseVideo'); }
       }
-    };
-    document.addEventListener('pointerdown', onPointer, { passive:true });
-    document.addEventListener('keydown', onKey);
-    offPointer = ()=> document.removeEventListener('pointerdown', onPointer, { passive:true });
-    offKey     = ()=> document.removeEventListener('keydown', onKey);
-  }
-  function unbindDoc(){ if(offPointer){offPointer(); offPointer=null;} if(offKey){offKey(); offKey=null;} }
+      currentActive = card;
 
-  menuBtn.addEventListener('click', (e)=>{ e.preventDefault(); toggle(); });
-  dropdown.addEventListener('click', (e)=>{
-    if (e.target.closest('a,button,[role="menuitem"],[role="menuitemradio"]')) setOpen(false);
-  });
+      // 현재 index를 sessionStorage 갱신
+      const idx = [...videoContainer.querySelectorAll('.video')].indexOf(card);
+      if(idx>=0) sessionStorage.setItem('playIndex', String(idx));
 
-  btnAbout     ?.addEventListener('click', ()=> location.href='./about.html');
-  btnGoCategory?.addEventListener('click', ()=> location.href='./category.html');
-  btnList      ?.addEventListener('click', ()=> location.href='./list.html');
-  btnGoUpload  ?.addEventListener('click', ()=> location.href='./upload.html');
-})();
+      ensureIframe(card);
+      const ifr = card.querySelector('iframe');
+      if(ifr){ ytCmd(ifr,'playVideo'); applyAudioPolicy(ifr); }
 
-/* ===== 뷰포트 보정 (CopyTube fit) ===== */
-function getVisualHeight(){
-  if (window.visualViewport && Number.isFinite(window.visualViewport.height)) return window.visualViewport.height;
-  return window.innerHeight;
-}
-function debounce(fn, ms){ let id; return (...a)=>{ clearTimeout(id); id=setTimeout(()=>fn(...a), ms); }; }
+      const next = card.nextElementSibling;
+      if(next && next.classList.contains('video')) ensureIframe(next, true);
 
-function fitPlayerToViewport(){
-  try{
-    const el = playerHost; if (!el) return;
-    const rectTop = el.getBoundingClientRect().top;
-    const availH  = getVisualHeight() - rectTop;
-    const safeB   = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--safe-area-inset-bottom')) || 0;
-    const available = Math.max(0, availH - safeB - 2);
-    const vw = Math.max(document.documentElement.clientWidth, window.innerWidth||0);
+      // ③ 끝나가기 전에 자동 확장 시도
+      tryFetchMoreIfNeeded();
 
-    // 16:9 최대 치수(레터박스)
-    const hByW = Math.round(vw * 9/16);
-    const wByH = Math.round(available * 16/9);
-    const useH = Math.min(hByW, available);
-    const useW = Math.min(vw, wByH);
+      // ④ 활성 변경 시 즉시 한 번 resume 저장(시간 정보 없으면 index 기반)
+      trySaveResume('activate');
 
-    el.style.maxWidth = useW + 'px';
-    el.style.height   = useH > 0 ? (useH + 'px') : '';
-  }catch{}
-}
-fitPlayerToViewport();
-window.addEventListener('resize', debounce(fitPlayerToViewport, 80));
-window.addEventListener('orientationchange', ()=> setTimeout(fitPlayerToViewport, 250));
-document.addEventListener('visibilitychange', ()=>{ if (!document.hidden) setTimeout(fitPlayerToViewport, 120); });
-if (window.visualViewport){
-  window.visualViewport.addEventListener('resize', debounce(fitPlayerToViewport, 50));
-  window.visualViewport.addEventListener('scroll', debounce(fitPlayerToViewport, 50));
-}
-
-/* ===== 큐/메타 ===== */
-let queue = readPlayQueue();
-let idx   = clamp(readPlayIndex(), 0, Math.max(0, (queue && queue.length ? queue.length : 1)-1));
-const meta = readPlayMeta() || { returnTo:'index' };
-
-function clamp(n,min,max){ n=Number(n||0); if(!Number.isFinite(n)) n=0; return Math.max(min, Math.min(max, n)); }
-function setPlayIndex(i){ idx=clamp(i,0,Math.max(0,queue.length-1)); try{ sessionStorage.setItem(KEY_PLAY_INDEX, String(idx)); }catch{} }
-function current(){ queue = readPlayQueue() || queue; idx = clamp(idx,0,Math.max(0,queue.length-1)); return queue[idx]; }
-
-/* ===== 시리즈 안전조건 (group key 기반) & resumeCtx ===== */
-function readResumeCtx(){ try{ return JSON.parse(sessionStorage.getItem('resumeCtx')||'null'); }catch{ return null; } }
-
-/* group key 추출(우선순위: playMeta.seriesKey > playMeta.groupKey > 단일 cats 값) */
-function getSelectedSeriesKeyFromMeta(){
-  const pm = meta || {};
-  if (typeof pm.seriesKey === 'string' && pm.seriesKey.startsWith('series_')) return pm.seriesKey;
-  if (typeof pm.groupKey === 'string' && pm.groupKey.startsWith('series_')) return pm.groupKey;
-  if (Array.isArray(pm.cats) && pm.cats.length === 1 && typeof pm.cats[0] === 'string' && pm.cats[0].startsWith('series_')) {
-    return pm.cats[0];
-  }
-  return null;
-}
-
-function isSeriesModeOK(){
-  const rc = readResumeCtx(); if (!rc || !rc.groupKey || !rc.subKey) return false;
-  if (typeof rc.groupKey !== 'string' || !rc.groupKey.startsWith('series_')) return false;
-
-  const selectedSeriesKey = getSelectedSeriesKeyFromMeta();
-  const ok = !!(selectedSeriesKey && selectedSeriesKey === rc.subKey);
-  if (!ok){ try{ sessionStorage.removeItem('resumeCtx'); }catch{} }
-  return ok;
-}
-let isSeriesMode = isSeriesModeOK();
-
-/* ===== Resume I/O (resume.js 우선, 폴백은 localStorage) ===== */
-function sanitizeResumePayload(obj){
-  if (!obj || typeof obj!=='object') return null;
-  const out = {};
-  const s = String(obj.sort||'');
-  if (!(s==='createdAt-desc' || s==='createdAt-asc' || s.startsWith('random'))) return null;
-  out.sort = s;
-  out.index   = Math.max(0, Math.floor(Number(obj.index)||0));
-  out.t       = Math.max(0, Math.floor(Number(obj.t)||0));
-  out.savedAt = Number(obj.savedAt)||Date.now();
-  return out;
-}
-async function saveResumeSafe(payload){
-  const sane = sanitizeResumePayload(payload); if (!sane) return;
-  const key = `resume:${payload.type}:${payload.groupKey}:${payload.subKey}`;
-  try{
-    const mod = await import('./resume.js');
-    if (typeof mod.saveResume === 'function'){ mod.saveResume(payload); return; }
-  }catch{}
-  try{ localStorage.setItem(key, JSON.stringify(sane)); }catch{}
-}
-async function loadResumeSafe(ctx){
-  const key = `resume:${ctx.type}:${ctx.groupKey}:${ctx.subKey}`;
-  try{
-    const mod = await import('./resume.js');
-    if (typeof mod.loadResume === 'function'){
-      return sanitizeResumePayload(mod.loadResume(ctx));
+      showTopbar();
+    }else{
+      if(iframe){ ytCmd(iframe,'mute'); ytCmd(iframe,'pauseVideo'); }
     }
-  }catch{}
-  try{ return sanitizeResumePayload(JSON.parse(localStorage.getItem(key)||'null')); }catch{ return null; }
-}
-
-/* ===== YouTube IFrame API ===== */
-let ytPlayer=null, saveTicker=null, firstReady=false;
-function ensureYT(){
-  return new Promise((res)=>{
-    if (window.YT && window.YT.Player) return res();
-    const it = setInterval(()=>{ if (window.YT && window.YT.Player){ clearInterval(it); res(); } }, 50);
   });
-}
-window.onYouTubeIframeAPIReady = function(){};
+},{ root: videoContainer, threshold:[0,0.6,1] });
 
-async function loadCurrent(){
-  const it = current(); if (!it) return;
-  if (it.playable === false){ setTimeout(next, 80); return; }
+/* ---------- resume: 10초 주기 저장 타이머 ---------- */
+let resumeTimer = setInterval(()=> trySaveResume('interval'), 10000);
 
-  await ensureYT();
-
-  const vid = it.id || it.ytid || it.vid;
-  const pv = { autoplay:1, playsinline:1, modestbranding:1, rel:0, fs:1, controls:1, origin: location.origin };
-
-  if (!ytPlayer){
-    ytPlayer = new YT.Player('player', {
-      width:'100%', height:'100%',
-      videoId: vid, playerVars: pv,
-      events: { onReady, onStateChange, onError }
-    });
-  } else if (typeof ytPlayer.loadVideoById === 'function') {
-    ytPlayer.loadVideoById({ videoId: vid });
-  } else {
-    try { ytPlayer.cueVideoById && ytPlayer.cueVideoById({ videoId: vid }); } catch{}
-  }
-
-  if (saveTicker){ clearInterval(saveTicker); saveTicker=null; }
-  isSeriesMode = isSeriesModeOK();
-  if (isSeriesMode){
-    saveTicker = setInterval(async ()=>{
-      try{
-        const t = Math.floor((ytPlayer && ytPlayer.getCurrentTime ? ytPlayer.getCurrentTime() : 0) || 0);
-        const rc = readResumeCtx(); if (!rc) return;
-        await saveResumeSafe({
-          type: rc.typeForKey || 'video',
-          groupKey: rc.groupKey,
-          subKey: rc.subKey,
-          sort: (meta?.sort || 'createdAt-asc'),
-          index: idx,
-          t
-        });
-      }catch{}
-    }, RESUME_SAVE_MS);
-  }
-
-  fitPlayerToViewport();
+/* ---------- helpers (UI) ---------- */
+function makeInfoRow(text){
+  const wrap = document.createElement('div');
+  wrap.className = 'video';
+  const p = document.createElement('p');
+  p.className = 'playhint';
+  p.style.position = 'static';
+  p.style.margin = '0 auto';
+  p.textContent = text;
+  wrap.appendChild(p);
+  return wrap;
 }
 
-async function onReady(){
-  if (!firstReady){
-    firstReady = true;
-    try{ ytPlayer.mute(); ytPlayer.playVideo(); setTimeout(()=> ytPlayer.unMute(), 800); }catch{}
+/* ---------- queue metadata helpers ---------- */
+function extractSeriesMeta(item){
+  // seriesKey: cats 중 'series_'로 시작하는 첫 값
+  let seriesKey = '';
+  if (Array.isArray(item?.cats)) {
+    const found = item.cats.find(c => typeof c === 'string' && c.startsWith('series_'));
+    if (found) seriesKey = found;
   }
-  if (isSeriesModeOK()){
+  // subKey 추론(있으면 사용)
+  const seriesSubKey = item?.seriesSubKey || item?.subKey || item?.series || '';
+  return { seriesKey, seriesSubKey };
+}
+
+/* ---------- card ---------- */
+function makeCard(item, i){
+  const url = item?.url || '';
+  if(!YT_URL_WHITELIST.test(String(url||''))) return null;
+  const id = safeExtractYouTubeId(url);
+  if(!id) return null;
+
+  const { seriesKey, seriesSubKey } = extractSeriesMeta(item);
+
+  const card = document.createElement('div');
+  card.className = 'video';
+  card.dataset.vid = id;
+  card.dataset.key = item?.id || `q-${i}`;
+  if (seriesKey)    card.dataset.seriesKey    = seriesKey;
+  if (seriesSubKey) card.dataset.seriesSubKey = seriesSubKey;
+  card.dataset.queueIndex = String(i);
+
+  const thumbDiv = document.createElement('div');
+  thumbDiv.className = 'thumb';
+
+  const img = document.createElement('img');
+  img.src = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+  img.alt = 'thumbnail';
+  img.loading = 'lazy';
+  thumbDiv.appendChild(img);
+
+  const hint = document.createElement('div');
+  hint.className = 'playhint';
+  hint.textContent = '위로 스와이프 · 탭하여 소리 허용';
+  thumbDiv.appendChild(hint);
+
+  if(!userSoundConsent){
+    const muteTip = document.createElement('div');
+    muteTip.className = 'mute-tip';
+    muteTip.textContent = '🔇 현재 음소거 • 한 번만 허용하면 계속 소리 재생';
+    thumbDiv.appendChild(muteTip);
+  }
+
+  card.appendChild(thumbDiv);
+
+  const gesture = document.createElement('div');
+  gesture.className = `gesture-capture ${userSoundConsent ? 'hidden' : ''}`;
+  gesture.setAttribute('aria-label', 'tap to enable sound');
+  gesture.addEventListener('pointerdown', ()=>{ grantSoundFromCard(); }, { once:false });
+  card.appendChild(gesture);
+
+  activeIO.observe(card);
+  return card;
+}
+
+function ensureIframe(card, preload=false){
+  if(card.querySelector('iframe')) return;
+  const id = card.dataset.vid;
+  if(!YT_ID_SAFE.test(id)) return;
+
+  const origin = encodeURIComponent(location.origin);
+  const playerId = `yt-${id}-${Math.random().toString(36).slice(2,8)}`;
+  const iframe = document.createElement('iframe');
+  iframe.id = playerId;
+  iframe.src =
+    `https://www.youtube.com/embed/${id}` +
+    `?enablejsapi=1&playsinline=1&autoplay=1&mute=1&rel=0` +
+    `&origin=${origin}&widget_referrer=${encodeURIComponent(location.href)}` +
+    `&playerapiid=${encodeURIComponent(playerId)}`;
+  iframe.allow = 'autoplay; encrypted-media; picture-in-picture';
+  iframe.allowFullscreen = true;
+  Object.assign(iframe.style,{ width:'100%', height:'100%', border:'0' });
+  iframe.addEventListener('load',()=>{
     try{
-      const rc = readResumeCtx();
-      const saved = rc ? await loadResumeSafe({ type: rc.typeForKey||'video', groupKey: rc.groupKey, subKey: rc.subKey }) : null;
-      const t = Number(saved && saved.t || 0);
-      if (Number.isFinite(t) && t >= RESUME_RESTORE_MIN){ try{ ytPlayer.seekTo(t, true); }catch{} }
+      iframe.contentWindow.postMessage(JSON.stringify({ event:'listening', id: playerId }), '*');
+      ytCmd(iframe,'addEventListener',['onReady']);
+      ytCmd(iframe,'addEventListener',['onStateChange']);
+      // infoDelivery 구독(진행도 수집)
+      ytCmd(iframe,'addEventListener',['onPlaybackQualityChange']); // 트리거용
+      winToCard.set(iframe.contentWindow, card);
+      if(preload) ytCmd(iframe,'mute');
     }catch{}
-  }
-  setTimeout(fitPlayerToViewport, 120);
-}
-
-async function onStateChange(ev){
-  const S = YT.PlayerState;
-  if (ev.data === S.ENDED){
-    if (RESUME_ADVANCE_ON_END && isSeriesModeOK()) {
-      const q = readPlayQueue() || queue;
-      const nextIndex = Math.min(idx + 1, Math.max(0, (q && q.length ? q.length : 1) - 1));
-      try{
-        const rc = readResumeCtx(); if (rc){
-          await saveResumeSafe({
-            type: rc.typeForKey || 'video',
-            groupKey: rc.groupKey,
-            subKey: rc.subKey,
-            sort: (meta?.sort || 'createdAt-asc'),
-            index: nextIndex,
-            t: 0
-          });
-        }
-      }catch{}
-    }
-    try{ await fetchMoreForWatchIfNeeded(idx); }catch{}
-    const autonext = (localStorage.getItem('autonext') === '1');
-    if (autonext) next();
-  } else if (ev.data === S.PLAYING){
-    setTimeout(fitPlayerToViewport, 60);
-  }
-}
-function onError(){ setTimeout(next, 120); }
-
-/* ===== 이동 ===== */
-async function next(){
-  try{ await fetchMoreForWatchIfNeeded(idx); }catch{}
-  queue = readPlayQueue() || queue;
-  if (idx >= queue.length-1){ setPlayIndex(queue.length-1); return; }
-  if (isSeriesModeOK()){
-    const rc = readResumeCtx();
-    if (rc){
-      await saveResumeSafe({
-        type: rc.typeForKey || 'video',
-        groupKey: rc.groupKey, subKey: rc.subKey,
-        sort: (meta?.sort || 'createdAt-asc'),
-        index: idx + 1, t: 0
-      });
-    }
-  }
-  setPlayIndex(idx + 1);
-  await loadCurrent();
-}
-async function prev(){
-  if (idx <= 0) return;
-  if (isSeriesModeOK()){
-    const rc = readResumeCtx();
-    if (rc){
-      await saveResumeSafe({
-        type: rc.typeForKey || 'video',
-        groupKey: rc.groupKey, subKey: rc.subKey,
-        sort: (meta?.sort || 'createdAt-asc'),
-        index: idx - 1, t: 0
-      });
-    }
-  }
-  setPlayIndex(idx - 1);
-  await loadCurrent();
-}
-
-/* ===== 전체화면 & 뒤로 ===== */
-function toggleFullscreen(){
-  if (document.fullscreenElement){ document.exitFullscreen().catch(()=>{}); }
-  else { if (playerHost && playerHost.requestFullscreen) playerHost.requestFullscreen(); }
-}
-document.addEventListener('fullscreenchange', ()=>{
-  const fs = !!document.fullscreenElement;
-  // 전체화면 시 제스처 존 비활성(브라우저/플레이어 제스처 우선)
-  [gestureTop, gestureBottom].forEach(z=>{ if(!z) return; z.style.pointerEvents = fs ? 'none' : 'auto'; });
-});
-
-/* ===== 키보드: Esc/F만 유지 ===== */
-window.addEventListener('keydown', (e)=>{
-  const tag=(e.target && e.target.tagName || '').toLowerCase();
-  if (tag==='input' || tag==='textarea') return;
-
-  if (e.key && e.key.toLowerCase()==='f'){ e.preventDefault(); toggleFullscreen(); }
-  else if (e.key==='Escape'){ e.preventDefault(); history.back(); }
-});
-
-/* ===== 마우스 휠: 아래=다음 / 위=이전 ===== */
-let wheelLock = false;
-playerHost.addEventListener('wheel', (e)=>{
-  if (wheelLock) return;
-  if (Math.abs(e.deltaY) < 20) return;
-  wheelLock = true;
-  if (e.deltaY > 0) next(); else prev();
-  setTimeout(()=> wheelLock=false, 400);
-},{ passive:true });
-
-/* ===== 스와이프(투명 레이어 상/하 존) ===== */
-(function bindSwipeZones(){
-  const zones = [gestureTop, gestureBottom].filter(Boolean);
-  if (!zones.length) return;
-
-  const THRESH = 50;       // 최소 Y 이동
-  const SLOPX  = 45;       // 허용 X 이동
-  const MAXMS  = 700;      // 플릭 최대 지속
-
-  zones.forEach(zone=>{
-    let x0=0, y0=0, t0=0, active=false, canceled=false, dragging=false;
-
-    const getPoint = (e)=> (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || e;
-
-    function start(e){
-      const t = getPoint(e); if(!t) return;
-      x0=t.clientX; y0=t.clientY; t0=Date.now();
-      active=true; canceled=false; dragging=false;
-    }
-    function move(e){
-      if(!active) return;
-      const t=getPoint(e); if(!t) return;
-      const dx=t.clientX-x0, dy=t.clientY-y0;
-      if (Math.abs(dx)>SLOPX){ canceled=true; active=false; return; }
-      if (Math.abs(dy)>10){ dragging=true; }
-      if (dragging) e.preventDefault(); // 수직 제스처로 간주 → 스크롤 억제
-    }
-    function end(e){
-      if(!active) return; active=false;
-      const t=getPoint(e); if(!t) return;
-      const dy=t.clientY-y0, dt=Date.now()-t0;
-      if (canceled) return;
-      const strong = Math.abs(dy)>=THRESH;
-      const quick  = dt<=MAXMS && Math.abs(dy)>=Math.max(30, THRESH*0.6);
-      if (!(strong || quick)) return;
-      if (dy <= -Math.max(THRESH, 30)) next();     // ↑ 위로 → 다음
-      else if (dy >= Math.max(THRESH, 30)) prev(); // ↓ 아래로 → 이전
-    }
-
-    zone.addEventListener('touchstart', start, { passive:true });
-    zone.addEventListener('touchmove',  move , { passive:false });
-    zone.addEventListener('touchend',   end  , { passive:true, capture:true });
-
-    zone.addEventListener('pointerdown', start, { passive:true });
-    zone.addEventListener('pointermove', move , { passive:false });
-    zone.addEventListener('pointerup',   end  , { passive:true, capture:true });
   });
-})();
 
-/* ===== 시작 ===== */
-(async function(){
-  // 큐 없으면 list 스냅샷 폴백 → 그래도 없으면 index
-  if (!Array.isArray(queue) || queue.length===0){
-    const snap = readListSnapshot();
-    if (snap && Array.isArray(snap.items) && snap.items.length){
-      queue = snap.items; idx = 0;
-      try{ sessionStorage.setItem('playQueue', JSON.stringify(queue)); }catch{}
-      try{ sessionStorage.setItem('playIndex', '0'); }catch{}
-    } else {
-      location.replace('./index.html');
-      return;
-    }
+  const thumb = card.querySelector('.thumb');
+  if(thumb) card.replaceChild(iframe, thumb);
+  else card.appendChild(iframe);
+}
+
+/* ---------- Queue-only ---------- */
+function getParam(name){ try{ return new URL(location.href).searchParams.get(name); }catch{ return null; } }
+
+function tryLoadFromQueue(){
+  let queue = [];
+  try { queue = JSON.parse(sessionStorage.getItem('playQueue') || '[]'); } catch { queue = []; }
+  if (!Array.isArray(queue) || queue.length === 0) return false;
+
+  // idx/doc 우선권: URL > sessionStorage
+  let idx = sessionStorage.getItem('playIndex');
+  const urlIdx = getParam('idx');
+  if (urlIdx !== null) idx = urlIdx;
+  const docParam = getParam('doc');
+  if (docParam) {
+    const found = queue.findIndex(it => it.id === docParam);
+    if (found >= 0) idx = String(found);
   }
-  await loadCurrent();
+  const startIndex = Math.max(0, Math.min(queue.length - 1, parseInt(idx || '0', 10) || 0));
+
+  // 렌더링
+  videoContainer.replaceChildren();
+  queue.forEach((item, i) => {
+    const card = makeCard(item, i);
+    if(card) videoContainer.appendChild(card);
+  });
+
+  const target = videoContainer.querySelectorAll('.video')[startIndex];
+  if (target) {
+    target.scrollIntoView({ behavior:'instant', block:'start' });
+    ensureIframe(target);
+    currentActive = target;
+  }
+  sessionStorage.setItem('playIndex', String(startIndex));
+  updateSnapHeightForSamsung();
+  showTopbar();
+  return true;
+}
+
+/* ---------- navigation ---------- */
+function goToNextCard(){
+  const next = currentActive?.nextElementSibling;
+  if(next && next.classList.contains('video')){ next.scrollIntoView({behavior:'smooth', block:'start'}); return; }
+  showTopbar(); // 큐 끝
+}
+
+/* ---------- auto extend hook ---------- */
+function tryFetchMoreIfNeeded(){
+  try{
+    const idx = parseInt(sessionStorage.getItem('playIndex') || '0', 10) || 0;
+    if (typeof makelist?.fetchMoreForWatchIfNeeded === 'function') {
+      makelist.fetchMoreForWatchIfNeeded(idx);
+    }
+  }catch{}
+}
+
+/* ---------- resume save ---------- */
+function getActiveProgress(){
+  if(!currentActive) return { t:0, d:0 };
+  const ifr = currentActive.querySelector('iframe');
+  if(!ifr?.contentWindow) return { t:0, d:0 };
+  const info = winInfo.get(ifr.contentWindow) || {};
+  return { t: Number(info.currentTime||0), d: Number(info.duration||0) };
+}
+
+function trySaveResume(reason){
+  try{
+    if(typeof resume?.saveResume !== 'function') return; // API 없으면 건너뜀
+    if(!currentActive) return;
+
+    const seriesKey    = currentActive.dataset.seriesKey || '';
+    const seriesSubKey = currentActive.dataset.seriesSubKey || '';
+    if(!seriesKey) return; // 시리즈 항목이 아닐 때는 저장하지 않음
+
+    const idx = parseInt(currentActive.dataset.queueIndex || sessionStorage.getItem('playIndex') || '0', 10) || 0;
+    const vid = currentActive.dataset.vid || '';
+    const { t, d } = getActiveProgress();
+
+    // 최소 저장 단위(0초만 계속 저장되는 것 방지)
+    if (reason === 'interval' && t <= 0) return;
+
+    // 저장(구체 스키마는 resume.js 측이 처리)
+    resume.saveResume(seriesKey, seriesSubKey, {
+      index: idx,
+      vid,
+      t,     // seconds
+      d,     // duration
+      at: Date.now(),
+      reason
+    });
+  }catch{ /* fail-safe */ }
+}
+
+/* ---------- start ---------- */
+(function start(){
+  if (tryLoadFromQueue()) return;
+  videoContainer.appendChild(makeInfoRow('재생 목록이 없습니다. 영상 목록에서 선택해 주세요.'));
+  showTopbar();
+  updateSnapHeightForSamsung();
 })();
+</script>
