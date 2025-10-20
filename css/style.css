@@ -285,4 +285,14 @@ body{
   border-top: 1px solid #555; /* 어두운 회색 실선 */
   margin: 8px 0; /* 위아래 간격 조절 (원하는 만큼 조정 가능) */
 }
+/* 자동선택 결과 텍스트 (작게, 한 줄) */
+.auto-result{
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.1;
+  white-space: nowrap;        /* 한 줄 유지 */
+  overflow: hidden;           /* 넘치면 잘라냄 */
+  text-overflow: ellipsis;    /* … 표시 */
+}
+
 
