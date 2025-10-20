@@ -30,13 +30,6 @@ const db   = getFirestore(app);
 // 영구 로그인
 await setPersistence(auth, browserLocalPersistence);
 
-// === Firestore helpers를 전역에 노출(autocat.js가 탐지) ===
-// autocat.js는 resolveFirestore()에서 window.__FS를 먼저 찾습니다.
-// 다른 코드에 영향 없이, 읽기/쓰기/트랜잭션만 안전하게 공유합니다.
-if (typeof window !== 'undefined') {
-  window.__FS = { db, doc, getDoc, setDoc, runTransaction, serverTimestamp };
-}
-
 // Google Provider (공용)
 const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
@@ -50,5 +43,13 @@ try {
 } catch (_) {
   // 로컬파일/비지원 환경에서 조용히 무시
 }
+// ===== autocat.js와 통신할 수 있도록 Firestore helpers 노출 =====
+if (typeof window !== "undefined") {
+  // autocat.js에서 resolveFirestore()가 이걸 탐색함
+  window.__FS = { db, doc, getDoc, setDoc, runTransaction, serverTimestamp };
 
+  // 선택: 레거시/타 코드 호환용 alias (필수 아님)
+  window.db = db;
+  window.firebaseFns = { doc, getDoc, setDoc, runTransaction, serverTimestamp };
+}
 export { app, auth, db, googleProvider, analytics };
