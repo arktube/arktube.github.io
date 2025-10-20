@@ -1,7 +1,14 @@
 // js/firebase-init.js  (ArkTube v0.1, final)
 import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
 import { getAuth, setPersistence, browserLocalPersistence, GoogleAuthProvider } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
-import { getFirestore } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
+import {
+   getFirestore,
+   doc,
+   getDoc,
+   setDoc,
+   runTransaction,
+   serverTimestamp
+ } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
 import { getAnalytics, isSupported as analyticsSupported } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-analytics.js";
 
 // ===== Firebase Config (정정 반영) =====
@@ -22,6 +29,13 @@ const db   = getFirestore(app);
 
 // 영구 로그인
 await setPersistence(auth, browserLocalPersistence);
+
+// === Firestore helpers를 전역에 노출(autocat.js가 탐지) ===
+// autocat.js는 resolveFirestore()에서 window.__FS를 먼저 찾습니다.
+// 다른 코드에 영향 없이, 읽기/쓰기/트랜잭션만 안전하게 공유합니다.
+if (typeof window !== 'undefined') {
+  window.__FS = { db, doc, getDoc, setDoc, runTransaction, serverTimestamp };
+}
 
 // Google Provider (공용)
 const googleProvider = new GoogleAuthProvider();
