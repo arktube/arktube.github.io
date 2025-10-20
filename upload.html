@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>추천영상 등록 - ArkTube</title>
+
+  <meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  connect-src 'self'
+    https://www.googleapis.com
+    https://firestore.googleapis.com
+    https://securetoken.googleapis.com
+    https://identitytoolkit.googleapis.com
+    https://firebaseinstallations.googleapis.com
+    https://firebase.googleapis.com
+    https://www.gstatic.com
+    https://www.google-analytics.com
+    https://www.youtube.com
+    https://i.ytimg.com;
+  img-src 'self' data: https://i.ytimg.com https://www.google-analytics.com;
+  frame-src https://www.youtube.com https://www.youtube-nocookie.com
+    https://accounts.google.com https://www.google.com
+    https://theark-3c896.firebaseapp.com https://theark-3c896.web.app;
+  script-src 'self' https://www.gstatic.com https://apis.google.com https://www.googletagmanager.com 'unsafe-inline';
+  style-src 'self' 'unsafe-inline';
+  object-src 'none';
+  base-uri 'self';
+  upgrade-insecure-requests;
+  ">
+
+  <link rel="stylesheet" href="/css/style.css"/>
+
+  <style>
+  :root{ --bg:#000; --bg-2:#111; --bg-3:#1b1b1b; --fg:#fff; --muted:#9aa0a6; --accent:#4ea1ff; --border:#333; }
+  *{box-sizing:border-box} html,body{height:100%}
+  body{ margin:0; font-family:system-ui,Segoe UI,Apple SD Gothic Neo,Arial,sans-serif; background:var(--bg); color:var(--fg); padding-top:52px; }
+
+  /* 헤더 */
+  #topbar{ position:fixed; top:0; left:0; right:0; z-index:20; display:flex; align-items:center; justify-content:space-between; height:52px; padding:0 16px; background:var(--bg-2); border-bottom:1px solid var(--border); }
+  #topbar.autohide{ transition:transform .25s ease, opacity .25s ease; }
+  #topbar.hide{ transform:translateY(-100%); opacity:0; pointer-events:none; }
+  #topbar .right{ display:flex; align-items:center; gap:12px; }
+  .brand a{ color:var(--fg); text-decoration:none; font-weight:700; font-size:16px; display:inline-flex; align-items:center; gap:8px; line-height:1; }
+  .brand a:hover{ opacity:.9; cursor:pointer; }
+  .brand-logo{ height:48px; width:auto; object-fit:contain; display:block; } @media (max-width:420px){ .brand-logo{ height:40px; } }
+  .link{ color:var(--accent); text-decoration:none; font-size:14px; }
+  .welcome{ font-size:14px; color:var(--muted); }
+  .icon{ background:none; border:0; color:var(--fg); font-size:20px; cursor:pointer; padding:4px 6px; border-radius:6px; }
+  .icon:hover{ background:var(--bg-3); }
+  .hidden{ display:none !important; }
+
+  /* 드롭다운 */
+  .dropdown{ position:absolute; right:0; top:100%; background:var(--bg-2); border:1px solid var(--border); border-radius:8px; display:flex; flex-direction:column; min-width:200px; padding:6px 0; opacity:0; transform:translateY(-8px); pointer-events:none; transition:opacity .18s ease, transform .18s ease; }
+  .dropdown.show{ opacity:1; transform:translateY(0); pointer-events:auto; }
+  .dropdown button{ background:none; border:0; color:var(--fg); text-align:left; padding:10px 16px; cursor:pointer; font-size:14px; line-height:1.25; }
+  .dropdown button:hover{ background:var(--bg-3); }
+  .dropdown .menu-strong{ font-size:16px; font-weight:700; }
+  .custom-separator{ border:none; border-top:1px solid #555; margin:8px 0; }
+
+  /* 본문 컨테이너 */
+  main{ max-width:1000px; margin:0 auto; padding:12px 16px 40px; }
+  h2{ margin:8px 0 10px; }
+
+  /* 버튼/컨트롤 그리드 */
+  .controls-grid{
+    display:grid;
+    gap:10px; align-items:stretch; margin:10px 0 8px;
+  }
+  .btn-clip, .btn-submit{
+    display:flex; align-items:center; justify-content:center; text-align:center;
+    border:0; border-radius:12px; cursor:pointer; font-weight:800; line-height:1.2;
+    padding:0 12px; min-height:96px; font-size:16px;
+  }
+  @media (min-width:900px){ .btn-clip, .btn-submit{ min-height:110px; } }
+  .btn-clip{ background:#22c55e; color:#fff; white-space:normal; word-break:keep-all; }
+  .btn-submit{ background:#4ea1ff; color:#fff; }
+
+  /* 텍스트영역 */
+  #urls{ display:block; width:100%; min-height:3em; resize:vertical; padding:12px; margin-top:6px; border-radius:8px; border:1px solid #333; background:#000; color:#fff; line-height:1.4; }
+
+  /* 메시지/도움/카테고리 */
+  .msg{ margin-top:10px; font-size:13px; color:#ccc; white-space:pre-line; min-height:1.2em; }
+  .ok{ color:#60ffa3; } .danger{ color:#ff8484; }
+  .muted{ color:#9aa0a6; font-size:12px; margin:10px 0 6px; }
+
+  /* 카테고리 */
+  .group{ border:1px solid var(--border); border-radius:12px; background:var(--bg-3); padding:6px 6px 8px; margin:3px 0; text-align:left; max-width:900px; margin-left:auto; margin-right:auto; }
+  .group legend{ padding:0 4px; font-weight:800; font-size:15px; color:#eee; margin-bottom:0; line-height:1.05; display:inline-flex; gap:6px; align-items:center; }
+  .group .subnote{ font-size:12px; color:#9aa0a6; margin-left:6px; }
+  .child-grid{ margin-top:0; display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:4px; }
+  @media (min-width:900px){ .child-grid{ grid-template-columns:repeat(4, minmax(0,1fr)); } }
+  .child-grid label{ background:#0f0f0f; border:1px solid #2a2a2a; border-radius:8px; padding:6px 8px; font-size:14px; line-height:1.2; display:flex; gap:6px; align-items:center; justify-content:flex-start; }
+  .child-grid input[type="checkbox"]{ accent-color:#4ea1ff; transform:scale(1.05); }
+
+  /* 하단 바 */
+  .bottom-actions{ display:flex; gap:8px; align-items:stretch; margin-top:10px; }
+  .btn{ padding:8px 12px; border-radius:10px; border:1px solid #2a2a2a; background:#151515; color:#fff; cursor:pointer; }
+  .btn:hover{ background:#1a1a1a; }
+  .btn-clip2{ background:#22c55e; color:#fff; font-weight:800; border:0; }
+  .btn-submit2{ background:#4ea1ff; color:#fff; font-weight:800; border:0; }
+
+  /* 모달 */
+  .modal{ position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; z-index:50; }
+  .modal.show{ display:flex; }
+  .modal .sheet{ width:min(960px, 92vw); height:min(80vh, 720px); background:var(--bg-2); border:1px solid var(--border); border-radius:12px; padding:10px; display:flex; flex-direction:column; }
+  .modal .sheet header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+  .modal .sheet .body{ flex:1 1 auto; overflow:auto; background:#0f0f0f; border:1px solid #2a2a2a; border-radius:10px; padding:8px; }
+
+  /* 슬라이드 트랜지션 */
+  @keyframes pageSlideLeft { from{ transform:translateX(0); opacity:1;} to{ transform:translateX(-22%); opacity:.92;} }
+  @keyframes pageSlideRight{ from{ transform:translateX(0); opacity:1;} to{ transform:translateX(22%);  opacity:.92;} }
+  :root.slide-out-left  body{ animation: pageSlideLeft .26s ease forwards; }
+  :root.slide-out-right body{ animation: pageSlideRight .26s ease forwards; }
+  @media (prefers-reduced-motion:reduce){ :root.slide-out-left body,:root.slide-out-right body{ animation:none; } }
+
+  /* URL Find dialog (existing) */
+  .urlfind-dialog{ border:0; border-radius:14px; padding:0; background:transparent; }
+  .urlfind-dialog::backdrop{ background:rgba(0,0,0,.6); }
+  .urlfind-dialog .panel{ background:#0f0f0f; color:#e5e7eb; border:1px solid #2a2a2a; border-radius:14px; padding:12px; width:min(680px, 92vw); }
+  .urlfind-dialog header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+  .urlfind-dialog .panel .row{ display:flex; gap:8px; flex-wrap:wrap; margin:8px 0; }
+  .urlfind-dialog input[type="text"]{ width:100%; padding:8px 10px; border:1px solid #333; border-radius:8px; background:#000; color:#fff; }
+  .urlfind-dialog textarea{ width:100%; min-height:220px; padding:10px; border:1px solid #333; border-radius:8px; background:#000; color:#fff; }
+  .urlfind-dialog .btn-primary{ padding:8px 12px; border-radius:10px; border:0; background:#4ea1ff; color:#fff; font-weight:800; cursor:pointer; }
+  .urlfind-dialog .btn{ padding:8px 12px; border-radius:10px; border:1px solid #2a2a2a; background:#151515; color:#fff; cursor:pointer; }
+  .urlfind-dialog .icon.close{ border:1px solid #2a2a2a; background:#151515; color:#ddd; border-radius:8px; padding:4px 8px; cursor:pointer; }
+
+  /* === auto-result (new) === */
+  .auto-result{
+    font-size:12px;
+    color:var(--muted);
+    line-height:1.1;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    min-height:1.1em;
+  }
+  </style>
+
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" href="/image/arktube_icon_32b.png">
+  <link rel="apple-touch-icon" href="/image/arktube_icon_192b.png">
+</head>
+<body>
+  <!-- 상단바 (원본 유지) -->
+  <header id="topbar">
+    <div class="brand">
+      <a href="/index.html" aria-label="ArkTube 홈으로">
+        <img class="brand-logo" src="/image/arktube_side.png" alt="ArkTube">
+      </a>
+    </div>
+    <div class="right" style="position:relative;">
+      <a id="signupLink" class="link" href="/signup.html">Sign up</a>
+      <a id="signinLink" class="link" href="/signin.html">Sign in</a>
+      <span id="welcome" class="welcome"></span>
+      <button id="menuBtn" class="icon" aria-label="menu">三</button>
+      <div id="dropdownMenu" class="dropdown hidden" role="menu" aria-hidden="true"  aria-labelledby="menuBtn">
+        <button id="btnAbout"     type="button">ArkTube는…</button>
+        <button id="btnCatOrder"  type="button">카테고리순서</button>
+        <button id="btnMyUploads" type="button">내영상관리</button>
+        <button id="btnList"      type="button">영상목록</button>
+        <button id="btnUrlFind"   class="menu-strong" type="button">Playlist URL 추출</button>
+        <hr class="custom-separator"/>
+        <button id="btnSignOut"   type="button">Sign out</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="uploader">
+    <h2>추천영상 등록</h2>
+
+    <label style="display:block;margin-top:14px;">YouTube 공유 URL들 (여러 줄 가능)
+      <textarea id="urls" rows="3" placeholder="https://youtu.be/aaa...
+https://www.youtube.com/watch?v=bbb...
+..."></textarea>
+    </label>
+
+    <!-- 상단: 3열 컨트롤 -->
+    <div class="controls-grid" id="controlsGrid" style="grid-template-columns: 1fr 1fr 1fr;">
+      <!-- 1열: 자동/결과/수동 -->
+      <div class="order-col">
+        <div class="radio-stack">
+          <label><input type="radio" name="catMode" value="auto" id="catModeAutoTop" checked> 자동선택</label>
+          <div id="autoResultTop" class="auto-result" aria-live="polite"></div>
+          <label><input type="radio" name="catMode" value="manual" id="catModeManualTop"> 수동선택</label>
+        </div>
+      </div>
+      <!-- 2열: 클립보드 -->
+      <button id="btnPasteTop" class="btn-clip" type="button" title="클립보드에서 붙여넣기">클립보드<br/>붙여넣기</button>
+      <!-- 3열: 등록 -->
+      <button id="btnSubmitTop" class="btn-submit" type="button">등록</button>
+    </div>
+
+    <div id="msgTop" class="msg"></div>
+
+    <details class="help" id="regHelp" style="margin:10px 0 8px;">
+      <summary style="display:flex;gap:8px;align-items:center;cursor:pointer;user-select:none;font-weight:800;color:#e5e7eb;list-style:none;">
+        <span class="chev" style="display:inline-block;transition:transform .2s ease;font-size:12px;opacity:.85;">▶</span>
+        <span>영상등록 도움말</span>
+      </summary>
+      <div class="help-body" style="margin-top:8px;color:#bfc6ce;font-size:14px;line-height:1.6;">
+        • URL 입력칸에 직접 붙여넣거나, “클립보드 붙여넣기” 버튼을 사용하세요.<br/>
+        • 한 줄에 1개의 URL을 넣고, 카테고리 선택 후 등록을 누르면 일괄 등록됩니다.<br/>
+        • 등록 순서는 옵션 없이 <b>항상 위에서부터</b> 처리됩니다.
+      </div>
+    </details>
+
+    <p class="muted">카테고리는 <b>최대 3개</b>까지 선택 가능합니다.</p>
+    <div id="cats"></div>
+
+    <!-- 하단: 3열 컨트롤 -->
+    <div class="controls-grid" id="controlsGridBottom" style="grid-template-columns: 1fr 1fr 1fr; margin-top:10px;">
+      <div class="order-col">
+        <div class="radio-stack">
+          <label><input type="radio" name="catModeBottom" value="auto" id="catModeAutoBottom" checked> 자동선택</label>
+          <div id="autoResultBottom" class="auto-result" aria-live="polite"></div>
+          <label><input type="radio" name="catModeBottom" value="manual" id="catModeManualBottom"> 수동선택</label>
+        </div>
+      </div>
+      <button id="btnPasteBottom" class="btn-clip" type="button" title="클립보드에서 붙여넣기">
+        클립보드<br/>붙여넣기
+      </button>
+      <button id="btnSubmitBottom" class="btn-submit" type="button">등록</button>
+    </div>
+
+    <div id="msg" class="msg"></div>
+  </main>
+
+  <!-- ===== Playlist URL 추출 모달 (원본 유지) ===== -->
+  <dialog id="dlg-urlfind" class="urlfind-dialog">
+    <form method="dialog" class="panel">
+      <header>
+        <strong>Playlist URL 추출</strong>
+        <button type="submit" class="icon close" aria-label="닫기">✕</button>
+      </header>
+
+      <label class="block">
+        <span>재생목록 전체 URL</span>
+        <input type="text" id="uf_playlistUrl" placeholder="https://www.youtube.com/playlist?list=..." />
+      </label>
+
+      <label class="inline">
+        <input type="checkbox" id="uf_useShortUrl" />
+        <span>youtu.be 공유 URL 형식으로 출력</span>
+      </label>
+
+      <div class="row">
+        <button type="button" id="uf_extractBtn" class="btn-primary">URL 추출 시작</button>
+        <button type="button" id="uf_copyBtn" class="btn">클립보드 복사</button>
+        <button type="button" id="uf_downloadBtn" class="btn">TXT 다운로드</button>
+      </div>
+
+      <div id="uf_loading" class="muted hidden">추출 중입니다...</div>
+      <textarea id="uf_result" readonly placeholder="이곳에 동영상 URL 목록이 표시됩니다."></textarea>
+      <div class="muted" style="margin-top:6px;">Tip: 결과 상자를 더블클릭하면 업로드 입력칸(#urls)으로 자동 적용됩니다.</div>
+    </form>
+  </dialog>
+
+  <!-- 모듈 -->
+  <script>window.YT_DATA_API_KEY = window.YT_DATA_API_KEY || window.YT_API_KEY || null;</script>
+  <script type="module" src="/js/firebase-init.js"></script>
+  <script type="module" src="/js/auth.js"></script>
+  <script type="module" src="/js/categories.js"></script>
+  <script type="module" src="/js/youtube-utils.js"></script>
+  <script type="module" src="/js/urlfind.js"></script>
+  <!-- NEW: autocat must load before upload.js -->
+  <script type="module" src="/js/autocat.js"></script>
+  <script type="module" src="/js/upload.js"></script>
+</body>
+</html>
