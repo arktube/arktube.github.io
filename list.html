@@ -1,132 +1,215 @@
+<!-- /list.html — ArkTube 영상목록 (완전판 v0.1, 2025-10-20) -->
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>ArkTube - 영상 목록</title>
-  <!-- 🔽 preconnect는 가능한 빨리 -->
-  <link rel="preconnect" href="https://i.ytimg.com" crossorigin>
-  <link rel="preconnect" href="https://www.youtube.com" crossorigin>
-  <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-  <!-- CSP (요청하신 정책 그대로) -->
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ArkTube - 영상목록</title>
+
+  <!-- CSP (index.html과 동일 범위) -->
   <meta http-equiv="Content-Security-Policy" content="
-  default-src 'self';
+    default-src 'self';
 
-  connect-src 'self'
-    https://www.googleapis.com
-    https://firestore.googleapis.com
-    https://securetoken.googleapis.com
-    https://identitytoolkit.googleapis.com
-    https://firebaseinstallations.googleapis.com
-    https://firebase.googleapis.com
-    https://www.gstatic.com
-    https://www.google-analytics.com
-    https://www.youtube.com
-    https://i.ytimg.com;
+    connect-src 'self'
+      https://www.googleapis.com
+      https://firestore.googleapis.com
+      https://securetoken.googleapis.com
+      https://identitytoolkit.googleapis.com
+      https://firebaseinstallations.googleapis.com
+      https://firebase.googleapis.com
+      https://www.gstatic.com
+      https://www.youtube.com
+      https://i.ytimg.com
+      https://www.google-analytics.com;
 
-  img-src 'self' data:
-    https://i.ytimg.com
-    https://www.google-analytics.com;
+    img-src 'self' data:
+      https://i.ytimg.com
+      https://www.google-analytics.com;
 
-  frame-src
-    https://www.youtube.com
-    https://www.youtube-nocookie.com
-    https://accounts.google.com
-    https://www.google.com
-    https://theark-3c896.firebaseapp.com
-    https://theark-3c896.web.app;
+    frame-src
+      https://www.youtube.com
+      https://www.youtube-nocookie.com
+      https://accounts.google.com
+      https://www.google.com;
 
-  script-src 'self'
-    https://www.gstatic.com
-    https://apis.google.com
-    https://www.googletagmanager.com
-    'unsafe-inline';
+    script-src 'self'
+      https://www.gstatic.com
+      https://apis.google.com
+      https://www.googletagmanager.com
+      'unsafe-inline';
 
-  style-src 'self' 'unsafe-inline';
-  object-src 'none';
-  base-uri 'self';
-">
+    style-src 'self' 'unsafe-inline';
+    object-src 'none';
+    base-uri 'self';
+  ">
 
-  <!-- 공통 스타일(CSS)은 프로젝트 기본을 사용 -->
-  <link rel="stylesheet" href="/css/style.css"/>
-
-  <!-- 페이지 전용 최소 스타일 -->
-  <style>
-    body{ padding-top:52px; }
-    main{ max-width:1100px; margin:0 auto; padding:0 16px 40px; }
-
-    .toolbar{ display:grid; grid-template-columns: 1fr auto auto; gap:8px; align-items:center; }
-    .btn{ padding:8px 10px; border-radius:10px; border:1px solid #2a2a2a; background:#151515; color:#fff; cursor:pointer; }
-    .btn:hover{ background:#1a1a1a; }
-    .cards{ display:flex; flex-direction:column; gap:7px; margin-top:10px; }
-    .msg{ margin:8px 0; font-size:13px; color:#ccc; min-height:1.2em; }
-
-    /* 드롭다운 강조(강조 메뉴 두 개) */
-    #dropdownMenu .menu-strong{ font-weight:800; font-size:16px; }
-  </style>
-
-  <!-- PWA -->
   <link rel="manifest" href="/manifest.webmanifest">
   <meta name="theme-color" content="#000000">
-  <link rel="icon" href="/image/arktube_icon_32b.png">
-  <link rel="apple-touch-icon" href="/image/arktube_icon_192b.png">
+  <link rel="icon" href="/favicon.ico">
+
+  <!-- 사이트 공통 스타일 -->
+  <link rel="stylesheet" href="/css/style.css">
+
+  <style>
+    :root{
+      --bg:#000; --bg-2:#111; --bg-3:#1b1b1b; --fg:#fff;
+      --muted:#9aa0a6; --accent:#4ea1ff; --border:#333;
+    }
+    html,body{height:100%}
+    body{
+      margin:0; background:var(--bg); color:var(--fg);
+      font-family: system-ui, Segoe UI, Apple SD Gothic Neo, 'Noto Sans KR', Arial, sans-serif;
+    }
+
+    /* 상단바 (index와 동일 톤) */
+    #topbar{
+      position:fixed; inset:0 0 auto 0; z-index:20;
+      display:flex; align-items:center; justify-content:space-between;
+      height:52px; padding:0 16px; background:var(--bg-2); border-bottom:1px solid var(--border);
+    }
+    .brand a{ color:var(--fg); text-decoration:none; font-weight:700; display:flex; align-items:center; gap:8px; }
+    .brand-logo{ height:48px; width:auto; object-fit:contain; display:block; }
+    @media (max-width:420px){ .brand-logo{ height:40px; } }
+    .right{ display:flex; align-items:center; gap:12px; position:relative; }
+    .welcome{ font-size:14px; color:var(--muted); }
+    .link{ color:var(--accent); text-decoration:none; font-size:14px; }
+    .icon{ background:none; border:0; color:var(--fg); font-size:20px; cursor:pointer; padding:4px 6px; border-radius:6px; }
+    .icon:hover{ background:var(--bg-3); }
+    .hidden{ display:none !important; }
+
+    /* 드롭다운 (CopyTube v1.5와 동일 동작/접근성) */
+    .dropdown{
+      position:absolute; right:0; top:100%;
+      background:var(--bg-2); border:1px solid var(--border); border-radius:8px;
+      display:flex; flex-direction:column; min-width:200px; padding:6px 0;
+      opacity:0; transform:translateY(-6px); pointer-events:none;
+      transition: opacity .15s ease, transform .15s ease;
+    }
+    .dropdown.open{ opacity:1; transform:translateY(0); pointer-events:auto; }
+    .dropdown button{
+      background:none; border:0; color:var(--fg); text-align:left; padding:10px 16px;
+      cursor:pointer; font-size:14px; line-height:1.25;
+    }
+    .dropdown button:hover{ background:var(--bg-3); }
+    .menu-strong{ font-size:16px; font-weight:700; }
+
+    /* 본문 */
+    main{ padding:60px 14px 20px; max-width:980px; margin:0 auto; }
+
+    /* 툴바 1행: 제목/정렬 */
+    .toolbar-top{
+      display:grid; grid-template-columns:1fr auto; align-items:center; gap:10px; margin-bottom:8px;
+    }
+    .title{ font-size:18px; font-weight:800; margin:0; }
+    .sort-wrap{ background:#101010; border:1px solid #2a2a2a; border-radius:999px; padding:2px; display:inline-flex; gap:2px; }
+    .sort-wrap input{ display:none; }
+    .sort-wrap label{
+      padding:6px 10px; font-size:12px; color:#d0d0d0; border-radius:999px; cursor:pointer; user-select:none;
+    }
+    .sort-wrap input:checked + label{
+      background:#0f0f0f; border:1px solid #2a2a2a; color:#fff; font-weight:800;
+    }
+    .btn-random-refresh{
+      margin-left:6px; border:1px solid #2a2a2a; background:#0f0f0f; color:#ddd;
+      border-radius:999px; padding:6px 10px; font-size:12px; cursor:pointer;
+    }
+
+    /* 툴바 2행: 검색 */
+    .toolbar-bottom{ display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center; }
+    #q{ width:100%; background:#0f0f0f; border:1px solid #2a2a2a; color:#fff; border-radius:8px; padding:10px 12px; font-size:14px; }
+    #btnSearch{ padding:10px 14px; border:1px solid #2a2a2a; background:#0f0f0f; color:#fff; font-weight:800; border-radius:8px; cursor:pointer; }
+
+    /* 카운트 */
+    .count{ font-size:12px; color:#9aa0a6; margin:8px 2px 6px; }
+
+    /* 카드 그리드 (목록1.3 느낌) */
+    .grid{ display:grid; grid-template-columns:1fr; gap:8px; }
+    @media (min-width:800px){ .grid{ grid-template-columns:1fr 1fr; } }
+
+    .card{
+      display:grid; grid-template-columns:1fr 160px; gap:10px; align-items:center;
+      background:#0f0f0f; border:1px solid #2a2a2a; border-radius:12px; padding:10px;
+    }
+    .card:hover{ background:#141414; }
+    .card .left{ display:grid; grid-template-rows:auto auto auto; gap:6px; }
+    .title2{
+      font-size:15px; font-weight:700; line-height:1.2;
+      display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+    }
+    .owner{ font-size:12px; color:#cfcfcf; }
+    .chips{ display:flex; flex-wrap:wrap; gap:6px; }
+    .chip{ font-size:11px; padding:3px 8px; border-radius:999px; background:#151515; border:1px solid #2a2a2a; color:#d6d6d6; }
+
+    .thumb{ width:100%; height:90px; object-fit:cover; border-radius:8px; background:#151515; }
+    @media(min-width:560px){ .card{ grid-template-columns:1fr 220px; } .thumb{ height:124px; } }
+    @media(min-width:900px){ .card{ grid-template-columns:1fr 280px; } .thumb{ height:158px; } }
+
+    .loading{ text-align:center; color:#9aa0a6; font-size:13px; padding:12px 0; }
+  </style>
 </head>
 <body>
   <!-- 상단바 -->
   <header id="topbar">
     <div class="brand">
-      <a href="/index.html" aria-label="ArkTube 홈으로">
+      <a id="brandHome" href="#" aria-label="ArkTube 홈으로">
         <img class="brand-logo" src="/image/arktube_side.png" alt="ArkTube">
       </a>
     </div>
-    <div class="right" style="position:relative;">
+    <div class="right">
       <a id="signupLink" class="link" href="/signup.html">Sign up</a>
       <a id="signinLink" class="link" href="/signin.html">Sign in</a>
-      <span id="welcome" class="welcome"></span>
-      <button id="menuBtn" class="icon" aria-label="menu">三</button>
+      <span id="welcome" class="welcome">Hello!</span>
+      <button id="btnDropdown" class="icon" aria-label="menu" aria-expanded="false">三</button>
       <div id="dropdownMenu" class="dropdown hidden" role="menu" aria-hidden="true">
-        <button id="btnAbout"     class="menu-strong" type="button">ArkTube는…</button>
-        <button id="btnCatOrder"  type="button">카테고리순서</button>
-        <button id="btnMyUploads" type="button">내영상관리</button>
-        <button id="btnSignOut"   type="button">Sign out</button>
-        <button id="btnList"      type="button">영상목록</button>
-        <button id="btnGoUpload"  class="menu-strong" type="button">추천영상등록</button>
+        <button id="btnAbout" class="menu-strong" type="button" role="menuitem">ArkTube는…</button>
+        <button id="btnOrder" type="button" role="menuitem">카테고리순서</button>
+        <button id="btnMyUploads" type="button" role="menuitem">내영상관리</button>
+        <button id="btnSignOut" type="button" role="menuitem">Sign out</button>
+        <button id="btnGoIndex" type="button" role="menuitem">카테고리 선택</button>
+        <button id="btnGoWatch" class="menu-strong" type="button" role="menuitem">영상보기</button>
       </div>
     </div>
   </header>
 
   <main>
-    <div class="toolbar">
-      <h2 style="margin:0;">영상 목록</h2>
-      <div id="currentMode" class="welcome"></div>
-      <!-- ★ 정렬 토글: 최신순/등록순/랜덤 -->
-      <button id="btnSortToggle" class="btn" aria-pressed="false" title="정렬: 최신순 → 등록순 → 랜덤">최신순</button>
-    </div>
+    <!-- 툴바 1행: 좌 제목 / 우 정렬 -->
+    <div class="toolbar-top">
+      <h2 class="title">영상 목록</h2>
+      <div class="sort-wrap" id="sortWrap" role="tablist" aria-label="정렬">
+        <input type="radio" id="s_desc" name="sort" value="desc" />
+        <label for="s_desc" role="tab" aria-selected="false">최신순</label>
 
-    <!-- (선택) 검색바: 제목/URL 포함 -->
-    <div class="s_bar">
-      <div class="search">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-          <path d="M21 21l-4.35-4.35M16 10.5A5.5 5.5 0 1 1 5 10.5a5.5 5.5 0 0 1 11 0Z"
-                stroke="#9aa0a6" stroke-width="2" stroke-linecap="round"/>
-        </svg>
-        <input id="q" type="search" placeholder="제목/URL 검색"/>
+        <input type="radio" id="s_asc" name="sort" value="asc" />
+        <label for="s_asc" role="tab" aria-selected="false">등록순</label>
+
+        <input type="radio" id="s_random" name="sort" value="random" />
+        <label for="s_random" role="tab" aria-selected="false">랜덤</label>
+
+        <button id="btnRandomRefresh" class="btn-random-refresh hidden" title="랜덤 다시">다시</button>
       </div>
-      <button id="btnSearch" class="btn">검색</button>
-      <button id="btnClear"  class="btn" style="display:none;">지우기</button>
     </div>
 
-    <div id="msg" class="msg">불러오는 중…</div>
-    <div id="cards" class="cards" aria-live="polite"></div>
-    <div id="more" style="text-align:center; margin:12px 0; display:none;">
-      <button id="btnMore" class="btn">더 보기</button>
+    <!-- 툴바 2행: 검색 -->
+    <div class="toolbar-bottom">
+      <input id="q" type="search" placeholder="제목/등록자 검색" autocomplete="off" />
+      <button id="btnSearch">검색</button>
     </div>
+
+    <div id="count" class="count">총 0개</div>
+
+    <!-- 카드 목록 -->
+    <div id="grid" class="grid" aria-live="polite"></div>
+
+    <!-- 무한 스크롤 센티넬 -->
+    <div id="sentinel" class="loading">더 불러오는 중…</div>
   </main>
 
-  <!-- 모듈 -->
+  <!-- 모듈 로딩 -->
   <script type="module" src="/js/firebase-init.js"></script>
   <script type="module" src="/js/auth.js"></script>
   <script type="module" src="/js/categories.js"></script>
+  <script type="module" src="/js/admin-common.js"></script>
+  <script type="module" src="/js/makelist.js"></script>
   <script type="module" src="/js/list.js"></script>
 </body>
 </html>
