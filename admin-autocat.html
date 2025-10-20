@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>자동 카테고리선택 학습 토큰 관리</title>
+  <meta name="theme-color" content="#000000">
+  <link rel="icon" href="/image/arktube_icon_32b.png">
+  <link rel="stylesheet" href="/css/style.css"/>
+  <style>
+    :root{ --bg:#000; --fg:#fff; --muted:#9aa0a6; --border:#333; --card:#101010; }
+    body{ margin:0; background:var(--bg); color:var(--fg); font-family:system-ui,Segoe UI,Apple SD Gothic Neo,Arial,sans-serif; }
+    header{ position:sticky; top:0; z-index:10; background:#0b0b0b; border-bottom:1px solid var(--border); padding:10px 12px; }
+    h1{ margin:0 0 6px; font-size:18px; }
+    .toolbar{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+    .toolbar .group{ display:flex; gap:6px; align-items:center; }
+    .btn{ background:#151515; color:#fff; border:1px solid var(--border); border-radius:10px; padding:8px 10px; cursor:pointer; }
+    .btn.primary{ background:#4ea1ff; border:0; }
+    .btn.danger{ background:#c71e1e; border:0; }
+    .btn:disabled{ opacity:.5; cursor:not-allowed; }
+    input[type="text"], input[type="number"], select{
+      background:#0b0b0b; color:#fff; border:1px solid var(--border); border-radius:8px; padding:7px 9px;
+    }
+    main{ padding:12px; }
+    .cards{ display:grid; grid-template-columns:repeat(1,minmax(0,1fr)); gap:10px; }
+    @media (min-width:980px){ .cards{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
+    .card{ background:var(--card); border:1px solid var(--border); border-radius:12px; padding:10px; }
+    .card h3{ margin:0 0 8px; font-size:15px; }
+    table{ width:100%; border-collapse:collapse; }
+    th,td{ border-bottom:1px solid #222; padding:6px 6px; text-align:left; font-size:13px; }
+    th{ color:#d9d9d9; }
+    .muted{ color:var(--muted); font-size:12px; }
+    .kv{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .pill{ background:#141414; border:1px solid #2a2a2a; border-radius:999px; padding:4px 8px; font-size:12px; display:inline-flex; gap:6px; align-items:center; }
+    .pill .x{ cursor:pointer; opacity:.8; }
+    .row-actions{ display:flex; gap:6px; }
+    .mono{ font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .hint{ font-size:12px; color:#c9c9c9; }
+    .footer{ margin-top:10px; display:flex; justify-content:space-between; align-items:center; }
+    .sim-box{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .hr{ border:0; border-top:1px solid #222; margin:12px 0; }
+    .right{ text-align:right; }
+    .ok{ color:#60ffa3; } .danger{ color:#ff8484; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>자동 카테고리선택 학습 토큰 관리</h1>
+    <div class="toolbar">
+      <div class="group">
+        <input type="text" id="q" placeholder="토큰/카테고리 검색(부분일치)"/>
+        <select id="sort">
+          <option value="token_asc">토큰 ↑</option>
+          <option value="token_desc">토큰 ↓</option>
+          <option value="score_desc">총 가산치 합 ↓</option>
+          <option value="score_asc">총 가산치 합 ↑</option>
+        </select>
+        <button class="btn" id="refreshBtn">새로고침</button>
+      </div>
+      <div class="group">
+        <button class="btn" id="exportBtn">백업(Export JSON)</button>
+        <label class="btn">
+          복원(Import JSON)
+          <input type="file" id="importFile" accept="application/json" hidden>
+        </label>
+      </div>
+      <div class="group">
+        <button class="btn danger" id="resetBtn" title="전체 초기화(주의)">초기화</button>
+      </div>
+      <div class="group">
+        <span class="muted">접근권한: <span id="accessState">검증 안함</span></span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="card">
+      <h3>집계 목록 (autocat_agg)</h3>
+      <div class="hint">표시: 한 번에 최대 200개. 더 보려면 “새로고침”으로 이어서 로드하거나 검색을 사용하세요.</div>
+      <div id="list"></div>
+      <div class="footer">
+        <div class="muted" id="stats"></div>
+        <div class="row-actions">
+          <button class="btn" id="loadMoreBtn">더 불러오기</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>시뮬레이터</h3>
+      <div class="sim-box">
+        <input type="text" id="simInput" placeholder="텍스트 또는 YouTube URL 1개" size="60"/>
+        <button class="btn primary" id="simRunBtn">자동선택 시뮬레이션</button>
+      </div>
+      <div class="muted" style="margin-top:6px;">※ 실제 autocat 로직 + 서버 가산치 반영. (Data API 키가 있으면 태그/설명까지 사용)</div>
+      <hr class="hr"/>
+      <div id="simResult" class="mono"></div>
+    </section>
+  </main>
+
+  <!-- 앱 모듈들 -->
+  <script type="module" src="/js/firebase-init.js"></script>
+  <script type="module" src="/js/categories.js"></script>
+  <script type="module" src="/js/youtube-utils.js"></script>
+  <script type="module" src="/js/autocat.js"></script>
+  <script type="module" src="/js/admin-autocat.js"></script>
+</body>
+</html>
