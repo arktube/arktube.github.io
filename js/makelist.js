@@ -488,7 +488,7 @@ export async function fetchMore(){
       if (state.sort === 'random') {
         // 새로운 묶음만 중복 제거 후 seed 셔플해서 뒤에 추가
         const uniqMap = new Map();
-        more.forEach(it=>{ if (!uniqMap.has(it.id)) !uniqMap.set(it.id, it); });
+        more.forEach(it=>{ if (!uniqMap.has(it.id)) uniqMap.set(it.id, it); }); // ← 여기 수정
         const shuffled = shuffleSeeded([...uniqMap.values()], state.seed);
         appended += dedupAppend(state.queue, shuffled);
       } else {
@@ -509,6 +509,7 @@ export async function fetchMore(){
   }
   return { appended };
 }
+
 
 // 8) watch에서 끝나갈 때 자동 확장 헬퍼
 export async function fetchMoreForWatchIfNeeded(currentIndex){
