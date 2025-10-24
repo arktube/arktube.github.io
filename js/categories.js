@@ -90,9 +90,9 @@ export const CATEGORY_GROUPS = [
   /* ===== 시리즈 (key가 series_로 시작) ===== */
   {
     key: 'series_music',
-    label: '시리즈',
+    label: '애니메이션',
     children: [
-      { value:'pick1', label:'추천1' },
+      { value:'pick1', label:'슈퍼북시즈1' },
       { value:'pick2', label:'추천2' },
     ],
   },
