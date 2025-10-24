@@ -85,6 +85,14 @@ function dedupAppend(targetArr, newItems){
   return filtered.length;
 }
 
+// 🔹 전체 큐를 seed 기반으로 다시 셔플 (랜덤 토글/seed 변경 시 사용)
+function shuffleQueueGlobally() {
+  const uniq = new Map();
+  state.queue.forEach(it => { if (!uniq.has(it.id)) uniq.set(it.id, it); });
+  state.queue = shuffleSeeded([...uniq.values()], state.seed);
+}
+
+
 /* =========================
  * SERIES value -> { groupKey, subKey } 매핑
  *  - groupKey : 실제 그룹 key (예: 'series_music')
@@ -439,15 +447,38 @@ export function selectAndGoWatch(index){
   location.href = './watch.html?from=list';
 }
 
-// 4) list 내 정렬 변경
+// 4) list 내 정렬 변경 (랜덤 토글 ON 시: fetchMore 1회 → 전체 재셔플)
 export async function setSort(newSort){
+  const wasRandom = (state.sort === 'random');
   state.sort = newSort;
-  if (state.sort !== 'random') state.seed = 1;
+
+  // 랜덤이 아닌 정렬로 변경한 경우 (asc/desc)
+  if (state.sort !== 'random') {
+    state.seed = 1;
+    await buildQueue({ firstPage: 20 });
+    state.startIndex = 0;
+    stashListState();
+    stashListSnapshot();
+    return { items: state.queue };
+  }
+
+  // 여기부터: 랜덤 ON
+  // 1) 기본 1페이지 로드(초기 셔플)
   await buildQueue({ firstPage: 20 });
+
+  // 2) 랜덤 토글을 막 켰다면 → 풀 확장용으로 fetchMore 1회 강제
+  if (!wasRandom) {
+    await fetchMore(); // 뒤에 새 묶음 추가(빈 페이지면 내부에서 스킵 루프)
+  }
+
+  // 3) 최종적으로 "전체 큐"를 seed로 결정적 셔플
+  shuffleQueueGlobally();
+
+  // 마무리
   state.startIndex = 0;
   stashListState();
   stashListSnapshot();
-  return { items: state.queue };
+  return { items: state.queue, seed: state.seed };
 }
 
 // 5) list 내 검색 변경
@@ -460,15 +491,32 @@ export async function setSearch(query){
   return { items: state.queue };
 }
 
-// 6) list에서 "랜덤 다시" → seed++
+// 6) list에서 "랜덤 다시" → seed++ (전체 재셔플 버전)
 export async function bumpRandomSeed(){
-  if (state.sort!=='random') return { items: state.queue, seed: state.seed };
+  // 랜덤 모드가 아니면 동작하지 않음(기존과 동일)
+  if (state.sort !== 'random') return { items: state.queue, seed: state.seed };
+
+  // 큐가 비어 있으면 우선 1페이지 생성
+  if (!Array.isArray(state.queue) || state.queue.length === 0) {
+    await buildQueue({ firstPage: 20 });
+  }
+
+  // seed 증가
   state.seed = (state.seed|0) + 1;
-  await buildQueue({ firstPage: 20 });
+
+  // 풀 확장: 새 영상 포함을 위해 1회 추가 로드 (빈 페이지면 내부에서 스킵 루프)
+  await fetchMore();
+
+  // 전체 큐를 새 seed로 결정적 재셔플 (배치 편향 최소화)
+  shuffleQueueGlobally();
+
+  // 정리
+  state.startIndex = 0;
   stashListState();
   stashListSnapshot();
   return { items: state.queue, seed: state.seed };
 }
+
 
 // 7) 추가 로드 (list/ watch 공용: list는 스크롤, watch는 남은 ≤10 자동 호출)
 export async function fetchMore(){
