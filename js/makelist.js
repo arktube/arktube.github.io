@@ -5,6 +5,9 @@
 // - 추가 로드 40개 / watch에서 남은 ≤10 자동 확장(개인자료는 추가 로드 없음)
 // - 시리즈 단일 서브키면 asc + resume 시작점 보정(resume.js 사용)
 // - 세션 키: LIST_STATE, LIST_SNAPSHOT, playQueue, playIndex, playMeta
+// state.cats: 'ALL' | string[]
+//  - 'ALL' => "일반 전체" (시리즈/개인 제외). 서버는 무필터, 클라이언트에서 제외 처리.
+//  - string[] => 지정된 값만 포함.
 
 import { db } from './firebase-init.js';
 import { CATEGORY_MODEL, CATEGORY_GROUPS } from './categories.js';
@@ -203,7 +206,10 @@ async function loadPage({ perPage = 20 }) {
     : [];
 
   // 'ALL' 처리 (문자열 'ALL'을 cats에 저장하는 흐름을 고려)
-  if (state.cats === 'ALL') serverCats = [];
+// 'ALL' 처리 (문자열 'ALL'을 cats에 저장하는 흐름을 고려)
+// 'ALL'은 "일반 전체(시리즈/개인 제외)"를 의미하지만,
+// 서버 단계에서는 필터를 넣지 않고, 클라이언트 단계에서 제외 필터를 적용한다.
+if (state.cats === 'ALL') serverCats = [];
 
   // 서버 필터 정책:
   // - 0개/ALL → 서버 cats 필터 없음
@@ -239,14 +245,22 @@ async function loadPage({ perPage = 20 }) {
   });
 
   // ---- 클라 카테고리 필터 (서버에서 못 거른 케이스 보강: 0개/ALL, 11개 이상, 혹은 'personal' 포함)
-  if (Array.isArray(state.cats)) {
-    const set = new Set(state.cats);
-    items = items.filter(doc => {
-      const cats = doc.cats || [];
-      return cats.some(v => set.has(v));
-    });
-  }
-
+if (state.cats === 'ALL') {
+  // 'ALL'은 "일반 전체"를 의미한다.
+  // ⇒ 시리즈/개인에 속하는 값이 하나라도 있으면 제외한다.
+  items = items.filter(doc => {
+    const cats = doc.cats || [];
+    // SERIES_MAP.has(v) → 시리즈 하위값, isPersonal(v) → 개인자료 값(personal1~4)
+    const hasSeriesOrPersonal = cats.some(v => SERIES_MAP.has(v) || isPersonal(v));
+    return !hasSeriesOrPersonal;
+  });
+} else if (Array.isArray(state.cats)) {
+  const set = new Set(state.cats);
+  items = items.filter(doc => {
+    const cats = doc.cats || [];
+    return cats.some(v => set.has(v));
+  });
+}
   // ---- 검색(제목/ownerName, 대소문자 무시)
   if (state.search && state.search.trim()) {
     const q = state.search.trim().toLowerCase();
