@@ -74,6 +74,16 @@ function shuffleSeeded(arr, seed=1){
   }
   return arr;
 }
+function dedupAppend(targetArr, newItems){
+  // id 기준 중복 제거 후 targetArr 뒤에 추가
+  const seen = new Set(targetArr.map(it=>it.id));
+  const filtered = [];
+  for (const it of newItems){
+    if (!seen.has(it.id)) { seen.add(it.id); filtered.push(it); }
+  }
+  targetArr.push(...filtered);
+  return filtered.length;
+}
 
 /* =========================
  * SERIES value -> { groupKey, subKey } 매핑
@@ -152,11 +162,11 @@ function loadPersonalAll(){
     const id = String(it.id || '').trim() || parseYouTubeId(it.url||'');
     const type = it.type ? String(it.type) : (String(it.url||'').includes('/shorts/')) ? 'shorts' : 'video';
 
-    // ❗변경점: ownerName을 절대 덮어쓰지 않음 — 저장된 값이 있을 때만 실어 보냄
+    // 저장된 ownerName이 있을 때만 유지 (없으면 생략)
     const item = {
       id,
       url: it.url,
-      type: (String(it.url||'').includes('/shorts/')) ? 'shorts' : 'video',
+      type,
       title: it.title || '',
       cats: [slot],
       createdAt: Number(it.savedAt||0) || Date.now(),
@@ -205,11 +215,8 @@ async function loadPage({ perPage = 20 }) {
     ? state.cats.filter(c => typeof c === 'string' && !isPersonal(c))
     : [];
 
-  // 'ALL' 처리 (문자열 'ALL'을 cats에 저장하는 흐름을 고려)
-// 'ALL' 처리 (문자열 'ALL'을 cats에 저장하는 흐름을 고려)
-// 'ALL'은 "일반 전체(시리즈/개인 제외)"를 의미하지만,
-// 서버 단계에서는 필터를 넣지 않고, 클라이언트 단계에서 제외 필터를 적용한다.
-if (state.cats === 'ALL') serverCats = [];
+  // 'ALL' 처리: "일반 전체"이지만 서버 단계에서는 무필터 → 클라 단계에서 시리즈/개인 제외
+  if (state.cats === 'ALL') serverCats = [];
 
   // 서버 필터 정책:
   // - 0개/ALL → 서버 cats 필터 없음
@@ -235,7 +242,7 @@ if (state.cats === 'ALL') serverCats = [];
     state._exhausted = true;
     return [];
   }
-  state._lastDoc = snap.docs[snap.docs.length - 1];
+  state._lastDoc = snap.docs[snap.docs.length - 1]; // 항상 서버 마지막 문서로 갱신
 
   // ---- doc -> QueueItem 가공
   let items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -244,23 +251,22 @@ if (state.cats === 'ALL') serverCats = [];
     it.id = it.ytid || it.id;
   });
 
-  // ---- 클라 카테고리 필터 (서버에서 못 거른 케이스 보강: 0개/ALL, 11개 이상, 혹은 'personal' 포함)
-if (state.cats === 'ALL') {
-  // 'ALL'은 "일반 전체"를 의미한다.
-  // ⇒ 시리즈/개인에 속하는 값이 하나라도 있으면 제외한다.
-  items = items.filter(doc => {
-    const cats = doc.cats || [];
-    // SERIES_MAP.has(v) → 시리즈 하위값, isPersonal(v) → 개인자료 값(personal1~4)
-    const hasSeriesOrPersonal = cats.some(v => SERIES_MAP.has(v) || isPersonal(v));
-    return !hasSeriesOrPersonal;
-  });
-} else if (Array.isArray(state.cats)) {
-  const set = new Set(state.cats);
-  items = items.filter(doc => {
-    const cats = doc.cats || [];
-    return cats.some(v => set.has(v));
-  });
-}
+  // ---- 클라 카테고리 필터 (서버에서 못 거른 케이스 보강)
+  if (state.cats === 'ALL') {
+    // 'ALL'은 "일반 전체" → 시리즈/개인 포함 문서는 제외
+    items = items.filter(doc => {
+      const cats = doc.cats || [];
+      const hasSeriesOrPersonal = cats.some(v => SERIES_MAP.has(v) || isPersonal(v));
+      return !hasSeriesOrPersonal;
+    });
+  } else if (Array.isArray(state.cats)) {
+    const set = new Set(state.cats);
+    items = items.filter(doc => {
+      const cats = doc.cats || [];
+      return cats.some(v => set.has(v));
+    });
+  }
+
   // ---- 검색(제목/ownerName, 대소문자 무시)
   if (state.search && state.search.trim()) {
     const q = state.search.trim().toLowerCase();
@@ -470,21 +476,38 @@ export async function fetchMore(){
   const isPersonalSingle = Array.isArray(state.cats) && state.cats.length===1 && isPersonal(state.cats[0]);
   if (isPersonalSingle) return { appended: 0 };
 
-  const more = await loadPage({ perPage: 40 });
-  if (!more.length) return { appended: 0 };
+  let appended = 0;
+  let hops = 0;
+  const MAX_HOPS = 30; // 빈 페이지(필터 후 0개)가 연속 30번이어도 건너뛴다 (시리즈가 대량 연속 등록된 케이스 대비)
 
-  if (state.sort==='random') {
-    // 새로 온 묶음만 seed로 셔플 → 뒤에 합침
-    const uniq = new Map();
-    more.forEach(it=> { if (!uniq.has(it.id)) uniq.set(it.id, it); });
-    const shuffled = shuffleSeeded([...uniq.values()], state.seed);
-    state.queue.push(...shuffled);
-  } else {
-    state.queue.push(...more);
+  while (appended === 0 && !state._exhausted && hops < MAX_HOPS) {
+    const perPage = 40; // 필요 시 'ALL'에서 50으로 조정 가능
+    const more = await loadPage({ perPage });
+
+    if (more.length) {
+      if (state.sort === 'random') {
+        // 새로운 묶음만 중복 제거 후 seed 셔플해서 뒤에 추가
+        const uniqMap = new Map();
+        more.forEach(it=>{ if (!uniqMap.has(it.id)) !uniqMap.set(it.id, it); });
+        const shuffled = shuffleSeeded([...uniqMap.values()], state.seed);
+        appended += dedupAppend(state.queue, shuffled);
+      } else {
+        appended += dedupAppend(state.queue, more);
+      }
+      break; // 이번 호출에서 뭔가 붙었으면 종료
+    } else {
+      // 이 서버 페이지는 클라 필터 후 0개 → 다음 페이지로 재시도
+      hops++;
+      // loadPage 내부에서 state._lastDoc, _exhausted를 이미 갱신
+    }
   }
-  stashListSnapshot();
-  stashPlayQueue();
-  return { appended: more.length };
+
+  // 스냅샷/세션 반영
+  if (appended > 0) {
+    stashListSnapshot();
+    stashPlayQueue();
+  }
+  return { appended };
 }
 
 // 8) watch에서 끝나갈 때 자동 확장 헬퍼
