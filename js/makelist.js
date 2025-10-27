@@ -314,9 +314,25 @@ async function buildQueue({ firstPage=20 }){
   if (isPersonalSingle){
     state.queue = loadPersonalAll(); // 개인자료는 페이징 없음
   } else {
-    // Firestore 1페이지
-    const page = await loadPage({ perPage:firstPage });
-    state.queue.push(...page);
+    // ---- Firestore 초기 로드: 최소 firstPage개까지 보충 루프
+    let hops = 0;
+    const MAX_HOPS = 30;               // 연속 시리즈 구간 대비
+    const targetCount = firstPage;     // 초기에 화면에 보여줄 목표 개수
+
+    while (state.queue.length < targetCount && !state._exhausted && hops < MAX_HOPS) {
+      // 첫 구간은 20~40 사이로 당겨옵니다. (필터 후 탈락을 고려)
+      const need = targetCount - state.queue.length;
+      const perPage = Math.max(20, Math.min(40, need + 10)); // 20~40 범위
+      const page = await loadPage({ perPage });
+
+      if (page.length) {
+        // 중복 없이 뒤에 추가
+        dedupAppend(state.queue, page);
+      } else {
+        // 이 페이지는 전부 필터로 빠짐 → 다음 페이지로 재시도
+        hops++;
+      }
+    }
 
     // random → seed 셔플(중복 제거 후)
     if (state.sort==='random'){
@@ -335,6 +351,7 @@ async function buildQueue({ firstPage=20 }){
     }catch{}
   });
 }
+
 
 /* =========================
  * 시리즈 resume 시작점 보정
