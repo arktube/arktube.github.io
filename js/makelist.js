@@ -549,22 +549,28 @@ export async function fetchMore(){
     const perPage = 40; // 필요 시 'ALL'에서 50으로 조정 가능
     const more = await loadPage({ perPage });
 
-    if (more.length) {
-      if (state.sort === 'random') {
-        // 새로운 묶음만 중복 제거 후 seed 셔플해서 뒤에 추가
-        const uniqMap = new Map();
-        more.forEach(it=>{ if (!uniqMap.has(it.id)) uniqMap.set(it.id, it); }); // ← 여기 수정
-        const shuffled = shuffleSeeded([...uniqMap.values()], state.seed);
-        appended += dedupAppend(state.queue, shuffled);
-      } else {
-        appended += dedupAppend(state.queue, more);
-      }
-      break; // 이번 호출에서 뭔가 붙었으면 종료
-    } else {
-      // 이 서버 페이지는 클라 필터 후 0개 → 다음 페이지로 재시도
-      hops++;
-      // loadPage 내부에서 state._lastDoc, _exhausted를 이미 갱신
-    }
+if (more.length) {
+  let added = 0;
+  if (state.sort === 'random') {
+    const uniqMap = new Map();
+    more.forEach(it=>{ if (!uniqMap.has(it.id)) uniqMap.set(it.id, it); });
+    const shuffled = shuffleSeeded([...uniqMap.values()], state.seed);
+    added = dedupAppend(state.queue, shuffled);
+  } else {
+    added = dedupAppend(state.queue, more);
+  }
+
+  if (added > 0) {
+    appended += added;
+    break;              // ✅ 실제로 붙은 게 있을 때만 종료
+  } else {
+    hops++;             // ✅ 중복/필터로 0개 붙었음 → 다음 페이지 시도
+    continue;
+  }
+} else {
+  hops++;               // 서버 페이지도 비었음 → 다음으로
+}
+
   }
 
   // 스냅샷/세션 반영
