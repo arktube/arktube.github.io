@@ -277,7 +277,7 @@ async function loadPage({ perPage = 20 }) {
     // 'ALL'은 "일반 전체" → 시리즈/개인 포함 문서는 제외
     items = items.filter(doc => {
       const cats = doc.cats || [];
-      const hasSeriesOrPersonal = cats.some(v => isSeries(v) || isPersonal(v));
+      const hasSeriesOrPersonal = cats.some(v => SERIES_MAP.has(v) || isPersonal(v));
       return !hasSeriesOrPersonal;
     });
   } else if (Array.isArray(state.cats)) {
