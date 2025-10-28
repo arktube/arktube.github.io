@@ -92,6 +92,18 @@ function shuffleQueueGlobally() {
   state.queue = shuffleSeeded([...uniq.values()], state.seed);
 }
 
+// 유틸 섹션에 추가
+function toMillis(ts, fallbackMs = Date.now()) {
+  // 숫자(ms)
+  if (typeof ts === 'number' && Number.isFinite(ts)) return ts;
+  // Date 객체
+  if (ts instanceof Date) return ts.getTime();
+  // Firestore Timestamp 객체
+  if (ts && typeof ts.seconds === 'number') return ts.seconds * 1000;
+  // 그 외(없음/알수없음)
+  return fallbackMs;
+}
+
 
 /* =========================
  * SERIES value -> { groupKey, subKey } 매핑
@@ -264,7 +276,7 @@ async function loadPage({ perPage = 20 }) {
     // 'ALL'은 "일반 전체" → 시리즈/개인 포함 문서는 제외
     items = items.filter(doc => {
       const cats = doc.cats || [];
-      const hasSeriesOrPersonal = cats.some(v => SERIES_MAP.has(v) || isPersonal(v));
+      const hasSeriesOrPersonal = cats.some(v => isSeries(v) || isPersonal(v));
       return !hasSeriesOrPersonal;
     });
   } else if (Array.isArray(state.cats)) {
@@ -285,19 +297,20 @@ async function loadPage({ perPage = 20 }) {
     });
   }
 
-  // ---- QueueItem 표준화(기존 형식 유지)
-  const now = Date.now();
-  return items.map(doc => ({
-    id: doc.id,
-    ytid: doc.ytid || doc.id,
-    url: doc.url,
-    title: doc.title || '',
-    type: doc.type || 'video',
-    cats: Array.isArray(doc.cats) ? doc.cats : [],
-    ownerName: doc.ownerName || '',
-    createdAt: doc.createdAt?.seconds ? doc.createdAt.seconds * 1000 : now,
-    playable: true,
-  }));
+// ... loadPage() 내부 (일부)
+const now = Date.now();
+return items.map(doc => ({
+  id: doc.id,
+  ytid: doc.ytid || doc.id,
+  url: doc.url,
+  title: doc.title || '',
+  type: doc.type || 'video',
+  cats: Array.isArray(doc.cats) ? doc.cats : [],
+  ownerName: doc.ownerName || '',
+  createdAt: toMillis(doc.createdAt, now), // ← 표준화된 ms 숫자
+  playable: true,
+}));
+
 }
 
 
