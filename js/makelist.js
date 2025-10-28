@@ -133,19 +133,20 @@ const SERIES_MAP = (()=>{
  * ========================= */
 async function probePlayable(ytid, timeout=3800){
   const ctrl = new AbortController();
-const id = setTimeout(()=>ctrl.abort(), timeout);
-try {
-  const res = await fetch(url, { signal: ctrl.signal });
-  if (!res.ok) return { playable:false, reason:'private_or_deleted' };
-  await res.json();
-  return { playable:true };
-} catch {
-  return { playable:false, reason:'blocked_or_network' };
-} finally {
-  clearTimeout(id);
+  const id = setTimeout(()=>ctrl.abort(), timeout);
+  const url = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${encodeURIComponent(ytid)}&format=json`;
+  try {
+    const res = await fetch(url, { signal: ctrl.signal });
+    if (!res.ok) return { playable:false, reason:'private_or_deleted' };
+    await res.json();
+    return { playable:true };
+  } catch {
+    return { playable:false, reason:'blocked_or_network' };
+  } finally {
+    clearTimeout(id);
+  }
 }
 
-}
 
 /* =========================
  * YouTube ID 파서 (개인자료용 — watch 재생에 필요)
@@ -554,49 +555,48 @@ export async function bumpRandomSeed(){
 
 // 7) 추가 로드 (list/ watch 공용: list는 스크롤, watch는 남은 ≤10 자동 호출)
 export async function fetchMore(){
-  // 개인자료는 로컬 전량 메모리 → 추가 로드 없음
-  const isPersonalSingle = Array.isArray(state.cats) && state.cats.length===1 && isPersonal(state.cats[0]);
+  // 개인자료는 추가 로드 없음
+  const isPersonalSingle = Array.isArray(state.cats) && state.cats.length===1 && (typeof state.cats[0] === 'string') && state.cats[0].startsWith('personal');
   if (isPersonalSingle) return { appended: 0 };
 
   let appended = 0;
   let hops = 0;
-  const MAX_HOPS = 30; // 빈 페이지(필터 후 0개)가 연속 30번이어도 건너뛴다 (시리즈가 대량 연속 등록된 케이스 대비)
+  const MAX_HOPS = 30;
+  const TARGET_ADD = 20; // ✅ 최소 20개 확보 목표
 
-  while (appended === 0 && !state._exhausted && hops < MAX_HOPS) {
-    const perPage = 40; // 필요 시 'ALL'에서 50으로 조정 가능
+  while (appended < TARGET_ADD && !state._exhausted && hops < MAX_HOPS) {
+    const perPage = (state.cats === 'ALL') ? 50 : 40; // 'ALL'은 더 크게 당김
     const more = await loadPage({ perPage });
 
-if (more.length) {
-  let added = 0;
-  if (state.sort === 'random') {
-    const uniqMap = new Map();
-    more.forEach(it=>{ if (!uniqMap.has(it.id)) uniqMap.set(it.id, it); });
-    const shuffled = shuffleSeeded([...uniqMap.values()], state.seed);
-    added = dedupAppend(state.queue, shuffled);
-  } else {
-    added = dedupAppend(state.queue, more);
+    if (more.length) {
+      let added = 0;
+
+      if (state.sort === 'random') {
+        const uniqMap = new Map();
+        more.forEach(it => { if (!uniqMap.has(it.id)) uniqMap.set(it.id, it); });
+        const shuffled = shuffleSeeded([...uniqMap.values()], state.seed);
+        added = dedupAppend(state.queue, shuffled);
+      } else {
+        added = dedupAppend(state.queue, more);
+      }
+
+      if (added > 0) {
+        appended += added;   // ✅ 누적
+      } else {
+        hops++;
+      }
+    } else {
+      hops++;
+    }
   }
 
-  if (added > 0) {
-    appended += added;
-    break;              // ✅ 실제로 붙은 게 있을 때만 종료
-  } else {
-    hops++;             // ✅ 중복/필터로 0개 붙었음 → 다음 페이지 시도
-    continue;
-  }
-} else {
-  hops++;               // 서버 페이지도 비었음 → 다음으로
-}
-
-  }
-
-  // 스냅샷/세션 반영
   if (appended > 0) {
     stashListSnapshot();
     stashPlayQueue();
   }
   return { appended };
 }
+
 
 
 // 8) watch에서 끝나갈 때 자동 확장 헬퍼
