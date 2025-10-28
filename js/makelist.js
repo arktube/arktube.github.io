@@ -133,17 +133,18 @@ const SERIES_MAP = (()=>{
  * ========================= */
 async function probePlayable(ytid, timeout=3800){
   const ctrl = new AbortController();
-  const id = setTimeout(()=>ctrl.abort(), timeout);
-  try {
-    const url = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${encodeURIComponent(ytid)}&format=json`;
-    const res = await fetch(url, { signal: ctrl.signal });
-    clearTimeout(id);
-    if (!res.ok) return { playable:false, reason:'private_or_deleted' };
-    await res.json();
-    return { playable:true };
-  } catch {
-    return { playable:false, reason:'blocked_or_network' };
-  }
+const id = setTimeout(()=>ctrl.abort(), timeout);
+try {
+  const res = await fetch(url, { signal: ctrl.signal });
+  if (!res.ok) return { playable:false, reason:'private_or_deleted' };
+  await res.json();
+  return { playable:true };
+} catch {
+  return { playable:false, reason:'blocked_or_network' };
+} finally {
+  clearTimeout(id);
+}
+
 }
 
 /* =========================
@@ -338,13 +339,16 @@ async function buildQueue({ firstPage=20 }){
       const perPage = Math.max(20, Math.min(40, need + 10)); // 20~40 범위
       const page = await loadPage({ perPage });
 
-      if (page.length) {
-        // 중복 없이 뒤에 추가
-        dedupAppend(state.queue, page);
-      } else {
-        // 이 페이지는 전부 필터로 빠짐 → 다음 페이지로 재시도
-        hops++;
-      }
+if (page.length) {
+   const added = dedupAppend(state.queue, page);
+   if (added === 0) {
+     // 페이지는 있었지만 실제로 붙은 건 없음(중복/필터) → 다음 페이지 시도
+     hops++;
+   }
+ } else {
+   // 서버 페이지 자체가 비었음 → 다음 페이지 시도
+   hops++;
+ }
     }
 
     // random → seed 셔플(중복 제거 후)
