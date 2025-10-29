@@ -1,13 +1,12 @@
-// /js/makelist.js — ArkTube 목록/재생 오케스트레이터 (CopyTube 호환 최종본 + cats 정규화, 2025-10-29)
+// /js/makelist.js — ArkTube 목록/재생 오케스트레이터 (CopyTube 호환 최종본 + cats 정규화/ALL 확장 + 배치 커서, 2025-10-29)
 // - index, list, watch 모든 동선을 단일 규약으로 연결
-// - Firestore 공개 읽기 + 클라이언트 필터/검색 + 정렬(desc/asc/random seeded)
+// - Firestore 공개 읽기 + 클라이언트 다중카테고리 필터/검색 + 정렬(desc/asc/random seeded)
 // - 개인자료(personal_*) 로컬 저장소 큐 생성 지원(로그인 불필요)
-// - 추가 로드 40개 / watch에서 남은 ≤10 자동 확장(개인자료는 추가 로드 없음)
+// - 최초/추가 로드 모두 "최소 20개 확보"를 목표로, 카테고리 청크별 커서로 반복 페치
 // - 시리즈 단일 서브키면 asc + resume 시작점 보정(resume.js 사용)
 // - 세션 키: LIST_STATE, LIST_SNAPSHOT, playQueue, playIndex, playMeta
-// state.cats: 'ALL' | string[]
-//  - 'ALL' => "일반 전체" (시리즈/개인 제외). 서버는 무필터, 클라이언트에서 제외 처리.
-//  - string[] => 지정된 값만 포함.
+// state.cats: string[] (※ 'ALL' 입력 호환: 일반 세부카테고리 전체로 자동 확장)
+//   - 'ALL'은 index에서만 넘어오며, makelist가 시리즈/개인 제외 일반 세부카테고리 전체로 확장 처리
 
 import { db } from './firebase-init.js';
 import { CATEGORY_MODEL, CATEGORY_GROUPS } from './categories.js';
@@ -21,7 +20,7 @@ import {
  * ========================= */
 const K = {
   LIST_STATE:   'LIST_STATE',      // { cats, type, sort, seed?, search? }
-  LIST_SNAPSHOT:'LIST_SNAPSHOT',   // { items:QueueItem[] }  (list 렌더용 스냅샷)
+  LIST_SNAPSHOT:'LIST_SNAPSHOT',   // { items:QueueItem[] }
   PLAY_QUEUE:   'playQueue',       // QueueItem[]
   PLAY_INDEX:   'playIndex',       // number (문자열 저장)
   PLAY_META:    'playMeta',        // { cats,type,sort,seed?,returnTo }
@@ -31,22 +30,23 @@ const K = {
  * 내부 상태
  * ========================= */
 let state = {
-  cats: 'ALL',             // 'ALL' | string[]
-  type: 'both',            // 'both'|'shorts'|'video'
-  sort: 'desc',            // 'desc'|'asc'|'random'
-  seed: 1,                 // random 전용
-  search: '',              // list 전용(제목/ownerName)
-  returnTo: 'index',       // watch 복귀처
+  cats: [],               // string[] (※ 'ALL'은 normalize에서 일반 세부카테고리 전체로 확장)
+  type: 'both',           // 'both'|'shorts'|'video'
+  sort: 'desc',           // 'desc'|'asc'|'random'
+  seed: 1,                // random 전용
+  search: '',             // list 전용(제목/ownerName)
+  returnTo: 'index',      // watch 복귀처
 
-  _lastDoc: null,          // Firestore 페이지네이션 커서
-  _exhausted: false,       // 더 없음 플래그
+  // 🔸 카테고리 청크별 커서(배열): [{catsChunk:string[], lastDoc:QueryDocumentSnapshot|null, exhausted:boolean}]
+  _cursors: [],
 
-  queue: [],               // QueueItem[] (현재 생성된 큐)
-  startIndex: 0,           // watch 시작 인덱스
+  queue: [],              // QueueItem[] (현재 생성된 큐)
+  startIndex: 0,          // watch 시작 인덱스
 };
 
-const isSeries   = v => typeof v==='string' && v.startsWith('series_'); // 그룹 key 판별용
-const isPersonal = v => typeof v==='string' && v.startsWith('personal'); // 값(personal1..)
+const isSeriesGroupKey = k => typeof k==='string' && k.startsWith('series_'); // 그룹 key 판별
+const isSeries   = v => typeof v==='string' && v.startsWith('series_');       // 값이 series_로 시작하는 케이스는 드뭄(그룹key용)
+const isPersonal = v => typeof v==='string' && v.startsWith('personal');      // 값(personal1..)
 
 /* =========================
  * 유틸
@@ -75,7 +75,6 @@ function shuffleSeeded(arr, seed=1){
   return arr;
 }
 function dedupAppend(targetArr, newItems){
-  // id 기준 중복 제거 후 targetArr 뒤에 추가
   const seen = new Set(targetArr.map(it=>it.id));
   const filtered = [];
   for (const it of newItems){
@@ -83,6 +82,12 @@ function dedupAppend(targetArr, newItems){
   }
   targetArr.push(...filtered);
   return filtered.length;
+}
+function toMillis(ts, fallbackMs = Date.now()) {
+  if (typeof ts === 'number' && Number.isFinite(ts)) return ts;
+  if (ts instanceof Date) return ts.getTime();
+  if (ts && typeof ts.seconds === 'number') return ts.seconds * 1000;
+  return fallbackMs;
 }
 
 // 🔹 전체 큐를 seed 기반으로 다시 셔플 (랜덤 토글/seed 변경 시 사용)
@@ -92,73 +97,21 @@ function shuffleQueueGlobally() {
   state.queue = shuffleSeeded([...uniq.values()], state.seed);
 }
 
-// 유틸 섹션에 추가
-function toMillis(ts, fallbackMs = Date.now()) {
-  // 숫자(ms)
-  if (typeof ts === 'number' && Number.isFinite(ts)) return ts;
-  // Date 객체
-  if (ts instanceof Date) return ts.getTime();
-  // Firestore Timestamp 객체
-  if (ts && typeof ts.seconds === 'number') return ts.seconds * 1000;
-  // 그 외(없음/알수없음)
-  return fallbackMs;
-}
-
-// ✅ 카테고리 정규화: 'ALL' | string[]
-function normalizeCats(input){
-  if (input == null) return 'ALL';
-
-  // 문자열 단일 값
-  if (typeof input === 'string'){
-    const v = input.trim();
-    if (!v) return 'ALL';
-    if (v.toUpperCase() === 'ALL') return 'ALL';
-    return [v];
-  }
-
-  // 배열
-  if (Array.isArray(input)){
-    // 1) 문자열만, 공백 제거
-    let arr = input
-      .map(v => typeof v === 'string' ? v.trim() : '')
-      .filter(Boolean);
-
-    // 2) ['ALL'] → 'ALL'
-    if (arr.length === 1 && arr[0].toUpperCase() === 'ALL') return 'ALL';
-
-    // 3) personal 혼합 방지: personal이 섞여 있고 길이가 2개 이상이면 personal은 제외
-    const hasPersonal = arr.some(isPersonal);
-    if (hasPersonal && arr.length > 1){
-      arr = arr.filter(v => !isPersonal(v));
-    }
-
-    // 4) 중복 제거
-    arr = [...new Set(arr)];
-
-    // 5) 비면 'ALL'
-    return arr.length ? arr : 'ALL';
-  }
-
-  // 그 외 → 'ALL'
-  return 'ALL';
-}
-
-
 /* =========================
- * SERIES value -> { groupKey, subKey } 매핑
- *  - groupKey : 실제 그룹 key (예: 'series_music')
- *  - subKey   : 자식 value (예: 'pick1')
+ * 카테고리 모델 접근/시리즈 맵
  * ========================= */
 function getGroups(){
   if (Array.isArray(CATEGORY_MODEL?.groups)) return CATEGORY_MODEL.groups;
   if (Array.isArray(CATEGORY_GROUPS))        return CATEGORY_GROUPS;
   return [];
 }
+
+// SERIES value -> { groupKey, subKey } (시리즈 resume용)
 const SERIES_MAP = (()=>{
   const m = new Map();
   const groups = getGroups();
   groups.forEach(g=>{
-    const isSeriesGroup = g?.isSeries===true || String(g?.key||'').startsWith('series_');
+    const isSeriesGroup = g?.isSeries===true || isSeriesGroupKey(g?.key||'');
     if (!isSeriesGroup) return;
     (g.children||[]).forEach(c=>{
       m.set(c.value, { groupKey: g.key, subKey: c.value });
@@ -166,6 +119,68 @@ const SERIES_MAP = (()=>{
   });
   return m;
 })();
+
+/* =========================
+ * 'ALL' 확장: 일반(시리즈/개인 제외) 세부 카테고리 전부 반환
+ * ========================= */
+function expandAllToLeafCats(){
+  const groups = getGroups();
+  const out = [];
+  for (const g of groups){
+    const gkey = String(g?.key||'');
+    const isSeriesG = g?.isSeries===true || isSeriesGroupKey(gkey);
+    if (isSeriesG) continue; // 시리즈 제외
+    const children = Array.isArray(g?.children) ? g.children : [];
+    for (const c of children){
+      const v = String(c?.value||'').trim();
+      if (!v) continue;
+      if (isPersonal(v)) continue; // personal 값 제외
+      out.push(v);
+    }
+  }
+  return [...new Set(out)];
+}
+
+/* =========================
+ * 카테고리 정규화: 결과는 항상 string[]
+ *  - 'ALL' → 일반 세부카테고리 전체로 확장
+ *  - personal 혼합 시 personal은 제외(단일 personal만 로컬 로드)
+ * ========================= */
+function normalizeCats(input){
+  if (input == null) return [];
+
+  // 문자열
+  if (typeof input === 'string'){
+    const v = input.trim();
+    if (!v) return [];
+    if (v.toUpperCase() === 'ALL') {
+      return expandAllToLeafCats();
+    }
+    return [v];
+  }
+
+  // 배열
+  if (Array.isArray(input)){
+    let arr = input.map(v => typeof v === 'string' ? v.trim() : '').filter(Boolean);
+
+    // ['ALL'] → 일반 전체 확장
+    if (arr.length === 1 && arr[0].toUpperCase() === 'ALL') {
+      return expandAllToLeafCats();
+    }
+
+    // personal 혼합 방지: personal이 섞여 있으면 personal은 제외
+    const hasPersonal = arr.some(isPersonal);
+    if (hasPersonal && arr.length > 1){
+      arr = arr.filter(v => !isPersonal(v));
+    }
+
+    // 중복 제거
+    arr = [...new Set(arr)];
+    return arr.length ? arr : expandAllToLeafCats(); // ✅ 빈 배열이면 ALL로 폴백
+   }
+
+  return expandAllToLeafCats(); // ✅ 문자열/배열이 아니면 ALL로 폴백
+ }
 
 /* =========================
  * 사전 재생 가능성 체크 (경량 oEmbed)
@@ -185,7 +200,6 @@ async function probePlayable(ytid, timeout=3800){
     clearTimeout(id);
   }
 }
-
 
 /* =========================
  * YouTube ID 파서 (개인자료용 — watch 재생에 필요)
@@ -207,23 +221,18 @@ function parseYouTubeId(url=''){
 
 /* =========================
  * 개인자료 1페이지 로드 (로컬스토리지)
- * 키 규칙: personal_{slot}  예) slot='personal1' → key='personal_personal1'
  * ========================= */
 function loadPersonalAll(){
-  // 단일 personal만 지원 (요구사항)
   if (!Array.isArray(state.cats) || state.cats.length!==1) return [];
-  const slot = String(state.cats[0]); // 'personal1', 'personal2' ...
-  const key  = `personal_${slot}`;    // 'personal_personal1' 등
+  const slot = String(state.cats[0]);               // 'personal1', 'personal2' ...
+  const key  = `personal_${slot}`;                  // 'personal_personal1'
 
   let arr = [];
   try { arr = JSON.parse(localStorage.getItem(key) || '[]'); } catch {}
 
-  // [{url,title?,savedAt?}] → QueueItem
   let items = arr.map(it=>{
     const id = String(it.id || '').trim() || parseYouTubeId(it.url||'');
     const type = it.type ? String(it.type) : (String(it.url||'').includes('/shorts/')) ? 'shorts' : 'video';
-
-    // 저장된 ownerName이 있을 때만 유지 (없으면 생략)
     const item = {
       id,
       url: it.url,
@@ -237,17 +246,14 @@ function loadPersonalAll(){
     return item;
   }).filter(x=> !!x.id);
 
-  // 형식 필터 적용
   if (state.type==='shorts') items = items.filter(it=> it.type==='shorts');
   else if (state.type==='video') items = items.filter(it=> it.type==='video');
 
-  // 검색(제목만)
   if (state.search && state.search.trim()){
     const q = state.search.trim().toLowerCase();
     items = items.filter(it=> String(it.title||'').toLowerCase().includes(q));
   }
 
-  // 정렬
   if (state.sort==='asc') items.sort((a,b)=> a.createdAt - b.createdAt);
   else if (state.sort==='desc') items.sort((a,b)=> b.createdAt - a.createdAt);
   else if (state.sort==='random') items = shuffleSeeded(items, state.seed);
@@ -256,80 +262,88 @@ function loadPersonalAll(){
 }
 
 /* =========================
- * Firestore 1페이지 로드 (서버 필터 + 클라 후처리/검색)
+ * Firestore 다중 카테고리 배치 커서
  * ========================= */
-async function loadPage({ perPage = 20 }) {
-  if (state._exhausted) return [];
+function makeCategoryChunks(cats, chunkSize=10){
+  const out = [];
+  for (let i=0;i<cats.length;i+=chunkSize){
+    out.push(cats.slice(i, i+chunkSize));
+  }
+  return out;
+}
+function initCursors(){
+  const serverCats = Array.isArray(state.cats)
+    ? state.cats.filter(c => typeof c === 'string' && !isPersonal(c))
+    : [];
+  const chunks = makeCategoryChunks(serverCats, 10);
+  state._cursors = chunks.map(ck => ({ catsChunk: ck, lastDoc: null, exhausted: false }));
+}
+function allExhausted(){
+  return state._cursors.length>0 && state._cursors.every(c => c.exhausted);
+}
 
-  // ---- base collection / type filter
+/* =========================
+ * Firestore 한 청크 로드
+ * ========================= */
+async function loadPageForChunk({ chunkIndex, perPage }){
+  const cur = state._cursors[chunkIndex];
+  if (!cur || cur.exhausted) return [];
+
   const col = collection(db, 'videos');
   const wheres = [];
 
-  // type 서버 필터 ('all' 이면 생략)
   if (state.type === 'shorts') wheres.push(where('type', '==', 'shorts'));
   else if (state.type === 'video') wheres.push(where('type', '==', 'video'));
 
-  // ---- cats 서버 필터 분기
-  // 개인자료(personal_*)는 Firestore 대상이 아니므로 서버 필터에서 제외
-  // (개인자료 단일 선택은 buildQueue에서 이미 로컬 로드로 분기)
-  let serverCats = Array.isArray(state.cats)
-    ? state.cats.filter(c => typeof c === 'string' && !isPersonal(c))
-    : [];
+  if (cur.catsChunk.length === 1){
+    wheres.push(where('cats', 'array-contains', cur.catsChunk[0]));
+  } else if (cur.catsChunk.length >= 2){
+    wheres.push(where('cats', 'array-contains-any', cur.catsChunk));
+  }
 
-  // 'ALL' 처리: "일반 전체"이지만 서버 단계에서는 무필터 → 클라 단계에서 시리즈/개인 제외
-  if (state.cats === 'ALL') serverCats = [];
-
-  // 서버 필터 정책:
-  // - 0개/ALL → 서버 cats 필터 없음
-  // - 1개 → where('cats', 'array-contains', cat)
-  // - 2~10개 → where('cats', 'array-contains-any', cats[])
-  // - 11개 이상 → 서버 cats 필터 건너뜀(클라 필터로 후처리)
-  if (serverCats.length === 1) {
-    wheres.push(where('cats', 'array-contains', serverCats[0]));
-  } else if (serverCats.length >= 2 && serverCats.length <= 10) {
-    wheres.push(where('cats', 'array-contains-any', serverCats));
-  } // else: 0개 or 11개 이상 → 서버 cats 필터 없음 (아래 클라 필터 유지)
-
-  // ---- order / cursor / limit
-  const ord =
-    state.sort === 'asc' ? orderBy('createdAt', 'asc') : orderBy('createdAt', 'desc');
-
+  const ord = state.sort === 'asc' ? orderBy('createdAt', 'asc') : orderBy('createdAt', 'desc');
   const parts = [col, ...wheres, ord, limit(perPage)];
-  if (state._lastDoc) parts.push(startAfter(state._lastDoc));
+  if (cur.lastDoc) parts.push(startAfter(cur.lastDoc));
 
-  // ---- fetch
   const snap = await getDocs(query(...parts));
-  if (snap.empty) {
-    state._exhausted = true;
+  if (snap.empty){
+    cur.exhausted = true;
     return [];
   }
-  state._lastDoc = snap.docs[snap.docs.length - 1]; // 항상 서버 마지막 문서로 갱신
+  cur.lastDoc = snap.docs[snap.docs.length - 1];
 
-  // ---- doc -> QueueItem 가공
-  let items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-  // id 보정(문서 id 대신 ytid 사용)
-  items.forEach(it => {
-    it.id = it.ytid || it.id;
+  const now = Date.now();
+  return snap.docs.map(d => {
+    const data = d.data();
+    const id = data.ytid || d.id;
+    return {
+      id,
+      ytid: id,
+      url: data.url,
+      title: data.title || '',
+      type: data.type || 'video',
+      cats: Array.isArray(data.cats) ? data.cats : [],
+      ownerName: data.ownerName || '',
+      createdAt: toMillis(data.createdAt, now),
+      playable: true,
+    };
   });
+}
 
-  // ---- 클라 카테고리 필터 (서버에서 못 거른 케이스 보강)
-  if (state.cats === 'ALL') {
-    // 'ALL'은 "일반 전체" → 시리즈/개인 포함 문서는 제외
-    items = items.filter(doc => {
-      const cats = doc.cats || [];
-      const hasSeriesOrPersonal = cats.some(v => SERIES_MAP.has(v) || isPersonal(v));
-      return !hasSeriesOrPersonal;
-    });
-  } else if (Array.isArray(state.cats)) {
-    const set = new Set(state.cats.filter(v => typeof v === 'string' && v)); // ← 비정상 값 제거
-    items = items.filter(doc => {
-      const cats = doc.cats || [];
-      return cats.some(v => set.has(v));
-    });
-  }
+/* =========================
+ * 공통: 검색/카테고리 후처리 + dedup + (랜덤시 부분 셔플)
+ * ========================= */
+function postFilterAndMerge(batchItems, { shuffleWhenRandom=false } = {}){
+  const setCats = new Set(state.cats);
+  let items = setCats.size
+    ? batchItems.filter(doc => {
+        const cats = doc.cats || [];
+        return cats.some(v => setCats.has(v));
+      })
+    : batchItems; // ✅ 선택 카테고리 비어있으면 필터 스킵
 
-  // ---- 검색(제목/ownerName, 대소문자 무시)
-  if (state.search && state.search.trim()) {
+
+  if (state.search && state.search.trim()){
     const q = state.search.trim().toLowerCase();
     items = items.filter(doc => {
       const t = String(doc.title || '').toLowerCase();
@@ -338,91 +352,82 @@ async function loadPage({ perPage = 20 }) {
     });
   }
 
-  const now = Date.now();
-  return items.map(doc => ({
-    id: doc.id,
-    ytid: doc.ytid || doc.id,
-    url: doc.url,
-    title: doc.title || '',
-    type: doc.type || 'video',
-    cats: Array.isArray(doc.cats) ? doc.cats : [],
-    ownerName: doc.ownerName || '',
-    createdAt: toMillis(doc.createdAt, now),
-    playable: true,
-  }));
+  if (state.sort === 'random' && shuffleWhenRandom){
+    items = shuffleSeeded(items, state.seed);
+  }
 
+  return dedupAppend(state.queue, items);
 }
 
-
 /* =========================
- * 큐 빌드 (초기/재생성)
+ * 큐 빌드 (초기/재생성) — 최소 firstPage(기본 20) 확보까지 루프
  * ========================= */
 async function buildQueue({ firstPage=20 }){
-  state._lastDoc = null;
-  state._exhausted = false;
   state.queue = [];
 
-  // 개인자료 단일 선택이면 로컬에서 전부 로드
+  // personal 단일 선택 로컬 처리
   const isPersonalSingle = Array.isArray(state.cats) && state.cats.length===1 && isPersonal(state.cats[0]);
   if (isPersonalSingle){
-    state.queue = loadPersonalAll(); // 개인자료는 페이징 없음
+    state._cursors = []; // 서버 커서 불필요
+    state.queue = loadPersonalAll();
   } else {
-    // ---- Firestore 초기 로드: 최소 firstPage개까지 보충 루프
+    // 서버 커서 초기화
+    initCursors();
+
     let hops = 0;
-    const MAX_HOPS = 30;               // 연속 시리즈 구간 대비
-    const targetCount = firstPage;     // 초기에 화면에 보여줄 목표 개수
+    const MAX_HOPS = 40; // 다중 카테고리/검색 대비
+    const TARGET = firstPage;
 
-    while (state.queue.length < targetCount && !state._exhausted && hops < MAX_HOPS) {
-      // 첫 구간은 20~40 사이로 당겨옵니다. (필터 후 탈락을 고려)
-      const need = targetCount - state.queue.length;
-      const perPage = Math.max(20, Math.min(40, need + 10)); // 20~40 범위
-      const page = await loadPage({ perPage });
+    while (state.queue.length < TARGET && !allExhausted() && hops < MAX_HOPS){
+      // 동적 perPage: 검색 중이면 조금 더, desc/asc면 40, random이면 50
+      let per = 40;
+      if (state.sort === 'random') per = 50;
+      if (state.search) per = Math.max(per, 50);
 
-      if (page.length) {
-        const added = dedupAppend(state.queue, page);
-        if (added === 0) {
-          // 페이지는 있었지만 실제로 붙은 건 없음(중복/필터) → 다음 페이지 시도
-          hops++;
+      // 소진되지 않은 모든 청크에서 한 라운드씩 가져오기
+      let roundAdded = 0;
+      for (let i=0;i<state._cursors.length;i++){
+        if (state._cursors[i].exhausted) continue;
+        const page = await loadPageForChunk({ chunkIndex: i, perPage: per });
+        if (page.length){
+          const added = postFilterAndMerge(page, { shuffleWhenRandom: state.sort==='random' });
+          if (added>0) roundAdded += added;
+        } else {
+          // loadPageForChunk 내부에서 exhausted 플래그 갱신
         }
-      } else {
-        // 서버 페이지 자체가 비었음 → 다음 페이지 시도
-        hops++;
+      }
+
+      if (roundAdded === 0){
+        hops++; // 진척 없으면 루프 안전 탈출 보조
       }
     }
 
-    // random → seed 셔플(중복 제거 후)
+    // random 전체 재셔플(마지막에 한 번 더 결정화)
     if (state.sort==='random'){
-      const uniq = new Map();
-      state.queue.forEach(it=> { if (!uniq.has(it.id)) uniq.set(it.id, it); });
-      state.queue = shuffleSeeded([...uniq.values()], state.seed);
+      shuffleQueueGlobally();
     }
   }
 
-  // 경량 사전 판정(선두 30개만, 비동기)
+  // playable 사전 판정(선두 30개만, 비동기)
   state.queue.slice(0,30).forEach(async (it)=>{
     try{
       const p = await probePlayable(it.id);
       if (!p.playable){ it.playable=false; it.unplayableReason=p.reason; }
-      stashPlayQueue(); // 빈번 저장 OK
+      stashPlayQueue();
     }catch{}
   });
 }
 
-
 /* =========================
- * 시리즈 resume 시작점 보정
- *  - 단일 시리즈 서브키 선택시에만 수행
- *  - 키 규격: resume:{type}:{groupKey}:{subKey}
+ * 시리즈 resume 시작점 보정 (단일 시리즈 서브키 선택시에만)
  * ========================= */
 function applyResumeStartIndex(){
   state.startIndex = 0;
   if (!Array.isArray(state.cats) || state.cats.length!==1) return;
   const subVal = state.cats[0];
-  // subVal이 personal or 일반이면 패스
   const map = SERIES_MAP.get(subVal);
   if (!map) return;
 
-  // watch는 video로 저장/조회하므로 기본 'video'
   const saved = loadResume({ type: 'video', groupKey: map.groupKey, subKey: map.subKey });
   if (!saved || !Number.isFinite(saved.index)) return;
 
@@ -460,10 +465,10 @@ function stashPlayQueue(){
 }
 
 /* =========================
- * 외부 공개 API
+ * 외부 공개 API (시그니처 유지)
  * ========================= */
 
-// 1) index → watch (영상보기 버튼 / 시리즈 이어보기 버튼)
+// 1) index → watch
 export async function makeForWatchFromIndex({ cats, type }){
   state.cats = normalizeCats(cats);
   state.type = type ?? 'both';
@@ -478,7 +483,6 @@ export async function makeForWatchFromIndex({ cats, type }){
   await buildQueue({ firstPage: 20 });
   if (onlySeriesSingle) applyResumeStartIndex();
 
-  // 이어보기 컨텍스트 세팅 (watch용)
   if (onlySeriesSingle) {
     const { groupKey, subKey } = SERIES_MAP.get(state.cats[0]);
     sessionStorage.setItem('resumeCtx', JSON.stringify({
@@ -495,12 +499,11 @@ export async function makeForWatchFromIndex({ cats, type }){
   return { queue: state.queue, startIndex: state.startIndex };
 }
 
-// 2) index → list (드롭다운/스와이프)
+// 2) index → list
 export async function makeForListFromIndex({ cats, type }){
   state.cats = normalizeCats(cats);
   state.type = type ?? 'both';
 
-  // list의 디폴트 정렬: 시리즈 단일이면 asc, 그 외 desc
   const onlySeriesSingle = Array.isArray(state.cats) && state.cats.length===1 && !!SERIES_MAP.get(state.cats[0]);
   state.sort = onlySeriesSingle ? 'asc' : 'desc';
   state.seed = 1;
@@ -512,7 +515,7 @@ export async function makeForListFromIndex({ cats, type }){
   return { items: state.queue };
 }
 
-// 3) list → watch (카드 탭)
+// 3) list → watch
 export function selectAndGoWatch(index){
   state.startIndex = Math.max(0, Math.min(index|0, state.queue.length-1));
   state.returnTo = 'list';
@@ -520,12 +523,11 @@ export function selectAndGoWatch(index){
   location.href = './watch.html?from=list';
 }
 
-// 4) list 내 정렬 변경 (랜덤 토글 ON 시: fetchMore 1회 → 전체 재셔플)
+// 4) list 내 정렬 변경
 export async function setSort(newSort){
   const wasRandom = (state.sort === 'random');
   state.sort = newSort;
 
-  // 랜덤이 아닌 정렬로 변경한 경우 (asc/desc)
   if (state.sort !== 'random') {
     state.seed = 1;
     await buildQueue({ firstPage: 20 });
@@ -535,19 +537,13 @@ export async function setSort(newSort){
     return { items: state.queue };
   }
 
-  // 여기부터: 랜덤 ON
-  // 1) 기본 1페이지 로드(초기 셔플)
+  // 랜덤 ON
   await buildQueue({ firstPage: 20 });
-
-  // 2) 랜덤 토글을 막 켰다면 → 풀 확장용으로 fetchMore 1회 강제
   if (!wasRandom) {
-    await fetchMore(); // 뒤에 새 묶음 추가(빈 페이지면 내부에서 스킵 루프)
+    await fetchMore(); // 초기 섞임 보강
   }
-
-  // 3) 최종적으로 "전체 큐"를 seed로 결정적 셔플
   shuffleQueueGlobally();
 
-  // 마무리
   state.startIndex = 0;
   stashListState();
   stashListSnapshot();
@@ -564,68 +560,61 @@ export async function setSearch(query){
   return { items: state.queue };
 }
 
-// 6) list에서 "랜덤 다시" → seed++ (전체 재셔플 버전)
+// 6) 랜덤 다시(Seed++)
 export async function bumpRandomSeed(){
-  // 랜덤 모드가 아니면 동작하지 않음(기존과 동일)
   if (state.sort !== 'random') return { items: state.queue, seed: state.seed };
-
-  // 큐가 비어 있으면 우선 1페이지 생성
   if (!Array.isArray(state.queue) || state.queue.length === 0) {
     await buildQueue({ firstPage: 20 });
   }
 
-  // seed 증가
   state.seed = (state.seed|0) + 1;
-
-  // 풀 확장: 새 영상 포함을 위해 1회 추가 로드 (빈 페이지면 내부에서 스킵 루프)
-  await fetchMore();
-
-  // 전체 큐를 새 seed로 결정적 재셔플 (배치 편향 최소화)
+  await fetchMore();      // 새 영상 포함 기회
   shuffleQueueGlobally();
 
-  // 정리
   state.startIndex = 0;
   stashListState();
   stashListSnapshot();
   return { items: state.queue, seed: state.seed };
 }
 
-
-// 7) 추가 로드 (list/ watch 공용: list는 스크롤, watch는 남은 ≤10 자동 호출)
+// 7) 추가 로드(최소 20 확보까지)
 export async function fetchMore(){
-  // 개인자료는 추가 로드 없음
-  const isPersonalSingle = Array.isArray(state.cats) && state.cats.length===1 && (typeof state.cats[0] === 'string') && state.cats[0].startsWith('personal');
+  // personal 단일은 추가 로드 없음
+  const isPersonalSingle = Array.isArray(state.cats) && state.cats.length===1 && isPersonal(state.cats[0]);
   if (isPersonalSingle) return { appended: 0 };
+
+  // 커서 초기화가 안돼있다면 준비
+  if (!Array.isArray(state._cursors) || state._cursors.length===0){
+    initCursors();
+  }
 
   let appended = 0;
   let hops = 0;
-  const MAX_HOPS = 30;
-  const TARGET_ADD = 20; // ✅ 최소 20개 확보 목표
+  const MAX_HOPS = 40;
+  const TARGET_ADD = 20;
 
-  while (appended < TARGET_ADD && !state._exhausted && hops < MAX_HOPS) {
-    const perPage = (state.cats === 'ALL') ? 50 : 40; // 'ALL'은 더 크게 당김
-    const more = await loadPage({ perPage });
+  while (appended < TARGET_ADD && !allExhausted() && hops < MAX_HOPS){
+    let per = 40;
+    if (state.sort === 'random') per = 50;
+    if (state.search) per = Math.max(per, 50);
 
-    if (more.length) {
-      let added = 0;
-
-      if (state.sort === 'random') {
-        const uniqMap = new Map();
-        more.forEach(it => { if (!uniqMap.has(it.id)) uniqMap.set(it.id, it); });
-        const shuffled = shuffleSeeded([...uniqMap.values()], state.seed);
-        added = dedupAppend(state.queue, shuffled);
-      } else {
-        added = dedupAppend(state.queue, more);
+    let roundAdded = 0;
+    for (let i=0;i<state._cursors.length;i++){
+      if (state._cursors[i].exhausted) continue;
+      const more = await loadPageForChunk({ chunkIndex: i, perPage: per });
+      if (more.length){
+        const added = postFilterAndMerge(more, { shuffleWhenRandom: state.sort==='random' });
+        if (added>0){ roundAdded += added; appended += added; }
       }
+    }
 
-      if (added > 0) {
-        appended += added;   // ✅ 누적
-      } else {
-        hops++;
-      }
-    } else {
+    if (roundAdded === 0){
       hops++;
     }
+  }
+
+  if (state.sort==='random' && appended>0){
+    shuffleQueueGlobally();
   }
 
   if (appended > 0) {
@@ -635,9 +624,7 @@ export async function fetchMore(){
   return { appended };
 }
 
-
-
-// 8) watch에서 끝나갈 때 자동 확장 헬퍼
+// 8) watch에서 끝나갈 때 자동 확장
 export async function fetchMoreForWatchIfNeeded(currentIndex){
   const remain = state.queue.length - (currentIndex+1);
   if (remain <= 10) {
@@ -650,7 +637,7 @@ export async function fetchMoreForWatchIfNeeded(currentIndex){
 export function readListState(){ return readSession(K.LIST_STATE, null); }
 export function getCurrentState(){ return { ...state }; }
 
-// 10) (옵션) 현재 큐/메타를 직접 읽을 때
+// 10) 현재 큐/메타 직접 읽기
 export function readPlayMeta(){ return readSession(K.PLAY_META, null); }
 export function readPlayQueue(){ return readSession(K.PLAY_QUEUE, []); }
 export function readPlayIndex(){
