@@ -1,4 +1,4 @@
-// /js/list.js — ArkTube 영상목록 로직 (완전판 v0.1, 2025-10-20)
+// /js/list.js — ArkTube 영상목록 로직 (개선판 v0.2, 2025-10-29)
 import { auth } from './firebase-init.js';
 import { onAuthStateChanged, signOut as fbSignOut } from './auth.js';
 import * as Makelist from './makelist.js';
@@ -28,13 +28,18 @@ const rbRandom      = document.getElementById('s_random');
 const btnRandRef    = document.getElementById('btnRandomRefresh');
 
 /* ===== 상단바 인사/닉네임 (list=Hello!) ===== */
+let currentUser = null;
 onAuthStateChanged(auth, (user)=>{
+  currentUser = user || null;
   const loggedIn = !!user;
   signupLink?.classList.toggle('hidden', loggedIn);
   signinLink?.classList.toggle('hidden', loggedIn);
   btnSignOut?.classList.toggle('hidden', !loggedIn);
-  const name = loggedIn ? (user.displayName || 'User') : '';
-  welcomeEl.textContent = loggedIn ? `Hello! ${name}` : 'Hello!';
+  // 인삿말은 항상 "Hello!"
+  welcomeEl.textContent = 'Hello!';
+
+  // 로그인 이후 오너 라벨 재반영
+  render();
 });
 btnSignOut?.addEventListener('click', async ()=>{
   try{ await fbSignOut(); }catch(_){} location.reload();
@@ -43,7 +48,7 @@ brandHome?.addEventListener('click', (e)=>{
   e.preventDefault(); location.href = '/index.html';
 });
 
-/* ===== 드롭다운 (index와 동일한 동작/접근성) ===== */
+/* ===== 드롭다운 (CopyTube v1.5 접근성 + Tab 포커스 트랩) ===== */
 (function initDropdown(){
   const menu = dropdown; let open=false; let offPointer=null, offKey=null;
   function setOpen(v){
@@ -111,8 +116,13 @@ function labelOf(cat){
   return cat;
 }
 function ownerLabel(item){
-  // ownerName 없으면 개인자료로 간주 → '로컬저장'
-  return (item && item.ownerName) ? item.ownerName : '로컬저장';
+  // 우선순위: ownerName → ownerUid==currentUser → ownerUid있음(타인) → ownerUid없음
+  if (item?.ownerName) return item.ownerName;
+  if (item?.ownerUid && currentUser && item.ownerUid === currentUser.uid) {
+    return currentUser.displayName || '회원';
+  }
+  if (item?.ownerUid) return '회원';
+  return '로컬 사용자';
 }
 function thumbUrl(item){
   const yid = item?.ytid || item?.id || '';
@@ -130,7 +140,7 @@ function render(){
   countEl.textContent = `총 ${items.length}개`;
 
   const html = items.map((it, idx)=>{
-    const chips = (it.cats||[]).map(c=> `<span class="chip">${labelOf(c)}</span>`).join('');
+    const chips = (it.cats||[]).map(c=> `<span class="chip">${escapeHtml(labelOf(c))}</span>`).join('');
     const owner = ownerLabel(it);
     const thumb = thumbUrl(it);
     const title = it.title || '(제목 없음)';
@@ -138,8 +148,8 @@ function render(){
     <article class="card" data-index="${idx}" tabindex="0" role="button" aria-label="${escapeHtml(title)}">
       <div class="left" data-index="${idx}">
         <div class="title2">${escapeHtml(title)}</div>
-        <div class="owner">${escapeHtml(owner)}</div>
         <div class="chips">${chips}</div>
+        <div class="owner">${escapeHtml(owner)}</div>
       </div>
       <img class="thumb" src="${thumb}" alt="썸네일" loading="lazy" data-index="${idx}" />
     </article>`;
@@ -174,18 +184,19 @@ function syncSortUI(){
   rbRandom.checked = (sort==='random');rbRandom.nextElementSibling?.setAttribute('aria-selected', String(sort==='random'));
   btnRandRef.classList.toggle('hidden', sort!=='random');
 }
-rbDesc  ?.addEventListener('change', ()=>{ if (!rbDesc.checked) return;   Makelist.setSort?.('desc');   render(); });
-rbAsc   ?.addEventListener('change', ()=>{ if (!rbAsc.checked) return;    Makelist.setSort?.('asc');    render(); });
-rbRandom?.addEventListener('change', ()=>{ if (!rbRandom.checked) return; Makelist.setSort?.('random'); syncSortUI(); render(); });
-btnRandRef?.addEventListener('click', ()=>{ Makelist.bumpRandomSeed?.(); render(); });
+function resetLoad(){ done=false; sentinel.textContent='더 불러오는 중…'; startObserve(); } // ★추가
+rbDesc  ?.addEventListener('change', ()=>{ if (!rbDesc.checked) return;   Makelist.setSort?.('desc');   syncSortUI(); render(); resetLoad(); });
+rbAsc   ?.addEventListener('change', ()=>{ if (!rbAsc.checked) return;    Makelist.setSort?.('asc');    syncSortUI(); render(); resetLoad(); });
+rbRandom?.addEventListener('change', ()=>{ if (!rbRandom.checked) return; Makelist.setSort?.('random'); syncSortUI(); render(); resetLoad(); });
+btnRandRef?.addEventListener('click', ()=>{ Makelist.bumpRandomSeed?.(); render(); resetLoad(); });
 
 /* ===== 검색 ===== */
-function doSearch(){ Makelist.setSearch?.(qInput.value||''); render(); }
+function doSearch(){ Makelist.setSearch?.(qInput.value||''); render(); resetLoad(); } // ★ resetLoad
 btnSearch?.addEventListener('click', doSearch);
 qInput?.addEventListener('keydown', (e)=>{ if (e.key==='Enter') doSearch(); });
 
 /* ===== 무한 스크롤 ===== */
-let fetching=false; let done=false;
+let fetching=false, done=false, observing=false;
 const io = new IntersectionObserver(async (entries)=>{
   if (done || fetching) return;
   const ent = entries[0]; if (!ent || !ent.isIntersecting) return;
@@ -199,28 +210,29 @@ const io = new IntersectionObserver(async (entries)=>{
     console.warn('fetchMore failed', e); done=true;
   }finally{
     fetching=false;
-    if (done) sentinel.textContent='모두 불러왔습니다';
+    if (done){
+      sentinel.textContent='모두 불러왔습니다';
+      if (observing){ io.unobserve(sentinel); observing=false; }
+    }
   }
 }, {rootMargin:'600px 0px 600px 0px'});
-io.observe(sentinel);
+function startObserve(){ if (!observing){ io.observe(sentinel); observing=true; } }
+function stopObserve(){ if (observing){ io.unobserve(sentinel); observing=false; } }
+startObserve();
 
 /* ===== 초기화 ===== */
 (function init(){
-  // index에서 넘어온 상태/스냅샷이 없을 때 안전 가드
   if (!Makelist.readListSnapshot?.()){
     try{ Makelist.makeForListFromIndex?.({ cats:'ALL', type:'both' }); }
     catch(e){ console.error('init make list failed', e); }
   }
-  // makelist 쪽에서 디폴트 정렬(일반/개인=desc, 시리즈=asc)을 이미 결정 → UI 동기화
   syncSortUI();
   render();
 })();
 
-/* ===== 스와이프 네비게이션 ===== */
-/* 요구: list 페이지는 오른쪽→왼쪽(←) 스와이프 시 index로, 왼쪽→오른쪽(→) 스와이프 시 watch로 이동 */
+/* ===== 스와이프: 오른쪽→왼쪽(←)만 index로 이동 ===== */
 (function swipeNav({
-  goLeftHref='/index.html',  // ←
-  goRightHref='/watch.html', // →
+  goLeftHref='/index.html',
   threshold=70, slopY=80, timeMax=650, deadZoneCenterRatio=0.18
 } = {}){
   let sx=0, sy=0, t0=0, tracking=false;
@@ -241,8 +253,11 @@ io.observe(sentinel);
     const p=point(e); if(!p) return;
     const dx=p.clientX-sx, dy=p.clientY-sy, dt=Date.now()-t0;
     if (Math.abs(dy)>slopY || dt>timeMax) return;
-    if (dx<=-threshold && goLeftHref){ document.documentElement.classList.add('slide-out-left');  setTimeout(()=> location.href=goLeftHref, 150); }
-    else if (dx>= threshold && goRightHref){ document.documentElement.classList.add('slide-out-right'); setTimeout(()=> location.href=goRightHref,150); }
+    if (dx<=-threshold && goLeftHref){
+      document.documentElement.classList.add('slide-out-left');
+      setTimeout(()=> location.href=goLeftHref, 150);
+    }
+    // 오른쪽(→) 방향은 이동 없음 (요구사항)
   }
   document.addEventListener('touchstart', onStart, {passive:true});
   document.addEventListener('touchend',   onEnd,   {passive:true});
