@@ -1,4 +1,4 @@
-// /js/makelist.js — ArkTube 목록/재생 오케스트레이터 (CopyTube 호환 최종본)
+// /js/makelist.js — ArkTube 목록/재생 오케스트레이터 (CopyTube 호환 최종본 + cats 정규화, 2025-10-29)
 // - index, list, watch 모든 동선을 단일 규약으로 연결
 // - Firestore 공개 읽기 + 클라이언트 필터/검색 + 정렬(desc/asc/random seeded)
 // - 개인자료(personal_*) 로컬 저장소 큐 생성 지원(로그인 불필요)
@@ -102,6 +102,45 @@ function toMillis(ts, fallbackMs = Date.now()) {
   if (ts && typeof ts.seconds === 'number') return ts.seconds * 1000;
   // 그 외(없음/알수없음)
   return fallbackMs;
+}
+
+// ✅ 카테고리 정규화: 'ALL' | string[]
+function normalizeCats(input){
+  if (input == null) return 'ALL';
+
+  // 문자열 단일 값
+  if (typeof input === 'string'){
+    const v = input.trim();
+    if (!v) return 'ALL';
+    if (v.toUpperCase() === 'ALL') return 'ALL';
+    return [v];
+  }
+
+  // 배열
+  if (Array.isArray(input)){
+    // 1) 문자열만, 공백 제거
+    let arr = input
+      .map(v => typeof v === 'string' ? v.trim() : '')
+      .filter(Boolean);
+
+    // 2) ['ALL'] → 'ALL'
+    if (arr.length === 1 && arr[0].toUpperCase() === 'ALL') return 'ALL';
+
+    // 3) personal 혼합 방지: personal이 섞여 있고 길이가 2개 이상이면 personal은 제외
+    const hasPersonal = arr.some(isPersonal);
+    if (hasPersonal && arr.length > 1){
+      arr = arr.filter(v => !isPersonal(v));
+    }
+
+    // 4) 중복 제거
+    arr = [...new Set(arr)];
+
+    // 5) 비면 'ALL'
+    return arr.length ? arr : 'ALL';
+  }
+
+  // 그 외 → 'ALL'
+  return 'ALL';
 }
 
 
@@ -282,7 +321,7 @@ async function loadPage({ perPage = 20 }) {
       return !hasSeriesOrPersonal;
     });
   } else if (Array.isArray(state.cats)) {
-    const set = new Set(state.cats);
+    const set = new Set(state.cats.filter(v => typeof v === 'string' && v)); // ← 비정상 값 제거
     items = items.filter(doc => {
       const cats = doc.cats || [];
       return cats.some(v => set.has(v));
@@ -299,19 +338,18 @@ async function loadPage({ perPage = 20 }) {
     });
   }
 
-// ... loadPage() 내부 (일부)
-const now = Date.now();
-return items.map(doc => ({
-  id: doc.id,
-  ytid: doc.ytid || doc.id,
-  url: doc.url,
-  title: doc.title || '',
-  type: doc.type || 'video',
-  cats: Array.isArray(doc.cats) ? doc.cats : [],
-  ownerName: doc.ownerName || '',
-  createdAt: toMillis(doc.createdAt, now), // ← 표준화된 ms 숫자
-  playable: true,
-}));
+  const now = Date.now();
+  return items.map(doc => ({
+    id: doc.id,
+    ytid: doc.ytid || doc.id,
+    url: doc.url,
+    title: doc.title || '',
+    type: doc.type || 'video',
+    cats: Array.isArray(doc.cats) ? doc.cats : [],
+    ownerName: doc.ownerName || '',
+    createdAt: toMillis(doc.createdAt, now),
+    playable: true,
+  }));
 
 }
 
@@ -340,16 +378,16 @@ async function buildQueue({ firstPage=20 }){
       const perPage = Math.max(20, Math.min(40, need + 10)); // 20~40 범위
       const page = await loadPage({ perPage });
 
-if (page.length) {
-   const added = dedupAppend(state.queue, page);
-   if (added === 0) {
-     // 페이지는 있었지만 실제로 붙은 건 없음(중복/필터) → 다음 페이지 시도
-     hops++;
-   }
- } else {
-   // 서버 페이지 자체가 비었음 → 다음 페이지 시도
-   hops++;
- }
+      if (page.length) {
+        const added = dedupAppend(state.queue, page);
+        if (added === 0) {
+          // 페이지는 있었지만 실제로 붙은 건 없음(중복/필터) → 다음 페이지 시도
+          hops++;
+        }
+      } else {
+        // 서버 페이지 자체가 비었음 → 다음 페이지 시도
+        hops++;
+      }
     }
 
     // random → seed 셔플(중복 제거 후)
@@ -427,7 +465,7 @@ function stashPlayQueue(){
 
 // 1) index → watch (영상보기 버튼 / 시리즈 이어보기 버튼)
 export async function makeForWatchFromIndex({ cats, type }){
-  state.cats = cats ?? 'ALL';
+  state.cats = normalizeCats(cats);
   state.type = type ?? 'both';
 
   // 디폴트 정렬: 시리즈 단일 서브키면 asc+resume, 그 외 desc
@@ -459,7 +497,7 @@ export async function makeForWatchFromIndex({ cats, type }){
 
 // 2) index → list (드롭다운/스와이프)
 export async function makeForListFromIndex({ cats, type }){
-  state.cats = cats ?? 'ALL';
+  state.cats = normalizeCats(cats);
   state.type = type ?? 'both';
 
   // list의 디폴트 정렬: 시리즈 단일이면 asc, 그 외 desc
