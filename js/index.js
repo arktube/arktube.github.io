@@ -417,7 +417,7 @@ document.addEventListener('keydown',(e)=>{
     e.preventDefault();
     page.style.transform='translateX('+(dx)+ 'px)'; // 좌우 모두 미리보이게
   }
-  function end(e){
+async function end(e){
     if(!active) return; active=false;
     const t=(e.changedTouches&&e.changedTouches[0])||(e.pointerType?e:null); if(!t) return;
     const dx=t.clientX-x0, dy=t.clientY-y0, dt=Date.now()-t0;
@@ -428,8 +428,8 @@ document.addEventListener('keydown',(e)=>{
         const { cats, type } = collectCurrentFilters();
         localStorage.setItem(VIEW_TYPE_KEY, type);
         localStorage.setItem(SELECTED_CATS_KEY, JSON.stringify(catsForSave(cats)));
-        Makelist.makeForListFromIndex({ cats, type });
-      }catch{}
+        await Makelist.makeForListFromIndex({ cats, type }); // ★ 이동 전 세션 고정
+      }catch(){}
       page.style.transition='transform 160ms ease'; page.style.transform='translateX(100vw)';
       setTimeout(()=>{ location.href=goRightHref; },150);
     } else if (dx<=-threshold && goLeftHref){
