@@ -315,14 +315,21 @@ async function loadPageForChunk({ chunkIndex, perPage }){
   const now = Date.now();
   return snap.docs.map(d => {
     const data = d.data();
-    const id = data.ytid || d.id;
+    const yid = data.ytid || d.id;
+    const cats = Array.isArray(data.cats) ? data.cats : [];
+    // 시리즈 자식 값 추출 (cats 안에 series_* 값이 있으면 그걸 사용)
+    let seriesSubKey = '';
+    for (const c of cats) {
+      if (typeof c === 'string' && SERIES_MAP.has(c)) { seriesSubKey = c; break; }
+    }
     return {
-      id,
-      ytid: id,
-      url: data.url,
+      id: yid,
+      ytid: yid,
+      url: data.url || `https://www.youtube.com/watch?v=${yid}`, // ★ ytid로 URL 보강
       title: data.title || '',
       type: data.type || 'video',
-      cats: Array.isArray(data.cats) ? data.cats : [],
+      cats,
+      seriesSubKey, // ★ watch의 resume 저장에 필요
       ownerName: data.ownerName || '',
       createdAt: toMillis(data.createdAt, now),
       playable: true,
@@ -445,7 +452,14 @@ function stashListState(){
   });
 }
 function stashListSnapshot(){
-  stashSession(K.LIST_SNAPSHOT, { items: state.queue });
+  const hasMore = Array.isArray(state._cursors) && state._cursors.length>0
+    ? !allExhausted()
+    : false;
+  stashSession(K.LIST_SNAPSHOT, {
+    items: state.queue,
+    sort: state.sort,
+    hasMore
+  });
 }
 export function readListSnapshot(){
   return readSession(K.LIST_SNAPSHOT, { items: [] });
@@ -633,6 +647,7 @@ export async function fetchMoreForWatchIfNeeded(currentIndex){
 // 9) list 초기화용 상태/스냅샷 리더
 export function readListState(){ return readSession(K.LIST_STATE, null); }
 export function getCurrentState(){ return { ...state }; }
+export function getSort(){ return state.sort; }
 
 // 10) 현재 큐/메타 직접 읽기
 export function readPlayMeta(){ return readSession(K.PLAY_META, null); }
