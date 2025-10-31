@@ -425,7 +425,7 @@ async function end(e){
         localStorage.setItem(VIEW_TYPE_KEY, type);
         localStorage.setItem(SELECTED_CATS_KEY, JSON.stringify(catsForSave(cats)));
         await Makelist.makeForListFromIndex({ cats, type }); // ★ 이동 전 세션 고정
-      }catch(){}
+      }catch{}
       page.style.transition='transform 160ms ease'; page.style.transform='translateX(100vw)';
       setTimeout(()=>{ location.href=goRightHref; },150);
     } else if (dx<=-threshold && goLeftHref){
