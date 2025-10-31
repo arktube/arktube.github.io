@@ -380,7 +380,7 @@ document.addEventListener('keydown',(e)=>{
   document.addEventListener('touchend',   onEnd,   {passive:true});
   document.addEventListener('pointerdown',onStart, {passive:true});
   document.addEventListener('pointerup',  onEnd,   {passive:true});
-})();
+}();
 
 /* dragSwipe: 드래그 미리보기 — 좌=업로드, 우=목록 (함수명 유지) */
 (function dragSwipe({
