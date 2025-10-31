@@ -240,7 +240,6 @@ startObserve();
   render();
   resetLoad(); // ★ 관찰자 재가동 (이번 선택 상태로 이어서 로드)
  })();
-})();
 
 /* ===== 스와이프: 오른쪽→왼쪽(←)만 index로 이동 ===== */
 (function swipeNav({
