@@ -356,11 +356,7 @@ document.addEventListener('keydown',(e)=>{
      if(Math.abs(dy)>MAX_OFF_Y || dt>MAX_T) return;
 
      if (dx>=TH && goRightHref){
-    if(!tracking) return; tracking=false;
-    const p=point(e); const dx=p.clientX-sx, dy=p.clientY-sy, dt=Date.now()-t0;
-    if(Math.abs(dy)>MAX_OFF_Y || dt>MAX_T) return;
 
-    if (dx>=TH && goRightHref){
       // → 목록
       try{
         const { cats, type } = collectCurrentFilters();
