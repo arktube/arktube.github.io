@@ -350,7 +350,12 @@ document.addEventListener('keydown',(e)=>{
     if (inDead(p.clientX)) return;
     sx=p.clientX; sy=p.clientY; t0=Date.now(); tracking=true;
   }
-  function onEnd(e){
+  async function onEnd(e){
+     if(!tracking) return; tracking=false;
+     const p=point(e); const dx=p.clientX-sx, dy=p.clientY-sy, dt=Date.now()-t0;
+     if(Math.abs(dy)>MAX_OFF_Y || dt>MAX_T) return;
+
+     if (dx>=TH && goRightHref){
     if(!tracking) return; tracking=false;
     const p=point(e); const dx=p.clientX-sx, dy=p.clientY-sy, dt=Date.now()-t0;
     if(Math.abs(dy)>MAX_OFF_Y || dt>MAX_T) return;
@@ -361,8 +366,8 @@ document.addEventListener('keydown',(e)=>{
         const { cats, type } = collectCurrentFilters();
         localStorage.setItem(VIEW_TYPE_KEY, type);
         localStorage.setItem(SELECTED_CATS_KEY, JSON.stringify(catsForSave(cats)));
-        Makelist.makeForListFromIndex({ cats, type });
-      }catch{}
+        await Makelist.makeForListFromIndex({ cats, type }); // ★ 반드시 대기
+      }catch(_) {}
       document.documentElement.classList.add('slide-out-right');
       setTimeout(()=> location.href=goRightHref, 260);
     } else if (dx<=-TH && goLeftHref){
