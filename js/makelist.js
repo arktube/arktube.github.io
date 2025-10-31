@@ -176,11 +176,11 @@ function normalizeCats(input){
 
     // 중복 제거
     arr = [...new Set(arr)];
-    return arr.length ? arr : expandAllToLeafCats(); // ✅ 빈 배열이면 ALL로 폴백
-   }
+    return arr;
+  }
 
-  return expandAllToLeafCats(); // ✅ 문자열/배열이 아니면 ALL로 폴백
- }
+  return [];
+}
 
 /* =========================
  * 사전 재생 가능성 체크 (경량 oEmbed)
@@ -335,13 +335,10 @@ async function loadPageForChunk({ chunkIndex, perPage }){
  * ========================= */
 function postFilterAndMerge(batchItems, { shuffleWhenRandom=false } = {}){
   const setCats = new Set(state.cats);
-  let items = setCats.size
-    ? batchItems.filter(doc => {
-        const cats = doc.cats || [];
-        return cats.some(v => setCats.has(v));
-      })
-    : batchItems; // ✅ 선택 카테고리 비어있으면 필터 스킵
-
+  let items = batchItems.filter(doc => {
+    const cats = doc.cats || [];
+    return cats.some(v => setCats.has(v));
+  });
 
   if (state.search && state.search.trim()){
     const q = state.search.trim().toLowerCase();
