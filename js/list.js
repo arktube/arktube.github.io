@@ -221,12 +221,25 @@ startObserve();
 
 /* ===== 초기화 ===== */
 (function init(){
-  if (!Makelist.readListSnapshot?.()){
-    try{ Makelist.makeForListFromIndex?.({ cats:'ALL', type:'both' }); }
-    catch(e){ console.error('init make list failed', e); }
+  const saved = Makelist.readListState?.() || null;
+  const snap  = Makelist.readListSnapshot?.() || null;
+
+  const savedSig = saved?.sig;
+  const snapSig  = snap?.sig;
+  const needRebuild =
+    !snap || !Array.isArray(snap.items) ||
+    (savedSig && snapSig && savedSig !== snapSig);   // ★ 상태와 스냅샷 서명이 다르면 재생성
+
+  if (needRebuild){
+    try{
+      // saved가 없으면 안전 기본값
+      Makelist.makeForListFromIndex?.(saved || { cats:'ALL', type:'both' });
+    }catch(e){ console.error('init make list failed', e); }
   }
   syncSortUI();
   render();
+  resetLoad(); // ★ 관찰자 재가동 (이번 선택 상태로 이어서 로드)
+ })();
 })();
 
 /* ===== 스와이프: 오른쪽→왼쪽(←)만 index로 이동 ===== */
