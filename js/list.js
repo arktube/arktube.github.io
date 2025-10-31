@@ -177,8 +177,7 @@ grid.addEventListener('keydown', (e)=>{
 
 /* ===== 정렬 토글 ===== */
 function syncSortUI(){
-  const snap = Makelist.readListSnapshot?.();
-  const sort = (snap && snap.sort) || Makelist.getSort?.() || 'desc';
+  const sort = Makelist.getSort?.() || 'desc';
   rbDesc.checked   = (sort==='desc');  rbDesc.nextElementSibling?.setAttribute('aria-selected', String(sort==='desc'));
   rbAsc.checked    = (sort==='asc');   rbAsc .nextElementSibling?.setAttribute('aria-selected', String(sort==='asc'));
   rbRandom.checked = (sort==='random');rbRandom.nextElementSibling?.setAttribute('aria-selected', String(sort==='random'));
@@ -204,7 +203,7 @@ const io = new IntersectionObserver(async (entries)=>{
   try{
     await Makelist.fetchMore?.();
     const snap = Makelist.readListSnapshot?.();
-    done = !!(snap && (snap.hasMore===false || snap.done===true));
+    done = !!(snap && snap.hasMore===false);
     render();
   }catch(e){
     console.warn('fetchMore failed', e); done=true;
